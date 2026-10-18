@@ -1,0 +1,11 @@
+#!/bin/sh
+# Increment versions.SEQUENCE by 1. Install with: sh hooks/install
+root=$(git rev-parse --show-toplevel) || exit 1
+if [ -f "$root/.venv/Scripts/python.exe" ]; then
+  py="$root/.venv/Scripts/python.exe"
+elif [ -f "$root/.venv/bin/python" ]; then
+  py="$root/.venv/bin/python"
+else
+  py=python
+fi
+exec "$py" "$root/hooks/bump_sequence.py"

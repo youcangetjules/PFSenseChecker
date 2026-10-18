@@ -1,0 +1,37 @@
+{
+  "beacon_id": "lab-lan-01",
+  "hostname": "beacon-lan",
+  "site": "lab",
+  "version": "1.2.0",
+  "collector_url": "http://127.0.0.1:8787",
+  "token": "",
+  "interval_sec": 60,
+  "link_type": "wired",
+  "ping_count": 2,
+  "ping_timeout": 2.0,
+  "dhcp_timeout": 5.0,
+  "dhcp_release_offer": true,
+  "speed_url": "",
+  "speed_every_n_cycles": 5,
+  "ping_targets": [
+    {"host": "192.168.1.1", "subnet": "192.168.1.0/24", "interface": "lan", "link_type": "wired"},
+    {"host": "1.1.1.1", "subnet": "wan", "interface": "wan", "link_type": "wired"}
+  ],
+  "dhcp_targets": [
+    {
+      "subnet": "192.168.1.0/24",
+      "interface": "lan",
+      "bind_ip": "0.0.0.0",
+      "enabled": true,
+      "link_type": "wired"
+    }
+  ],
+  "subnets": [
+    {
+      "cidr": "192.168.1.0/24",
+      "gateway": "192.168.1.1",
+      "interface": "lan",
+      "link_type": "wired"
+    }
+  ]
+}

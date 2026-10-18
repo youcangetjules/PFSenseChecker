@@ -1,0 +1,70 @@
+PySide6>=6.6.0
+
+# Optional: enables the "AI Advisor" tab (LLM advice via Poe). Safe to omit;
+# the app detects their absence and disables that feature.
+fastapi-poe>=0.0.36
+truststore>=0.9.0
+
+# Optional: Excel Physical Layout import (Topology Builder -> Import Excel...)
+openpyxl>=3.1.0
+
+# MikroTik REST credentials via Windows Credential Manager / OS keyring
+keyring>=25.0.0
+
+# Optional: full SSH login checks on the Session screen. Without it the
+# session screen falls back to TCP/banner reachability tests only.
+paramiko>=3.4.0
+
+# Optional: PostgreSQL Database section (login, browse, SQL, schema graph).
+psycopg[binary]>=3.1.0
+
+# Optional: TimescaleDB time-series PostgreSQL (hypertables, monitor metrics).
+# Requires PostgreSQL with the TimescaleDB extension installed on the server.
+timescaledb>=0.2.1
+
+# Optional: MikroTik RouterOS API (API port, not REST). Safe to omit;
+# file/REST flows work without it. Install via Python Modules when needed.
+librouteros>=3.2.0
+
+# Optional: Juniper Junos PyEZ (NETCONF). Safe to omit; used only when
+# talking to Junos devices via jnpr.junos.
+junos-eznc>=2.7.0
+
+# SNMPv2c/v3 stack for managed switches (TP-Link, Netgear) and Dell iDRAC.
+# Install via Python Modules → Save/Commit. Pair with Setup → MIB Libraries.
+pysnmp>=5.1.0
+pysmi>=1.5.0
+
+# Optional: HTTPS clients for Omada/Netgear REST and Redfish-style APIs.
+httpx>=0.27.0
+requests>=2.31.0
+
+# Optional: DMTF Redfish client for Dell iDRAC (power, health, NICs, inventory).
+redfish>=3.2.0
+
+# Optional: SSH CLI automation with device-type profiles (TP-Link / Netgear
+# fallback when SNMP or REST is incomplete).
+netmiko>=4.3.0
+
+# Optional: multi-vendor network driver layer (NAPALM). Coverage varies by OS.
+napalm>=5.0.0
+
+# Optional: NETCONF client (some ProSAFE / Junos-adjacent gear).
+ncclient>=0.6.15
+
+# Optional: packet craft / L2 discovery helpers. Heavy — enable only if needed.
+scapy>=2.5.0
+
+# Optional: topology visualisation / graph helpers (in-app map stays PySide6).
+# Install via Python Modules → Save/Commit; toggle off locally if unused.
+networkx>=3.2
+matplotlib>=3.8.0
+plotly>=5.18.0
+pyvis>=0.3.2
+# Graphviz Python bindings — requires Graphviz OS install for full layout.
+graphviz>=0.20.0
+# Optional native Graphviz C bindings (often fails on Windows without Graphviz).
+pygraphviz>=1.11
+grandalf>=0.8
+# python-igraph on PyPI; import name is igraph.
+igraph>=0.11.0

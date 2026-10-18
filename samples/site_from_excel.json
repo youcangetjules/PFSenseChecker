@@ -1,0 +1,1006 @@
+{
+  "name": "Imported \u2014 home network 1.2 excerpt 20250109",
+  "grid_size": 20,
+  "devices": [
+    {
+      "name": "ExpressVPNAL",
+      "kind": "other",
+      "model": "ExpressVPNAL",
+      "role": "remote-router",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "ExpressVPN endpoint",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1720,
+      "y": 40
+    },
+    {
+      "name": "ExpressVPNAN",
+      "kind": "other",
+      "model": "ExpressVPNAN",
+      "role": "remote-router",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "ExpressVPN endpoint",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1720,
+      "y": 240
+    },
+    {
+      "name": "ExpressVPNIN",
+      "kind": "other",
+      "model": "ExpressVPNIN",
+      "role": "remote-router",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "ExpressVPN endpoint",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1720,
+      "y": 440
+    },
+    {
+      "name": "ExpressVPNJP",
+      "kind": "other",
+      "model": "ExpressVPNJP",
+      "role": "remote-router",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "ExpressVPN endpoint",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1720,
+      "y": 640
+    },
+    {
+      "name": "TalkTalk-WAN2",
+      "kind": "isp",
+      "model": "TalkTalk (150Mbps Fiber) (Backup) WAN2",
+      "role": "isp",
+      "secpol": "",
+      "priority": "1",
+      "hardware": "",
+      "config_file": "",
+      "notes": "TalkTalk (150Mbps Fiber) (Backup) WAN2",
+      "ports": [
+        "wan"
+      ],
+      "components": [
+        {
+          "name": "wan",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        }
+      ],
+      "mgmt_ip": "",
+      "x": 40,
+      "y": 240
+    },
+    {
+      "name": "Swish-WAN1",
+      "kind": "isp",
+      "model": "Swish Internet (900Mbps Fiber) WAN1",
+      "role": "isp",
+      "secpol": "",
+      "priority": "0",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Swish Internet (900Mbps Fiber) WAN1",
+      "ports": [
+        "wan"
+      ],
+      "components": [
+        {
+          "name": "wan",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        }
+      ],
+      "mgmt_ip": "",
+      "x": 40,
+      "y": 40
+    },
+    {
+      "name": "ThreeUK-4G",
+      "kind": "isp",
+      "model": "DLink1010 (ThreeUK) 4G Connection",
+      "role": "isp",
+      "secpol": "",
+      "priority": "2",
+      "hardware": "",
+      "config_file": "",
+      "notes": "DLink1010 (ThreeUK) 4G Connection",
+      "ports": [
+        "wan"
+      ],
+      "components": [
+        {
+          "name": "wan",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        }
+      ],
+      "mgmt_ip": "",
+      "x": 40,
+      "y": 440
+    },
+    {
+      "name": "Edgerouter-Egress",
+      "kind": "router",
+      "model": "Edgerouter 4",
+      "role": "egress",
+      "secpol": "S1",
+      "priority": "",
+      "hardware": "Edgerouter 4 (Egress Security Node)",
+      "config_file": "",
+      "notes": "Firewall 1",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 320,
+      "y": 40
+    },
+    {
+      "name": "Media-Converter",
+      "kind": "other",
+      "model": "Media Converter NOSEC",
+      "role": "other",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "NOSEC passthrough",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1160,
+      "y": 640
+    },
+    {
+      "name": "Swish-ONT",
+      "kind": "other",
+      "model": "Swish ONT",
+      "role": "other",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1160,
+      "y": 840
+    },
+    {
+      "name": "Amazon-Eero",
+      "kind": "access-point",
+      "model": "Amazon Eero",
+      "role": "access-point",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 40
+    },
+    {
+      "name": "Juniper-SRX300",
+      "kind": "router",
+      "model": "Juniper SRX300",
+      "role": "egress",
+      "secpol": "S1",
+      "priority": "",
+      "hardware": "Juniper SRX300 (Egress Security Node)",
+      "config_file": "",
+      "notes": "Firewall 1",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 320,
+      "y": 240
+    },
+    {
+      "name": "pfSense-FW",
+      "kind": "pfsense",
+      "model": "pfSense",
+      "role": "firewall",
+      "secpol": "S5",
+      "priority": "",
+      "hardware": "PFSense Firewall Router (Dell Optiplex 9010) (IPv4 only)",
+      "config_file": "",
+      "notes": "Firewall 2",
+      "ports": [
+        "EM-0",
+        "BXE-0",
+        "IGB3",
+        "BXE-1",
+        "IGB-0",
+        "IGB-1",
+        "IGB-2",
+        "IGB-3",
+        "BXE-2",
+        "BXE-3"
+      ],
+      "components": [
+        {
+          "name": "EM-0",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "BXE-0",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "IGB3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "BXE-1",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "IGB-0",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "IGB-1",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "IGB-2",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "IGB-3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "BXE-2",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "BXE-3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        }
+      ],
+      "mgmt_ip": "",
+      "x": 600,
+      "y": 40
+    },
+    {
+      "name": "MikroTik-hAP",
+      "kind": "mikrotik",
+      "model": "Mikrotik Ax-S HAP",
+      "role": "access-point",
+      "secpol": "S1",
+      "priority": "",
+      "hardware": "Mikrotik Ax-S HAP",
+      "config_file": "",
+      "notes": "Firewall 1",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 1440
+    },
+    {
+      "name": "DMZ",
+      "kind": "server",
+      "model": "DMZ (Dell Optiplex",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "DMZ (Dell Optiplex",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 640
+    },
+    {
+      "name": "Dell-Optiplex-3050-SFF",
+      "kind": "server",
+      "model": "Dell Optiplex 3050 SFF",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "Dell Optiplex 3050 SFF",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 840
+    },
+    {
+      "name": "CRS328-Core",
+      "kind": "switch",
+      "model": "CRS328",
+      "role": "core-switch",
+      "secpol": "S5",
+      "priority": "",
+      "hardware": "Mikrotik CRS328 (IPv4 only)",
+      "config_file": "",
+      "notes": "Firewall 4",
+      "ports": [
+        "S5",
+        "S4",
+        "S3",
+        "S2",
+        "S1",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ],
+      "components": [
+        {
+          "name": "S5",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "S4",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "S3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "S2",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "S1",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "1",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "2",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "4",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "5",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "6",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "7",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "8",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "9",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "10",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "11",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "12",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "13",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "14",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "15",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "16",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "17",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "18",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "19",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "20",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "C1",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "C2",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "C3",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        },
+        {
+          "name": "C4",
+          "media": "",
+          "slot": "",
+          "side": "right"
+        }
+      ],
+      "mgmt_ip": "",
+      "x": 880,
+      "y": 40
+    },
+    {
+      "name": "WAN2---Dell-Optiplex-3050-USFF",
+      "kind": "server",
+      "model": "WAN2 - Dell Optiplex 3050 USFF",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "WAN2 - Dell Optiplex 3050 USFF",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 1640
+    },
+    {
+      "name": "DELL-Server-R740",
+      "kind": "server",
+      "model": "DELL Server R740 (OAI gNB CU/DU)",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "DELL Server R740 (OAI gNB CU/DU)",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 440
+    },
+    {
+      "name": "DELL-Server-R640",
+      "kind": "server",
+      "model": "DELL Server R640 (Open5GS Core Network)",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "DELL Server R640 (Open5GS Core Network)",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 240
+    },
+    {
+      "name": "Dell-Server-R630",
+      "kind": "server",
+      "model": "Dell Server R630 (Zabbix + Grafana Server)",
+      "role": "server",
+      "secpol": "",
+      "priority": "",
+      "hardware": "Dell Server R630 (Zabbix + Grafana Server)",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 1040
+    },
+    {
+      "name": "CRS109-Office",
+      "kind": "switch",
+      "model": "CRS109",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "Mikrotik CRS109-1(Office) (IPv4 only)",
+      "config_file": "",
+      "notes": "Office",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1160,
+      "y": 240
+    },
+    {
+      "name": "Google-WiFi",
+      "kind": "access-point",
+      "model": "Google WiFi",
+      "role": "access-point",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1440,
+      "y": 1240
+    },
+    {
+      "name": "CRS109-Upstairs",
+      "kind": "switch",
+      "model": "CRS109",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "Mikrotik CRS109-2(Upstairs) (IPv4 only)",
+      "config_file": "",
+      "notes": "Upstairs",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1160,
+      "y": 440
+    },
+    {
+      "name": "CRS109-Lounge",
+      "kind": "switch",
+      "model": "CRS109",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "Mikrotik CRS109-3(Lounge) (IPv4 only)",
+      "config_file": "",
+      "notes": "Lounge",
+      "ports": [],
+      "components": [],
+      "mgmt_ip": "",
+      "x": 1160,
+      "y": 40
+    }
+  ],
+  "links": [
+    {
+      "a_device": "Swish-WAN1",
+      "a_port": "wan",
+      "b_device": "Juniper-SRX300",
+      "b_port": "ge-0/0/0",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "WAN1 main",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "TalkTalk-WAN2",
+      "a_port": "wan",
+      "b_device": "Edgerouter-Egress",
+      "b_port": "eth1",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "WAN2 reserve",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "ThreeUK-4G",
+      "a_port": "wan",
+      "b_device": "Edgerouter-Egress",
+      "b_port": "eth2",
+      "kind": "copper",
+      "speed": "1G",
+      "descr": "WAN3 backup",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "Edgerouter-Egress",
+      "a_port": "eth2",
+      "b_device": "pfSense-FW",
+      "b_port": "EM-0",
+      "kind": "copper",
+      "speed": "1G",
+      "descr": "egress -> firewall",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "Juniper-SRX300",
+      "a_port": "ge-0/0/6.0",
+      "b_device": "pfSense-FW",
+      "b_port": "BXE-0",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "SRX -> pfSense",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "Media-Converter",
+      "a_port": "fiber",
+      "b_device": "pfSense-FW",
+      "b_port": "BXE-0",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "media converter",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "pfSense-FW",
+      "a_port": "BXE-1",
+      "b_device": "CRS328-Core",
+      "b_port": "S1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "firewall trunk",
+      "vlans": [
+        "140"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "1",
+      "b_device": "CRS109-Lounge",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to CRS109-Lounge",
+      "vlans": [
+        "140"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "2",
+      "b_device": "CRS109-Office",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to CRS109-Office",
+      "vlans": [
+        "140"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "3",
+      "b_device": "CRS109-Upstairs",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to CRS109-Upstairs",
+      "vlans": [
+        "140"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    }
+  ],
+  "vlans": [
+    {
+      "id": "140",
+      "name": "E5-S5-VL140-PFSense",
+      "subnet": "44.89.20.1/24",
+      "if_label": "E5-S5-VL140-PFSense",
+      "s_ip": "44.89.20.1",
+      "dhcp_pool": "44.89.20.64/25",
+      "devices": [
+        "pfSense-FW",
+        "Edgerouter-Egress",
+        "Juniper-SRX300",
+        "CRS109-Office",
+        "CRS109-Upstairs",
+        "CRS109-Lounge"
+      ],
+      "gateway": "pfSense-FW",
+      "notes": ""
+    },
+    {
+      "id": "Z820 Backup",
+      "name": "Z820 Backup",
+      "subnet": "120.144.180.1",
+      "if_label": "Z820 Backup",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [],
+      "gateway": "",
+      "notes": ""
+    },
+    {
+      "id": "SFP9-iDRAC1",
+      "name": "SFP9-iDRAC1",
+      "subnet": "120.144.180.1",
+      "if_label": "SFP9-iDRAC1",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [
+        "CRS328-Core",
+        "DMZ",
+        "Dell-Optiplex-3050-SFF",
+        "WAN2---Dell-Optiplex-3050-USFF",
+        "DELL-Server-R740",
+        "DELL-Server-R640",
+        "Dell-Server-R630"
+      ],
+      "gateway": "",
+      "notes": ""
+    },
+    {
+      "id": "SFP11-iDRAC2",
+      "name": "SFP11-iDRAC2",
+      "subnet": "120.144.180.1",
+      "if_label": "SFP11-iDRAC2",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [
+        "CRS328-Core",
+        "DMZ",
+        "Dell-Optiplex-3050-SFF",
+        "WAN2---Dell-Optiplex-3050-USFF",
+        "DELL-Server-R740",
+        "DELL-Server-R640",
+        "Dell-Server-R630"
+      ],
+      "gateway": "",
+      "notes": ""
+    },
+    {
+      "id": "SFP13-iDRAC3",
+      "name": "SFP13-iDRAC3",
+      "subnet": "120.144.180.1",
+      "if_label": "SFP13-iDRAC3",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [
+        "CRS328-Core",
+        "DMZ",
+        "Dell-Optiplex-3050-SFF",
+        "WAN2---Dell-Optiplex-3050-USFF",
+        "DELL-Server-R740",
+        "DELL-Server-R640",
+        "Dell-Server-R630"
+      ],
+      "gateway": "",
+      "notes": ""
+    },
+    {
+      "id": "Fujitsu PC (",
+      "name": "Fujitsu PC (630)",
+      "subnet": "120.144.180.1",
+      "if_label": "Fujitsu PC (630)",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [],
+      "gateway": "",
+      "notes": ""
+    },
+    {
+      "id": "Google WiFi",
+      "name": "Google WiFi",
+      "subnet": "222.20.20.",
+      "if_label": "Google WiFi",
+      "s_ip": "120.144.180.50",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [],
+      "gateway": "",
+      "notes": ""
+    }
+  ],
+  "bridges": [],
+  "vpn": [
+    {
+      "name": "VPN1-ExpressVPNAL",
+      "kind": "openvpn",
+      "a_device": "pfSense-FW",
+      "b_device": "ExpressVPNAL",
+      "local_endpoint": "",
+      "remote_endpoint": "",
+      "networks": [],
+      "notes": "ExpressVPN from Excel layout"
+    },
+    {
+      "name": "VPN2-ExpressVPNAN",
+      "kind": "openvpn",
+      "a_device": "pfSense-FW",
+      "b_device": "ExpressVPNAN",
+      "local_endpoint": "",
+      "remote_endpoint": "",
+      "networks": [],
+      "notes": "ExpressVPN from Excel layout"
+    },
+    {
+      "name": "VPN3-ExpressVPNIN",
+      "kind": "openvpn",
+      "a_device": "pfSense-FW",
+      "b_device": "ExpressVPNIN",
+      "local_endpoint": "",
+      "remote_endpoint": "",
+      "networks": [],
+      "notes": "ExpressVPN from Excel layout"
+    },
+    {
+      "name": "VPN4-ExpressVPNJP",
+      "kind": "openvpn",
+      "a_device": "pfSense-FW",
+      "b_device": "ExpressVPNJP",
+      "local_endpoint": "",
+      "remote_endpoint": "",
+      "networks": [],
+      "notes": "ExpressVPN from Excel layout"
+    }
+  ],
+  "egress": [
+    {
+      "name": "Primary-WAN",
+      "device": "Juniper-SRX300",
+      "uplink_port": "ge-0/0/0",
+      "upstream": "Swish-WAN1",
+      "wan_subnet": "dhcp",
+      "default_for": [
+        "all"
+      ],
+      "notes": "Priority 0 main (from Excel)"
+    }
+  ]
+}

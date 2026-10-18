@@ -1,0 +1,684 @@
+"""NetCheck application version and change log.
+
+SemVer and the commit sequence live in the repo-root ``versions.py``:
+
+  * ``SEMVER`` — major.minor.patch. Every shipped patch bumps it.
+  * ``SEQUENCE`` — increases by 1 on every git commit (``hooks/pre-commit``).
+
+This module's ``__version__`` is that SemVer and must equal ``CHANGELOG[0]``.
+``full_version()`` is ``<semver>+<sequence>``. Every shipped patch must:
+
+  1. Bump ``SEMVER`` in ``versions.py`` (``__version__`` follows it).
+  2. Prepend a matching :class:`Change` to ``CHANGELOG`` (newest first).
+  3. Put concrete user-visible detail in ``notes`` (not vague "misc fixes").
+
+Do not hand-edit ``SEQUENCE``; the commit hook adds 1. Setup → Version and
+About read this module. Do not document a patch elsewhere without also
+recording it here.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+def _read_versions_file() -> tuple[str, int]:
+    """Load ``SEMVER`` and ``SEQUENCE`` from the repo-root ``versions.py``."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "versions.py"
+    spec = importlib.util.spec_from_file_location("_netcheck_versions_file", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"missing {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    semver = str(getattr(mod, "SEMVER", "")).strip()
+    try:
+        sequence = int(getattr(mod, "SEQUENCE"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("versions.py SEQUENCE must be an integer") from exc
+    if not semver:
+        raise RuntimeError("versions.py SEMVER is empty")
+    if sequence < 1:
+        raise RuntimeError("versions.py SEQUENCE must be >= 1")
+    return semver, sequence
+
+
+# SemVer. Always equal to CHANGELOG[0].version. Sequence is separate.
+__version__, SEQUENCE = _read_versions_file()
+VERSION = __version__
+APP_NAME = "NetCheck"
+
+
+def full_version() -> str:
+    """SemVer plus commit sequence, for example ``1.3.57+1``."""
+    return f"{__version__}+{SEQUENCE}"
+
+
+@dataclass(frozen=True)
+class Change:
+    """One shipped version/patch and what it changed.
+
+    Prefer one focused patch per ``Change``. A minor/major release may group
+    several related notes under the same version when they ship together.
+    """
+
+    version: str
+    date: str  # YYYY-MM-DD
+    notes: tuple[str, ...]
+
+
+# Newest first. Each patch since 1.2.0 is its own version entry.
+CHANGELOG: tuple[Change, ...] = (
+    Change(
+        version="1.3.57",
+        date="2026-10-18",
+        notes=(
+            "A companion Console window opens with NetCheck and lists every "
+            "log line. Home → Console → Pop out raises that same window.",
+        ),
+    ),
+    Change(
+        version="1.3.56",
+        date="2026-10-18",
+        notes=(
+            "Login: Enter in the password field activates Login, not the "
+            "1Password button. 1Password fill waits in the background so the "
+            "window stays usable while you unlock the app, and a CLI failure "
+            "is shown instead of a missing-item message.",
+        ),
+    ),
+    Change(
+        version="1.3.55",
+        date="2026-10-18",
+        notes=(
+            "Release identity is versions.py: SemVer plus a commit sequence "
+            "that increases by 1 on every commit (shown as <semver>+<sequence>). "
+            "worklog.md is the daily record. buglog.md is the bug tracker.",
+        ),
+    ),
+    Change(
+        version="1.3.54",
+        date="2026-10-18",
+        notes=(
+            "Login panel: Help, Options, Forgot Credentials, Login, and Cancel "
+            "sit on one row. Login turns light blue when the pointer is over it.",
+        ),
+    ),
+    Change(
+        version="1.3.53",
+        date="2026-10-18",
+        notes=(
+            "Setup → OpenObserve: ingest and search API (health, JSON ingest, "
+            "read-only SQL search). Optional forward of NetCheck app logs and "
+            "accepted router syslog. The password stays in the OS keyring, "
+            "not in the settings file or PostgreSQL.",
+        ),
+    ),
+    Change(
+        version="1.3.52",
+        date="2026-10-18",
+        notes=(
+            "Config Check: the dashed area is a real drop target for "
+            "config.xml and RouterOS .rsc. Explorer drags are accepted "
+            "(including when NetCheck is running elevated).",
+        ),
+    ),
+    Change(
+        version="1.3.51",
+        date="2026-09-25",
+        notes=(
+            "Analysis workspace: replace the top tab bar with a left section "
+            "sidebar matching Home (logo, Choose a section, 200px tree, Home…).",
+        ),
+    ),
+    Change(
+        version="1.3.50",
+        date="2026-09-25",
+        notes=(
+            "1Password: after launching the desktop app, wait for unlock "
+            "instead of aborting on 'account is not signed in'. Poll op whoami "
+            "until the vault is unlocked or 90s elapses; bring 1Password to "
+            "the foreground so Windows Hello / master-password can complete.",
+        ),
+    ),
+    Change(
+        version="1.3.49",
+        date="2026-09-25",
+        notes=(
+            "1Password: if the CLI cannot attach, start the installed desktop "
+            "app (Store or classic), wait for the IPC pipe, and retry. Replace "
+            "raw op timestamps with a short unlock / Developer-integration hint "
+            "(including elevated vs unelevated integrity mismatch).",
+        ),
+    ),
+    Change(
+        version="1.3.48",
+        date="2026-09-25",
+        notes=(
+            "Change password / login: 1Password CLI integration — fill current "
+            "password, generate a new one, and save the NetCheck login item "
+            "(tagged NetCheck) after a successful change. Secrets go through "
+            "stdin JSON, never the command line. Options holds vault and title prefix.",
+        ),
+    ),
+    Change(
+        version="1.3.47",
+        date="2026-08-26",
+        notes=(
+            "Topology map: pfSense/OPNsense chassis ports populate from pulled or "
+            "loaded config.xml (WAN/LAN/OPT interfaces with IPs); existing configs "
+            "refresh on load topology.",
+        ),
+    ),
+    Change(
+        version="1.3.46",
+        date="2026-08-26",
+        notes=(
+            "pfSense config pull: dialog to enter SSH password when login fails, "
+            "or sudo password when automatic elevation fails (Load Config and "
+            "chassis Pull Config).",
+        ),
+    ),
+    Change(
+        version="1.3.45",
+        date="2026-08-26",
+        notes=(
+            "pfSense config pull: fix sudo hang (no PTY on OpenSSH 10); blank "
+            "password field falls back to keyring; sudo prompt when SSH password "
+            "differs; pull on background thread with status-bar progress; Console "
+            "DEBUG includes paramiko transport trace.",
+        ),
+    ),
+    Change(
+        version="1.3.44",
+        date="2026-08-26",
+        notes=(
+            "Device details: two columns (device summary left, ports right); "
+            "Model and Software lines always shown; SSH inventory captures "
+            "RouterOS board-name + version and pfSense freebsd-version; "
+            "config pull fills software from config.xml.",
+        ),
+    ),
+    Change(
+        version="1.3.43",
+        date="2026-08-26",
+        notes=(
+            "Login→Devices: one tab per subnet (devices grouped by SSH host "
+            "IP); device details panel restored below the link topology map.",
+        ),
+    ),
+    Change(
+        version="1.3.42",
+        date="2026-08-26",
+        notes=(
+            "Topology chassis: board-name from MikroTik SSH inventory is "
+            "stored as the device model and shown in the title bar; hostname "
+            "and role move to the subtitle line.",
+        ),
+    ),
+    Change(
+        version="1.3.41",
+        date="2026-08-26",
+        notes=(
+            "Fix splash not showing: restore the pre-login animation wait so "
+            "the bar slide runs on a live event loop before the login dialog.",
+        ),
+    ),
+    Change(
+        version="1.3.40",
+        date="2026-08-26",
+        notes=(
+            "More startup and UI responsiveness: splash no longer blocks ~2.6s "
+            "before login; schema migration runs once per process; login DB "
+            "probe is threaded; login logo rasterizes at display size; map "
+            "drag debounces topology preview refresh.",
+        ),
+    ),
+    Change(
+        version="1.3.39",
+        date="2026-08-26",
+        notes=(
+            "Startup speed: local adapter discovery no longer blocks the UI "
+            "(background thread + 45s cache); Login page builds after the hub "
+            "paints; SSH credentials load in one DB query per site refresh; "
+            "splash logo layers reuse the prepared SVG cache.",
+        ),
+    ),
+    Change(
+        version="1.3.38",
+        date="2026-08-25",
+        notes=(
+            "Logo: dimension arrows match the Inkscape original — slim "
+            "concave heads, single-ended stubs converging on the A's legs, "
+            "double-ended vertical gauges. The © 2026 Aliniant Laboratories "
+            "line is baked to an outline and the page grown so it shows.",
+        ),
+    ),
+    Change(
+        version="1.3.37",
+        date="2026-08-25",
+        notes=(
+            "Splash/logo: re-wired for the tidied A-Netcheck.svg. The 1px "
+            "light-grey frame is injected at render time (survives Inkscape "
+            "re-saves) and drawn above the sliding bars; off-page scaffolding "
+            "working copies are hidden so no ticks leak below the logo; new "
+            "construction lines and swoosh pointers render with Qt-safe "
+            "arrows.",
+        ),
+    ),
+    Change(
+        version="1.3.36",
+        date="2026-08-25",
+        notes=(
+            "Logo: 1px light-grey outer frame; remove leftover construction "
+            "ticks that peeked under the wordmark at the bottom centre.",
+        ),
+    ),
+    Change(
+        version="1.3.35",
+        date="2026-08-25",
+        notes=(
+            "Syslog: Listen on dropdown lists named NICs (fiber LAN first, "
+            "Hyper-V/APIPA tagged virtual) so the copy-into-pfSense address is "
+            "this PC’s 222.10.50.x, not vEthernet 172.x. Start listener turns "
+            "green and reads Listener Active while bound.",
+        ),
+    ),
+    Change(
+        version="1.3.34",
+        date="2026-08-25",
+        notes=(
+            "Topology chassis right-click: Pull Config, Show more OS / hardware / "
+            "uptime (SSH), and Show more alerts (SNMPv3). Right-click no longer "
+            "starts a drag.",
+        ),
+    ),
+    Change(
+        version="1.3.33",
+        date="2026-08-25",
+        notes=(
+            "Restore emptied core modules (models, discovery, viz, samples) "
+            "that caused the GUI to exit immediately on startup.",
+        ),
+    ),
+    Change(
+        version="1.3.32",
+        date="2026-08-25",
+        notes=(
+            "Syslog bind: a CIDR such as 222.10.50.0/24 is moved to Also "
+            "accept from and the listener binds 0.0.0.0 (fixes getaddrinfo 11001).",
+        ),
+    ),
+    Change(
+        version="1.3.31",
+        date="2026-08-25",
+        notes=(
+            "Syslog: Also accept from CIDRs (default hint 222.10.50.0/24) so "
+            "fiber-sourced logs are kept when SSH mgmt is on another IP; "
+            "listen hint lists that subnet first.",
+        ),
+    ),
+    Change(
+        version="1.3.30",
+        date="2026-08-25",
+        notes=(
+            "Syslog: show this PC’s IPv4:port to paste into OPNsense remote "
+            "logging; explain syslogd “Host is down” vs attached-router sources.",
+        ),
+    ),
+    Change(
+        version="1.3.29",
+        date="2026-08-25",
+        notes=(
+            "pfSense/OPNsense Pull Config: after sudo -n fails, run sudo -S cat "
+            "with the SSH password (then a sudo prompt). Same session as "
+            "`sudo id` — SCP cannot read root-only config.xml.",
+        ),
+    ),
+    Change(
+        version="1.3.28",
+        date="2026-08-25",
+        notes=(
+            "Home → Syslog: UDP/TCP listener for remote logs from attached "
+            "routers (allowlist by mgmt/SSH IP), bind/port settings, live table.",
+        ),
+    ),
+    Change(
+        version="1.3.27",
+        date="2026-08-25",
+        notes=(
+            "Status bar: 25px busy progress bar to the right of User / module / "
+            "Status while background work shows the wait-cursor spinner.",
+        ),
+    ),
+    Change(
+        version="1.3.26",
+        date="2026-08-25",
+        notes=(
+            "pfSense/OPNsense Pull Config: fix broken remote cat (shell "
+            "redirection), retry via sudo -n and SFTP, and show a clear "
+            "message when the SSH user lacks permission to read config.xml.",
+        ),
+    ),
+    Change(
+        version="1.3.25",
+        date="2026-08-25",
+        notes=(
+            "Load Config: pull live config.xml from pfSense/OPNsense over SSH "
+            "(/cf/conf/config.xml, then /conf/config.xml) when Kind is "
+            "pfsense or opnsense — same chooser as MikroTik /export verbose.",
+        ),
+    ),
+    Change(
+        version="1.3.24",
+        date="2026-08-25",
+        notes=(
+            "When an action needs an optional package that is missing or not "
+            "loaded, remind you to install/load it under Home → Python Modules "
+            "(Open Modules / Load now). Wired for SSH Connect, MIB Libraries, "
+            "Postgres, Excel import, and Poe AI.",
+        ),
+    ),
+    Change(
+        version="1.3.23",
+        date="2026-08-25",
+        notes=(
+            "Python Modules: optional topology viz stack (networkx, "
+            "matplotlib, plotly, pyvis, graphviz, pygraphviz, grandalf, "
+            "igraph). Setup → MIB Libraries for SNMP MIB search paths; "
+            "requirements include pysnmp + pysmi.",
+        ),
+    ),
+    Change(
+        version="1.3.22",
+        date="2026-08-25",
+        notes=(
+            "Python Modules / requirements: optional pysnmp, httpx, requests, "
+            "redfish, netmiko, napalm, ncclient, scapy for TP-Link/Netgear "
+            "switches and Dell iDRAC (toggle off locally via Save/Commit).",
+        ),
+    ),
+    Change(
+        version="1.3.21",
+        date="2026-08-25",
+        notes=(
+            "Subnets list: next to Devices, show how many session devices "
+            "from that subnet are SSH-connected (none / N connected).",
+        ),
+    ),
+    Change(
+        version="1.3.20",
+        date="2026-08-25",
+        notes=(
+            "Login topology map: drag chassis; drag port→port on another "
+            "device to create links; Save Topology persists devices + links.",
+        ),
+    ),
+    Change(
+        version="1.3.19",
+        date="2026-08-25",
+        notes=(
+            "Login→Routers Kind column is a dropdown (editable best-guess); "
+            "Save credentials reloads login fields; hydrate username from DB "
+            "when building the device table.",
+        ),
+    ),
+    Change(
+        version="1.3.18",
+        date="2026-08-25",
+        notes=(
+            "After Connect: SSH inventory (ifconfig+pciconf / ip+lspci / "
+            "RouterOS) fills the right-hand topology with ports and assigned IPs.",
+        ),
+    ),
+    Change(
+        version="1.3.17",
+        date="2026-08-25",
+        notes=(
+            "Login→Routers: selecting a device/IP loads saved username "
+            "(and keyring password) into the Login panel from "
+            "ssh_host_credentials.",
+        ),
+    ),
+    Change(
+        version="1.3.16",
+        date="2026-08-25",
+        notes=(
+            "Save credentials: DB stores salted PBKDF2 password_hash only "
+            "(never plaintext); live SSH secret remains in Windows "
+            "Credential Manager.",
+        ),
+    ),
+    Change(
+        version="1.3.15",
+        date="2026-08-25",
+        notes=(
+            "Login→Routers Save credentials: upsert username/IP/keyring ref "
+            "into netcheck.ssh_host_credentials and confirm for that IP "
+            "(password stays in Windows Credential Manager, never in DB).",
+        ),
+    ),
+    Change(
+        version="1.3.14",
+        date="2026-08-25",
+        notes=(
+            "Login→Routers: Connect button is blue; Connected is green.",
+        ),
+    ),
+    Change(
+        version="1.3.13",
+        date="2026-08-25",
+        notes=(
+            "Login→Routers Devices: click found IP (blue link) adds/selects "
+            "that device in the session table; Connect enabled when a target "
+            "is selected (uses typed or stored credentials); local NIC line "
+            "shows type, speed, duplex, and MTU.",
+        ),
+    ),
+    Change(
+        version="1.3.12",
+        date="2026-08-25",
+        notes=(
+            "version.py: record every patch as its own Change entry; "
+            "__version__ must match CHANGELOG[0]; Setup -> Version is the UI.",
+        ),
+    ),
+    Change(
+        version="1.3.11",
+        date="2026-08-25",
+        notes=(
+            "Devices: show local adapter under found hosts (name, IP, MAC, "
+            "Wired/WLAN, NIC link speed via Get-NetAdapter LinkSpeed).",
+        ),
+    ),
+    Change(
+        version="1.3.10",
+        date="2026-08-25",
+        notes=(
+            "Search for devices: dialog default subnet is taken from the "
+            "IP/MAC box (CIDR or IP->/24), then written back after OK.",
+        ),
+    ),
+    Change(
+        version="1.3.9",
+        date="2026-08-25",
+        notes=(
+            "Main window: fix status bar clipped when maximized — stop "
+            "setGeometry(availableGeometry); use maximize + frame clamp and "
+            "reserve status bar min height 28px.",
+        ),
+    ),
+    Change(
+        version="1.3.8",
+        date="2026-08-25",
+        notes=(
+            "Home nav: About section placeholder (aliniant labs / NetCheck).",
+        ),
+    ),
+    Change(
+        version="1.3.7",
+        date="2026-08-25",
+        notes=(
+            "Home nav: Wireshark section + pfsense_checker/wireshark_bridge.py "
+            "Lua API scaffold (WSDG Ch. 13 modules, stub plugin text). "
+            "Docs: https://www.wireshark.org/docs/wsdg_html_chunked/wsluarm_modules.html",
+        ),
+    ),
+    Change(
+        version="1.3.6",
+        date="2026-08-25",
+        notes=(
+            "Device search found-table: TCP probe columns HTTP :80 and "
+            "HTTPS :443 alongside SSH :22 (open / closed / no reply).",
+        ),
+    ),
+    Change(
+        version="1.3.5",
+        date="2026-08-25",
+        notes=(
+            "Subnets panel: 'Show live subnets' adds this PC's adapter CIDRs "
+            "to the site subnet list.",
+        ),
+    ),
+    Change(
+        version="1.3.4",
+        date="2026-08-25",
+        notes=(
+            "Busy wait cursor (pfsense_checker/busy.py) while config check, "
+            "AI ask, LAN scan, SSH probe/test, resiliency, and folder import run.",
+        ),
+    ),
+    Change(
+        version="1.3.3",
+        date="2026-08-25",
+        notes=(
+            "Status bar beacons: 'None Seen' (red) or 'N Seen' (green); "
+            "removed 'Beacons: unreachable' wording.",
+        ),
+    ),
+    Change(
+        version="1.3.2",
+        date="2026-08-25",
+        notes=(
+            "Status bar theme (login + main): very dark navy #061830, "
+            "semi-bold 9pt text, white/green/red chips via branding helpers.",
+        ),
+    ),
+    Change(
+        version="1.3.1",
+        date="2026-08-25",
+        notes=(
+            "Login gate: fix NameError (STATUS_BAR_TEXT not imported) so the "
+            "login page appears after splash instead of crashing silently.",
+        ),
+    ),
+    Change(
+        version="1.3.0",
+        date="2026-08-25",
+        notes=(
+            "Login/splash logo: bake outlined grey 'netcheck' path into prepared "
+            "SVG so the wordmark always renders (Qt cannot fill live SVG <text>).",
+        ),
+    ),
+    Change(
+        version="1.2.0",
+        date="2026-07-26",
+        notes=(
+            "Login gate with public-key peppered password hashes; users table + users_login_v.",
+            "Super-admin account julian; must_change_password on first login.",
+            "Users home section - add / reset / roles / enable-disable.",
+            "File / Folder Ops section (moved toolbar actions); window min/max/close.",
+            "Status bar: DB connectivity, beacons count, left context (user | module - capabilities).",
+            "PostgreSQL netcheck DB schema: topology, config, connectivity, users.",
+            "Save Connectivity to DB from Login to Routers.",
+            "Python Modules: Installed/Loaded checkboxes + Save/Commit (grey->green).",
+            "Tests section - run pytest from the UI.",
+            "File / Folder Ops placed second in the nav (under Login to Routers).",
+            "version.py changelog module + Setup -> Version view.",
+            "Optional vendor SDKs in requirements / Modules: librouteros, junos-eznc.",
+            "Launcher login: Login to main tool + Beacon/Collector/Check tools + DB status bar.",
+            "Silent Windows subprocesses (no ping/arp console cascade); Console panel Pop out.",
+            "Load Config chooser: local file or MikroTik /export verbose over SSH.",
+        ),
+    ),
+    Change(
+        version="1.1.0",
+        date="2026-07-25",
+        notes=(
+            "Home hub sections: Login, Beaconing, Subnet Health, Config, Speed, Topology.",
+            "Ollama advisor settings; OUI/MAC RapidAPI; Logging; SNMP v3.",
+            "Database admin (PostgreSQL); lazy page/tab load for faster startup.",
+            "Subnet health local + beacon reporting; Console live logs.",
+            "Problems/Troubleshooting section linking findings / resiliency / monitor.",
+        ),
+    ),
+    Change(
+        version="1.0.0",
+        date="2026-06-01",
+        notes=(
+            "Initial pfSense / MikroTik config checker GUI.",
+            "Findings, dashboard KPIs, topology builder, resiliency, live monitor.",
+            "SSH session screen; MikroTik REST collect; AI advisor hooks.",
+        ),
+    ),
+)
+
+
+def current_version() -> str:
+    return __version__
+
+
+def latest_change() -> Change | None:
+    return CHANGELOG[0] if CHANGELOG else None
+
+
+def all_patches() -> tuple[Change, ...]:
+    """Full changelog (newest first) — alias for UI / export."""
+    return CHANGELOG
+
+
+def format_changelog(*, max_releases: int | None = None) -> str:
+    """Human-readable changelog text (newest first)."""
+    lines = [f"{APP_NAME} {full_version()}", ""]
+    entries = CHANGELOG if max_releases is None else CHANGELOG[: max(0, max_releases)]
+    for entry in entries:
+        kind = "patch" if len(entry.notes) == 1 else "release"
+        lines.append(f"## {entry.version}  ({entry.date})  [{kind}]")
+        for note in entry.notes:
+            lines.append(f"  • {note}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def format_version_line() -> str:
+    """One-line summary for status / about."""
+    latest = latest_change()
+    if latest is None:
+        return f"{APP_NAME} {full_version()}"
+    first = latest.notes[0] if latest.notes else ""
+    if first:
+        return f"{APP_NAME} {full_version()} — {first}"
+    return f"{APP_NAME} {full_version()}"
+
+
+def _validate_version_module() -> None:
+    """Fail fast if __version__ drifts from the changelog head."""
+    if not CHANGELOG:
+        raise RuntimeError("CHANGELOG is empty")
+    if CHANGELOG[0].version != __version__:
+        raise RuntimeError(
+            f"__version__={__version__!r} must equal "
+            f"CHANGELOG[0].version={CHANGELOG[0].version!r}"
+        )
+    seen: set[str] = set()
+    for entry in CHANGELOG:
+        if entry.version in seen:
+            raise RuntimeError(f"duplicate changelog version: {entry.version}")
+        seen.add(entry.version)
+        if not entry.notes:
+            raise RuntimeError(f"{entry.version} has no notes")
+
+
+_validate_version_module()

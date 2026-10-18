@@ -1,0 +1,18 @@
+---
+description: Queued commands run in order. Only STOP or WAIT plus an urgent directive interrupts.
+alwaysApply: true
+---
+
+# Command queue
+
+Deal with every queued command sequentially, in the order it was given.
+A command that arrives while work is in progress is appended to the queue.
+Do not start it until the current command is finished.
+
+The only interruption is a direct command to STOP or WAIT, followed by an urgent directive.
+Halt the queue, carry out that directive, then resume what was queued unless STOP ended the work.
+
+Examples:
+
+- "Fix the drop target." Then, before that is done: "Also open a console." Finish the drop target, then the console.
+- "STOP the console. WAIT: Login is writing the password into the log." Stop the console work and fix the password leak before anything else left in the queue.

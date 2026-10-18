@@ -1,0 +1,190 @@
+<?xml version="1.0"?>
+<pfsense>
+	<version>23.1</version>
+	<lastchange></lastchange>
+	<system>
+		<optimization>normal</optimization>
+		<hostname>fw-lab</hostname>
+		<domain>example.local</domain>
+		<timezone>UTC</timezone>
+		<language>en_US</language>
+		<enablesshd>enabled</enablesshd>
+		<dnsserver>1.1.1.1</dnsserver>
+		<dnsserver>8.8.8.8</dnsserver>
+		<webgui>
+			<protocol>https</protocol>
+		</webgui>
+		<user>
+			<name>admin</name>
+			<descr>System Administrator</descr>
+			<scope>system</scope>
+			<uid>0</uid>
+			<bcrypt-hash>$2b$10$abcdefghijklmnopqrstuv</bcrypt-hash>
+			<priv>page-all</priv>
+		</user>
+		<user>
+			<name>operator</name>
+			<descr>Read-only operator</descr>
+			<scope>user</scope>
+			<uid>2000</uid>
+			<bcrypt-hash>$2b$10$zyxwvutsrqponmlkjihgfe</bcrypt-hash>
+		</user>
+	</system>
+	<interfaces>
+		<wan>
+			<enable></enable>
+			<if>igb0</if>
+			<descr><![CDATA[WAN]]></descr>
+			<ipaddr>dhcp</ipaddr>
+		</wan>
+		<lan>
+			<enable></enable>
+			<if>bridge0</if>
+			<descr><![CDATA[LAN Bridge]]></descr>
+			<ipaddr>192.168.1.1</ipaddr>
+			<subnet>24</subnet>
+		</lan>
+		<opt1>
+			<enable></enable>
+			<if>igb1</if>
+			<descr><![CDATA[LAN Port 1]]></descr>
+		</opt1>
+		<opt2>
+			<enable></enable>
+			<if>igb2</if>
+			<descr><![CDATA[LAN Port 2]]></descr>
+		</opt2>
+		<opt3>
+			<if>igb3.10</if>
+			<descr><![CDATA[VLAN10 Guest (disabled)]]></descr>
+			<ipaddr>10.10.10.1</ipaddr>
+			<subnet>24</subnet>
+		</opt3>
+		<opt4>
+			<enable></enable>
+			<if>lagg0</if>
+			<descr><![CDATA[Server LAGG]]></descr>
+			<ipaddr>10.0.5.1</ipaddr>
+			<subnet>24</subnet>
+		</opt4>
+	</interfaces>
+	<bridges>
+		<bridged>
+			<bridgeif>bridge0</bridgeif>
+			<members>igb1,igb2</members>
+			<descr><![CDATA[LAN bridge of two ports]]></descr>
+			<enablestp></enablestp>
+		</bridged>
+	</bridges>
+	<vlans>
+		<vlan>
+			<if>igb3</if>
+			<tag>10</tag>
+			<vlanif>igb3.10</vlanif>
+			<descr><![CDATA[Guest VLAN]]></descr>
+		</vlan>
+	</vlans>
+	<laggs>
+		<lagg>
+			<laggif>lagg0</laggif>
+			<members>igb4,igb5</members>
+			<proto>lacp</proto>
+			<descr><![CDATA[Server aggregation]]></descr>
+		</lagg>
+	</laggs>
+	<gateways>
+		<gateway_item>
+			<interface>wan</interface>
+			<gateway>dynamic</gateway>
+			<name>WAN_DHCP</name>
+			<ipprotocol>inet</ipprotocol>
+			<defaultgw></defaultgw>
+		</gateway_item>
+	</gateways>
+	<filter>
+		<rule>
+			<type>pass</type>
+			<interface>lan</interface>
+			<ipprotocol>inet</ipprotocol>
+			<descr>Default allow LAN to any</descr>
+			<source><any></any></source>
+			<destination><any></any></destination>
+		</rule>
+		<rule>
+			<type>block</type>
+			<interface>wan</interface>
+			<ipprotocol>inet</ipprotocol>
+			<descr>Block RFC1918 on WAN</descr>
+			<disabled></disabled>
+			<source><network>rfc1918</network></source>
+			<destination><any></any></destination>
+		</rule>
+	</filter>
+	<nat>
+		<outbound>
+			<mode>automatic</mode>
+		</outbound>
+		<rule>
+			<interface>wan</interface>
+			<target>192.168.1.10</target>
+			<descr>HTTPS to web server</descr>
+		</rule>
+	</nat>
+	<dhcpd>
+		<lan>
+			<enable></enable>
+			<range>
+				<from>192.168.1.100</from>
+				<to>192.168.1.200</to>
+			</range>
+			<staticmap>
+				<mac>00:11:22:33:44:55</mac>
+				<ipaddr>192.168.1.50</ipaddr>
+			</staticmap>
+		</lan>
+	</dhcpd>
+	<unbound>
+		<enable></enable>
+	</unbound>
+	<openvpn>
+		<openvpn-server>
+			<vpnid>1</vpnid>
+			<description>Remote Access VPN</description>
+			<protocol>UDP4</protocol>
+			<local_port>1194</local_port>
+			<interface>wan</interface>
+		</openvpn-server>
+	</openvpn>
+	<installedpackages>
+		<package>
+			<name>pfBlockerNG</name>
+			<internal_name>pfBlockerNG</internal_name>
+			<version>3.2.0_16</version>
+			<configurationfile>/pfblockerng.xml</configurationfile>
+			<descr><![CDATA[Manage IPv4/IPv6 lists and GeoIP.]]></descr>
+		</package>
+		<package>
+			<name>Suricata</name>
+			<internal_name>suricata</internal_name>
+			<version>7.0.7</version>
+			<configurationfile>/suricata.xml</configurationfile>
+			<descr><![CDATA[High performance IDS/IPS.]]></descr>
+		</package>
+		<pfblockerng>
+			<config>
+				<enable>on</enable>
+			</config>
+		</pfblockerng>
+		<suricata>
+			<config>
+				<enable>off</enable>
+			</config>
+		</suricata>
+		<service>
+			<name>suricata</name>
+			<rcfile>suricata.sh</rcfile>
+			<executable>suricata</executable>
+			<description><![CDATA[Suricata IDS/IPS Daemon]]></description>
+		</service>
+	</installedpackages>
+</pfsense>

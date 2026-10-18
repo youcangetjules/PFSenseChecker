@@ -1,0 +1,407 @@
+{
+  "name": "HQ \u2014 Physical Layout (CRS / pfSense)",
+  "devices": [
+    {
+      "name": "Swish-WAN1",
+      "kind": "isp",
+      "model": "Swish Fiber 900Mbps",
+      "role": "isp",
+      "secpol": "",
+      "priority": "0",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Online - Priority 0 (main)",
+      "ports": [
+        "wan"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "TalkTalk-WAN2",
+      "kind": "isp",
+      "model": "TalkTalk 150Mbps Fiber",
+      "role": "isp",
+      "secpol": "",
+      "priority": "1",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Online - Priority 1 (reserve)",
+      "ports": [
+        "wan"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "Edgerouter-Egress",
+      "kind": "router",
+      "model": "Edgerouter 4",
+      "role": "egress",
+      "secpol": "S1",
+      "priority": "",
+      "hardware": "Egress Security Node",
+      "config_file": "",
+      "notes": "",
+      "ports": [
+        "eth0",
+        "eth1",
+        "eth2",
+        "eth3"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "pfSense-FW",
+      "kind": "pfsense",
+      "model": "pfSense",
+      "role": "firewall",
+      "secpol": "S5",
+      "priority": "",
+      "hardware": "Dell Optiplex 9010",
+      "config_file": "",
+      "notes": "",
+      "ports": [
+        "em0",
+        "bxe0",
+        "bxe1",
+        "bxe2",
+        "igb3"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "CRS328-Core",
+      "kind": "switch",
+      "model": "CRS328-24P-4S+",
+      "role": "core-switch",
+      "secpol": "S5",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "",
+      "ports": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "C1",
+        "C2",
+        "sfp-sfpplus1"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "CRS109-Office",
+      "kind": "switch",
+      "model": "CRS109-8G-1S-2HnD",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Office",
+      "ports": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "sfp1"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "CRS109-Upstairs",
+      "kind": "switch",
+      "model": "CRS109-8G-1S-2HnD",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Upstairs",
+      "ports": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "sfp1"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "CRS109-Lounge",
+      "kind": "switch",
+      "model": "CRS109-8G-1S-2HnD",
+      "role": "access-switch",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "Lounge",
+      "ports": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "sfp1"
+      ],
+      "mgmt_ip": ""
+    },
+    {
+      "name": "Remote-Site",
+      "kind": "mikrotik",
+      "model": "hEX",
+      "role": "remote-router",
+      "secpol": "",
+      "priority": "",
+      "hardware": "",
+      "config_file": "",
+      "notes": "",
+      "ports": [
+        "ether1",
+        "wg0"
+      ],
+      "mgmt_ip": ""
+    }
+  ],
+  "links": [
+    {
+      "a_device": "Swish-WAN1",
+      "a_port": "wan",
+      "b_device": "Edgerouter-Egress",
+      "b_port": "eth0",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "WAN1 main",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "TalkTalk-WAN2",
+      "a_port": "wan",
+      "b_device": "Edgerouter-Egress",
+      "b_port": "eth1",
+      "kind": "fiber",
+      "speed": "1G",
+      "descr": "WAN2 reserve",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "Edgerouter-Egress",
+      "a_port": "eth2",
+      "b_device": "pfSense-FW",
+      "b_port": "em0",
+      "kind": "copper",
+      "speed": "1G",
+      "descr": "egress \u2192 firewall",
+      "vlans": [],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "pfSense-FW",
+      "a_port": "bxe0",
+      "b_device": "CRS328-Core",
+      "b_port": "sfp-sfpplus1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "firewall trunk",
+      "vlans": [
+        "10",
+        "20",
+        "30",
+        "140"
+      ],
+      "native_vlan": "1",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "1",
+      "b_device": "CRS109-Office",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to Office",
+      "vlans": [
+        "10",
+        "20",
+        "30"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "2",
+      "b_device": "CRS109-Upstairs",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to Upstairs",
+      "vlans": [
+        "10",
+        "20",
+        "30"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    },
+    {
+      "a_device": "CRS328-Core",
+      "a_port": "3",
+      "b_device": "CRS109-Lounge",
+      "b_port": "sfp1",
+      "kind": "trunk",
+      "speed": "1G",
+      "descr": "to Lounge",
+      "vlans": [
+        "10",
+        "20",
+        "30"
+      ],
+      "native_vlan": "",
+      "bridge": ""
+    }
+  ],
+  "vlans": [
+    {
+      "id": "10",
+      "name": "LAN",
+      "subnet": "100.48.48.0/24",
+      "if_label": "E5-S5-VL10-LAN",
+      "s_ip": "100.48.48.1",
+      "dhcp_pool": "100.48.48.64/25",
+      "devices": [
+        "CRS109-Office",
+        "CRS109-Upstairs",
+        "CRS109-Lounge",
+        "CRS328-Core",
+        "pfSense-FW"
+      ],
+      "gateway": "pfSense-FW",
+      "notes": ""
+    },
+    {
+      "id": "20",
+      "name": "Servers",
+      "subnet": "120.144.180.0/24",
+      "if_label": "E5-S5-VL20-SRV",
+      "s_ip": "120.144.180.1",
+      "dhcp_pool": "120.144.180.80/31",
+      "devices": [
+        "CRS328-Core",
+        "pfSense-FW"
+      ],
+      "gateway": "pfSense-FW",
+      "notes": ""
+    },
+    {
+      "id": "30",
+      "name": "Guest",
+      "subnet": "10.10.30.0/24",
+      "if_label": "E5-S5-VL30-GST",
+      "s_ip": "10.10.30.1",
+      "dhcp_pool": "10.10.30.64/25",
+      "devices": [
+        "CRS109-Office",
+        "CRS109-Lounge",
+        "CRS328-Core",
+        "pfSense-FW"
+      ],
+      "gateway": "pfSense-FW",
+      "notes": ""
+    },
+    {
+      "id": "140",
+      "name": "PFSense-Transit",
+      "subnet": "44.89.20.0/24",
+      "if_label": "E5-S5-VL140-PFSense",
+      "s_ip": "44.89.20.1",
+      "dhcp_pool": "44.89.20.64/25",
+      "devices": [
+        "pfSense-FW",
+        "Edgerouter-Egress"
+      ],
+      "gateway": "pfSense-FW",
+      "notes": ""
+    }
+  ],
+  "bridges": [
+    {
+      "name": "bridge-lan",
+      "devices": [
+        "CRS109-Office",
+        "CRS328-Core"
+      ],
+      "ports": [
+        "CRS109-Office:2",
+        "CRS109-Office:3",
+        "CRS328-Core:10"
+      ],
+      "vlan": "10",
+      "notes": "LAN bridge domain"
+    }
+  ],
+  "vpn": [
+    {
+      "name": "HQ-to-Remote",
+      "kind": "wireguard",
+      "a_device": "pfSense-FW",
+      "b_device": "Remote-Site",
+      "local_endpoint": "wan:51820",
+      "remote_endpoint": "remote.example:51820",
+      "networks": [
+        "10.99.0.0/24",
+        "100.48.48.0/24"
+      ],
+      "notes": "site-to-site VPN agreement"
+    }
+  ],
+  "egress": [
+    {
+      "name": "Primary-WAN",
+      "device": "Edgerouter-Egress",
+      "uplink_port": "eth0",
+      "upstream": "Swish-WAN1",
+      "wan_subnet": "dhcp",
+      "default_for": [
+        "10",
+        "20",
+        "30",
+        "all"
+      ],
+      "notes": "Priority 0 main path"
+    }
+  ]
+}

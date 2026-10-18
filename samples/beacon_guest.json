@@ -1,0 +1,20 @@
+{
+  "beacon_id": "lab-guest-vlan10",
+  "hostname": "beacon-guest",
+  "site": "lab",
+  "version": "1.0.0",
+  "collector_url": "http://127.0.0.1:8787",
+  "token": "",
+  "interval_sec": 60,
+  "ping_targets": [
+    {"host": "10.10.10.1", "subnet": "10.10.10.0/24", "interface": "opt3"}
+  ],
+  "dhcp_targets": [
+    {
+      "subnet": "10.10.10.0/24",
+      "interface": "opt3",
+      "bind_ip": "0.0.0.0",
+      "enabled": true
+    }
+  ]
+}

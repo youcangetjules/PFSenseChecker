@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<pfsense>
+	<version>23.1</version>
+	<sshdata>
+		<sshkeyfile>
+			<filename>ssh_host_rsa_key</filename>
+			<xmldata>YQ==</xmldata>
+		</sshkeyfile>
+	</sshdata>
+	<sshdata>
+		<sshkeyfile>
+			<filename>ssh_host_rsa_key</filename>
+			<xmldata>Yg==</xmldata>
+		</sshkeyfile>
+	</sshdata>
+	<system>
+		<hostname>broken-fw</hostname>
+		<domain>example.local</domain>
+	</system>
+	<interfaces>
+		<wan>
+			<enable></enable>
+			<if>em0</if>
+			<ipaddr>dhcp</ipaddr>
+		</wan>
+	</interfaces>
+</pfsense>
