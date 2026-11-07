@@ -216,11 +216,49 @@ def test_ensure_ready_starts_desktop_then_retries() -> None:
         patch.object(opw, "find_cli", return_value="op.exe"),
         patch.object(opw, "_run_op", side_effect=fake_run),
         patch.object(opw, "_ensure_desktop_app", return_value="started"),
+        patch.object(opw, "is_elevated", return_value=False),
         patch.object(opw.time, "sleep"),
     ):
         path = opw.ensure_ready()
     assert path == "op.exe"
     assert calls["whoami"] == 2
+
+
+def test_elevated_netcheck_never_starts_1password() -> None:
+    def fake_run(op_path, args, **kwargs):  # noqa: ANN001
+        return 1, "", "cannot connect to 1Password app, make sure it is running"
+
+    with (
+        patch.object(opw, "find_cli", return_value="op.exe"),
+        patch.object(opw, "_run_op", side_effect=fake_run),
+        patch.object(opw, "is_elevated", return_value=True),
+        patch.object(opw, "_ensure_desktop_app") as start,
+        patch.object(opw.time, "sleep"),
+    ):
+        with pytest.raises(opw.OnePasswordError, match="administrator"):
+            opw.ensure_ready()
+    start.assert_not_called()
+
+
+def test_cancel_stops_the_unlock_wait() -> None:
+    import threading
+
+    cancel = threading.Event()
+    calls = {"whoami": 0}
+
+    def fake_run(op_path, args, **kwargs):  # noqa: ANN001
+        calls["whoami"] += 1
+        cancel.set()  # dialog closes while 1Password is still locked
+        return 1, "", "account is not signed in"
+
+    with (
+        patch.object(opw, "find_cli", return_value="op.exe"),
+        patch.object(opw, "_run_op", side_effect=fake_run),
+        patch.object(opw, "_foreground_desktop_app"),
+    ):
+        with pytest.raises(opw.FillCancelled):
+            opw.ensure_ready(cancel)
+    assert calls["whoami"] == 1
 
 
 def test_ensure_ready_waits_for_unlock() -> None:

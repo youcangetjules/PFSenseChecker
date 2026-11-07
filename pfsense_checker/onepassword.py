@@ -55,6 +55,24 @@ _UNLOCK_HINT = (
     "(Windows Hello or master password), approve the CLI / NetCheck prompt "
     "if 1Password shows one, then click 1Password again if fill has not resumed."
 )
+_ELEVATED_HINT = (
+    "NetCheck is running as administrator, so it cannot reach the 1Password "
+    "app, and it will not start 1Password elevated (that would run your "
+    "password manager with admin rights, as a second copy you have not "
+    "unlocked). Start NetCheck without Run as administrator, or type the "
+    "password."
+)
+
+
+class FillCancelled(Exception):
+    """The dialog that asked for the fill closed; stop waiting."""
+
+
+def is_elevated() -> bool:
+    """True when this NetCheck process runs with an admin token."""
+    from pfsense_checker.file_drop import _is_process_elevated
+
+    return _is_process_elevated()
 
 
 class OnePasswordError(RuntimeError):
@@ -234,9 +252,13 @@ def _ensure_desktop_app() -> str:
     return "started" if _desktop_running() else "missing"
 
 
-def ensure_ready() -> str:
-    """Return ``op`` path, starting the desktop app once if the CLI pipe is down."""
-    path, _stdout = _ensure_ready()
+def ensure_ready(cancel=None) -> str:
+    """Return ``op`` path, starting the desktop app once if the CLI pipe is down.
+
+    *cancel* is an optional ``threading.Event``; when set, the unlock wait
+    stops with :class:`FillCancelled`.
+    """
+    path, _stdout = _ensure_ready(cancel)
     return path
 
 
@@ -251,11 +273,12 @@ def _foreground_desktop_app() -> None:
         return
 
 
-def _ensure_ready() -> tuple[str, str]:
+def _ensure_ready(cancel=None) -> tuple[str, str]:
     """Start 1Password if needed and wait until ``op whoami`` is signed in.
 
     ``account is not signed in`` means the desktop app is up but locked.
     That is retryable — do not abort on the first locked response.
+    An elevated NetCheck never starts 1Password (see ``_ELEVATED_HINT``).
     """
     path = _require_cli()
     prompted = False
@@ -263,6 +286,9 @@ def _ensure_ready() -> tuple[str, str]:
     stderr = ""
     deadline = time.monotonic() + _UNLOCK_WAIT_S
     while True:
+        if cancel is not None and cancel.is_set():
+            _log().info("1Password wait stopped: the dialog closed")
+            raise FillCancelled()
         code, stdout, stderr = _run_op(
             path, ["whoami", "--format", "json"], timeout=_WHOAMI_TIMEOUT
         )
@@ -276,6 +302,9 @@ def _ensure_ready() -> tuple[str, str]:
         if not prompted:
             _log().warning("1Password CLI not ready: %s", message)
             if _is_desktop_disconnected(stderr, stdout):
+                if is_elevated():
+                    _log().warning("1Password not started: NetCheck is elevated")
+                    raise OnePasswordError(_ELEVATED_HINT)
                 state = _ensure_desktop_app()
                 if state == "missing":
                     raise OnePasswordError(
@@ -288,7 +317,12 @@ def _ensure_ready() -> tuple[str, str]:
             prompted = True
         if time.monotonic() >= deadline:
             break
-        time.sleep(_POLL_S)
+        if cancel is not None:
+            if cancel.wait(_POLL_S):
+                _log().info("1Password wait stopped: the dialog closed")
+                raise FillCancelled()
+        else:
+            time.sleep(_POLL_S)
     message = humanize_cli_error(stderr, stdout) or _UNLOCK_HINT
     _log().warning("1Password CLI still not ready: %s", message)
     raise OnePasswordError(message)
@@ -346,12 +380,13 @@ def load_login(
     username: str = "",
     *,
     settings: OnePasswordSettings | None = None,
+    cancel=None,
 ) -> LoginSecret | None:
     """Return the NetCheck login item for *username*, or None if missing."""
     cfg = settings or load_settings()
     if not cfg.enabled:
         raise OnePasswordError("1Password integration is disabled in Options.")
-    path = ensure_ready()
+    path = ensure_ready(cancel)
     wanted = (username or "").strip()
     title = item_title(wanted, cfg.title_prefix) if wanted else ""
     if title:

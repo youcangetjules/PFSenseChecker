@@ -72,6 +72,27 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.71",
+        date="2026-11-07",
+        notes=(
+            "Sign-in backs off after five failed attempts per username "
+            "(2 s, doubling, up to 5 min). A success clears it. The window "
+            "is per process: restarting NetCheck resets it.",
+            "A rejected sign-in logs why (unknown or inactive user, unreadable "
+            "stored hash, or wrong password), whether the password was typed or "
+            "filled from 1Password, and whether it had leading or trailing "
+            "spaces. The password and its length are never logged; an unknown "
+            "username is not logged either.",
+            "1Password fill stops waiting as soon as the sign-in dialog closes. "
+            "An elevated NetCheck no longer starts 1Password (it would run "
+            "elevated, as a copy you have not unlocked); it says to run "
+            "NetCheck unelevated instead.",
+            "Logs go to this install's data/logs again. A logging.json saved "
+            "by an older copy (C:\\Python Scripts\\…) sent them to that folder.",
+            "The startup line and each 1Password fill log whether NetCheck is elevated.",
+        ),
+    ),
+    Change(
         version="1.3.70",
         date="2026-10-18",
         notes=(

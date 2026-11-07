@@ -63,3 +63,27 @@ def test_ring_file_trims_oldest(tmp_path, monkeypatch) -> None:
     text = path.read_text(encoding="utf-8")
     assert "line-079" in text
     assert "line-000" not in text
+
+
+def test_stale_project_log_dir_falls_back_to_default(tmp_path, monkeypatch) -> None:
+    import json
+
+    settings = tmp_path / "logging.json"
+    monkeypatch.setattr(app_log, "SETTINGS_PATH", settings)
+    old = rf"C:\Old Place\{app_log.PROJECT_ROOT.name}\data\logs"
+    settings.write_text(json.dumps({"log_dir": old}), encoding="utf-8")
+    loaded = app_log.load_settings()
+    assert loaded.log_dir == ""
+    assert loaded.resolved_dir() == app_log.DEFAULT_LOG_DIR
+
+
+def test_custom_log_dir_is_kept(tmp_path, monkeypatch) -> None:
+    import json
+
+    settings = tmp_path / "logging.json"
+    monkeypatch.setattr(app_log, "SETTINGS_PATH", settings)
+    custom = str(tmp_path / "elsewhere")
+    settings.write_text(json.dumps({"log_dir": custom}), encoding="utf-8")
+    assert app_log.load_settings().log_dir == custom
+    app_log.save_settings(app_log.LogSettings(log_dir=str(app_log.DEFAULT_LOG_DIR)))
+    assert json.loads(settings.read_text(encoding="utf-8"))["log_dir"] == ""

@@ -2,6 +2,15 @@
 
 Daily record of work done on NetCheck. Newest day first. Append a day; do not rewrite a past day except to correct a factual error.
 
+## 2026-11-07
+
+- Committed 1.3.58–1.3.70 (adc99c1). Logged BUG-028 (topology width test) and BUG-029 (Log Pipeline open on 0.0.0.0:59000).
+- Login (BUG-015): pepper, key file and the `julian` row all check out. Today's log shows 11 rejected passwords, then a 1Password fill that never delivered, then a typed sign-in. Added non-secret rejection reasons and a per-user back-off (1.3.71, BUG-031).
+- 1Password: fill now stops when the dialog closes, and an elevated NetCheck refuses to start 1Password (1.3.71, BUG-032).
+- Logging went to the old `C:\Python Scripts\PFSenseChecker\data\logs` since the move to E:. Fixed (1.3.71, BUG-030).
+- Tests: the auth test deletes its account; tests no longer write the operator's log (BUG-033, BUG-034). Deleted the 14 leftover `testuser_*` accounts from `netcheck`; only `julian` remains (BUG-033).
+- Main window raises AttributeError every 15 s after sign-in (`subnet_health.load_settings` missing): added to BUG-024.
+
 ## 2026-10-18
 
 - WAN3 (0_S2_P3_E_1G_last_line on igb3) moved left of its NIC: igb3 → WAN port card → Internet (1.3.70, BUG-027).

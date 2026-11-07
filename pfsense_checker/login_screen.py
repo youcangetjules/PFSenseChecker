@@ -10,6 +10,7 @@ Layout
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -132,10 +133,13 @@ class _OpLoadThread(QThread):
     def __init__(self, username: str) -> None:
         super().__init__()
         self._username = username
+        self.cancel = threading.Event()
 
     def run(self) -> None:
         try:
-            secret = onepassword.load_login(self._username)
+            secret = onepassword.load_login(self._username, cancel=self.cancel)
+        except onepassword.FillCancelled:
+            return
         except onepassword.OnePasswordError as exc:
             self.done.emit(None, str(exc))
             return
@@ -171,12 +175,16 @@ def _begin_op_fill(dialog: QDialog, username: str, apply) -> None:
         apply(secret, error)
 
     thread.done.connect(_finish)
+    # Signing in or closing the dialog ends the unlock wait. Before this,
+    # `op whoami` kept polling for up to 90 s after the user had signed in.
+    dialog.finished.connect(lambda _code: thread.cancel.set())
     show_busy_while(thread, message="1Password")
     thread.finished.connect(thread.deleteLater)
     thread.start()
     app_log.get_logger("onepassword").info(
-        "1Password fill started user=%s",
+        "1Password fill started user=%s elevated=%s",
         (username or "").strip() or "(none)",
+        onepassword.is_elevated(),
     )
 
 
@@ -938,6 +946,10 @@ class LoginDialog(QDialog):
         self.password.setPlaceholderText("Password")
         self.password.setMinimumHeight(28)
         self.password.setAccessibleName("Password")
+        # True while the field still holds an unedited 1Password fill. Only
+        # a flag: the password is not kept anywhere else.
+        self._password_from_op = False
+        self.password.textEdited.connect(self._on_password_edited)
         self.btn_fill_op = QPushButton("1Password")
         self.btn_fill_op.setStyleSheet(_inline_btn_style())
         self.btn_fill_op.setToolTip("Fill username and password from 1Password")
@@ -1149,6 +1161,7 @@ class LoginDialog(QDialog):
             if secret.username:
                 self.username.setText(secret.username)
             self.password.setText(secret.password)
+            self._password_from_op = True
             self.password.setFocus()
             self.status.setStyleSheet("color: #2e7d32; font-weight: normal;")
             self.status.setText("Filled from 1Password.")
@@ -1157,6 +1170,9 @@ class LoginDialog(QDialog):
             )
 
         _begin_op_fill(self, self.username.text().strip(), _apply)
+
+    def _on_password_edited(self, _text: str) -> None:
+        self._password_from_op = False
 
     def _open_beacon_creator(self) -> None:
         BeaconCreatorDialog(self).exec()
@@ -1230,6 +1246,7 @@ class LoginDialog(QDialog):
         self.status.setText("")
         user = self.username.text().strip()
         pw = self.password.text()
+        source = "1password" if self._password_from_op else "typed"
         try:
             if self._bootstrap:
                 if pw != self.password2.text():
@@ -1237,13 +1254,13 @@ class LoginDialog(QDialog):
                 self._user = auth.bootstrap_admin_if_empty(user, pw)
                 if self._user is None:
                     self._set_bootstrap_ui(False)
-                    self._user = auth.authenticate(user, pw)
+                    self._user = auth.authenticate(user, pw, source=source)
                 else:
                     app_log.get_logger("auth").info(
                         "Bootstrapped admin user=%s", self._user.username
                     )
             else:
-                self._user = auth.authenticate(user, pw)
+                self._user = auth.authenticate(user, pw, source=source)
         except auth.AuthError as exc:
             self.status.setText(str(exc))
             app_log.get_logger("auth").warning("Login failed: %s", exc)

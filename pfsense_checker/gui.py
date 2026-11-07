@@ -4929,7 +4929,13 @@ def run_app() -> int:
 
     openobserve.start_shipper()
     _boot_log = app_log.get_logger("app")
-    _boot_log.info("NetCheck starting")
+    try:
+        from pfsense_checker.onepassword import is_elevated
+
+        _elevated = is_elevated()
+    except Exception:  # noqa: BLE001
+        _elevated = "unknown"
+    _boot_log.info("NetCheck starting elevated=%s", _elevated)
     _boot_log.debug(
         "Python %s · Qt app created · argv=%s", sys.version.split()[0], sys.argv
     )

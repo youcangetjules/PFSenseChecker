@@ -339,9 +339,36 @@ def get_logger(name: str = "app") -> logging.Logger:
     return get_hub().get_logger(name)
 
 
+def _normalize_log_dir(raw: str) -> str:
+    """Return *raw*, or "" when it is this project's default log folder.
+
+    An older build saved ``DEFAULT_LOG_DIR`` as an absolute path. After the
+    project moved (C: → E:), logs kept going to the old copy's ``data/logs``.
+    A saved ``<…>/<project name>/data/logs`` that is not this project's
+    folder is treated as that stale default.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    path = Path(text)
+    try:
+        if path.resolve() == DEFAULT_LOG_DIR.resolve():
+            return ""
+    except OSError:
+        pass
+    parts = [p.lower() for p in path.parts]
+    if (
+        len(parts) >= 3
+        and parts[-2:] == ["data", "logs"]
+        and parts[-3] == PROJECT_ROOT.name.lower()
+    ):
+        return ""
+    return text
+
+
 def load_settings() -> LogSettings:
     ensure_data_dir()
-    defaults = LogSettings(log_dir=str(DEFAULT_LOG_DIR))
+    defaults = LogSettings()
     if not SETTINGS_PATH.is_file():
         return defaults
     try:
@@ -353,7 +380,7 @@ def load_settings() -> LogSettings:
     return LogSettings(
         level=str(data.get("level", defaults.level)),
         file_enabled=bool(data.get("file_enabled", defaults.file_enabled)),
-        log_dir=str(data.get("log_dir", defaults.log_dir) or defaults.log_dir),
+        log_dir=_normalize_log_dir(str(data.get("log_dir") or "")),
         log_filename=str(
             data.get("log_filename", defaults.log_filename) or defaults.log_filename
         ),
@@ -366,8 +393,10 @@ def load_settings() -> LogSettings:
 
 def save_settings(settings: LogSettings) -> None:
     ensure_data_dir()
+    data = asdict(settings)
+    data["log_dir"] = _normalize_log_dir(settings.log_dir)
     SETTINGS_PATH.write_text(
-        json.dumps(asdict(settings), indent=2),
+        json.dumps(data, indent=2),
         encoding="utf-8",
     )
 

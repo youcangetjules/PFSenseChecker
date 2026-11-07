@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -97,6 +98,20 @@ def public_pepper() -> bytes:
     """Derive the HMAC pepper from the public key (not a secret)."""
     pem = load_public_key_pem().encode("utf-8")
     return hashlib.sha256(pem).digest()
+
+
+def pepper_fingerprint() -> str:
+    """Short id of the pepper in use, so a key change shows up in the log.
+
+    The pepper comes from a public key, so this reveals nothing secret.
+    """
+    return hashlib.sha256(public_pepper()).hexdigest()[:8]
+
+
+def _auth_log():
+    from pfsense_checker import app_log
+
+    return app_log.get_logger("auth")
 
 
 def _b64(data: bytes) -> str:
@@ -250,10 +265,78 @@ def user_count() -> int:
     return int(row[0]) if row else 0
 
 
-def authenticate(username: str, password: str) -> AuthUser:
+class LoginThrottle:
+    """Per-username back-off after repeated failed sign-ins (in process).
+
+    The first ``free_attempts`` failures cost nothing. After that each
+    failure doubles the wait (2 s, 4 s, 8 s … capped at ``max_wait``).
+    A success clears the counter. State is memory only: restarting
+    NetCheck resets it.
+    """
+
+    def __init__(
+        self,
+        *,
+        free_attempts: int = 5,
+        base_wait: float = 2.0,
+        max_wait: float = 300.0,
+        clock=time.monotonic,
+    ) -> None:
+        self.free_attempts = free_attempts
+        self.base_wait = base_wait
+        self.max_wait = max_wait
+        self._clock = clock
+        self._failures: dict[str, int] = {}
+        self._blocked_until: dict[str, float] = {}
+
+    def wait_seconds(self, username: str) -> float:
+        until = self._blocked_until.get(username.lower(), 0.0)
+        return max(0.0, until - self._clock())
+
+    def record_failure(self, username: str) -> None:
+        key = username.lower()
+        count = self._failures.get(key, 0) + 1
+        self._failures[key] = count
+        over = count - self.free_attempts
+        if over > 0:
+            wait = min(self.max_wait, self.base_wait * (2 ** (over - 1)))
+            self._blocked_until[key] = self._clock() + wait
+
+    def record_success(self, username: str) -> None:
+        key = username.lower()
+        self._failures.pop(key, None)
+        self._blocked_until.pop(key, None)
+
+
+LOGIN_THROTTLE = LoginThrottle()
+
+
+def _failure_reason(stored: str | None) -> str:
+    """Non-secret reason code for the log. The UI message stays generic."""
+    if not stored:
+        return "unknown_or_inactive_user"
+    parts = stored.split("$")
+    if len(parts) != 4 or parts[0] != _HASH_PREFIX:
+        return "unreadable_stored_hash"
+    return "password_mismatch"
+
+
+def authenticate(username: str, password: str, *, source: str = "typed") -> AuthUser:
     """Verify credentials. Always runs verify on a dummy hash if user missing
-    to reduce timing oracles."""
+    to reduce timing oracles.
+
+    *source* (``typed`` or ``1password``) is logged on failure, never the
+    password or its length.
+    """
     name = validate_username(username)
+    wait = LOGIN_THROTTLE.wait_seconds(name)
+    if wait > 0:
+        _auth_log().warning(
+            "Login throttled user=%s wait=%ds", name, int(wait + 0.999)
+        )
+        raise AuthError(
+            f"Too many failed sign-ins. Wait {int(wait + 0.999)} s and try again."
+        )
     row = fetch_login_row(name)
     stored = row[0] if row else None
     role = row[1] if row else ROLE_USER
@@ -264,7 +347,21 @@ def authenticate(username: str, password: str) -> AuthUser:
     )
     ok = verify_password(password or "", stored or dummy)
     if not stored or not ok:
+        LOGIN_THROTTLE.record_failure(name)
+        pw = password or ""
+        _auth_log().warning(
+            "Login rejected reason=%s user=%s source=%s empty=%s "
+            "edge_whitespace=%s pepper=%s",
+            _failure_reason(stored),
+            # An unknown name may be a password typed in the wrong box.
+            name if stored else "(not logged)",
+            source,
+            not pw,
+            pw != pw.strip(),
+            pepper_fingerprint(),
+        )
         raise AuthError("Invalid username or password")
+    LOGIN_THROTTLE.record_success(name)
     if name == SUPER_ADMIN_USERNAME:
         role = ROLE_SUPER_ADMIN
     return AuthUser(
