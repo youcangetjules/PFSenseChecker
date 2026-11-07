@@ -38,6 +38,192 @@ _SOURCE_FILES: list[tuple[Path, str]] = [
 ]
 
 
+@dataclass(frozen=True)
+class FieldCheck:
+    """One field (or table cell) of a beacon config, checked.
+
+    *field* is the config key ("beacon_id", "collector_url", …). Table cells
+    use the list name ("ping_targets" / "dhcp_targets") with *row* and *key*.
+    """
+
+    field: str
+    ok: bool
+    message: str = ""
+    row: int | None = None
+    key: str = ""
+
+
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_HOST_LABEL = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
+_YES_NO = {"yes", "no", "true", "false", "1", "0", "y", "n"}
+
+
+def _is_hostname(text: str) -> bool:
+    text = text.rstrip(".")
+    return 0 < len(text) <= 253 and all(_HOST_LABEL.match(p) for p in text.split("."))
+
+
+def _looks_like_ip(text: str) -> bool:
+    return bool(re.fullmatch(r"[\d.]+", text))
+
+
+def _check_ipv4(text: str) -> str:
+    import ipaddress
+
+    try:
+        ipaddress.IPv4Address(text)
+    except ValueError:
+        return f"{text!r} is not a valid IPv4 address"
+    return ""
+
+
+def _check_subnet_label(text: str) -> tuple[str, object]:
+    """Labels are free text, but anything shaped like an address must be valid."""
+    import ipaddress
+
+    if not text:
+        return "", None
+    if "/" in text or _looks_like_ip(text):
+        try:
+            return "", ipaddress.IPv4Network(text, strict=False)
+        except ValueError:
+            return f"{text!r} is not a valid subnet (expected e.g. 192.168.1.0/24)", None
+    if any(c.isspace() for c in text):
+        return "Labels cannot contain spaces", None
+    return "", None
+
+
+def _check_collector_url(text: str) -> str:
+    from urllib.parse import urlsplit
+
+    if not text:
+        return "Required: the beacon reports here (e.g. http://10.0.0.5:8787)"
+    if "COLLECTOR_HOST" in text:
+        return "Still the placeholder: put the collector's address in"
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https"):
+        return "Must start with http:// or https://"
+    host = parts.hostname or ""
+    if not host:
+        return "No host in the URL"
+    if _looks_like_ip(host):
+        err = _check_ipv4(host)
+        if err:
+            return err
+    elif not _is_hostname(host):
+        return f"{host!r} is not a valid host name"
+    try:
+        port = parts.port
+    except ValueError:
+        return "Port must be a number from 1 to 65535"
+    if port is not None and not 1 <= port <= 65535:
+        return "Port must be a number from 1 to 65535"
+    if parts.query or parts.fragment:
+        return "No ?query or #fragment: the beacon adds its own paths"
+    return ""
+
+
+def check_config(cfg: dict) -> list[FieldCheck]:
+    """Check every field the Beacon Creator lets the operator set.
+
+    Table rows are checked as given (strings from the table, empty rows
+    included) so a row index matches the table row. A row that is entirely
+    blank is skipped.
+    """
+    out: list[FieldCheck] = []
+
+    def put(field_name: str, err: str, row: int | None = None, key: str = "", ok_msg: str = "OK") -> None:
+        out.append(FieldCheck(field_name, not err, err or ok_msg, row, key))
+
+    bid = str(cfg.get("beacon_id") or "").strip()
+    put("beacon_id", "" if _ID_RE.match(bid) else (
+        "Required" if not bid else "Letters, digits, - and _ only (1–64 characters)"))
+    host = str(cfg.get("hostname") or "").strip()
+    put("hostname", "" if not host or _is_hostname(host) else
+        "Letters, digits, - and . only; each part up to 63 characters", ok_msg="OK (blank = the host's own name)" if not host else "OK")
+    site = str(cfg.get("site") or "")
+    put("site", "" if len(site) <= 64 and site.isprintable() else "Up to 64 printable characters")
+    put("collector_url", _check_collector_url(str(cfg.get("collector_url") or "").strip()))
+    token = str(cfg.get("token") or "")
+    put("token", "Spaces or line breaks in a token never match the collector" if token != token.strip() or any(
+        c.isspace() for c in token) else "", ok_msg="OK" if token else "OK (no token: the collector must not require one)")
+
+    def num(name: str, lo: float, hi: float) -> None:
+        try:
+            value = float(cfg.get(name))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            put(name, "Must be a number")
+            return
+        put(name, "" if lo <= value <= hi else f"Must be {lo:g}–{hi:g}")
+
+    num("interval_sec", 10, 3600)
+    num("ping_count", 1, 10)
+    num("ping_timeout", 0.5, 30)
+    num("dhcp_timeout", 1, 60)
+    try:
+        targets = [t for t in cfg.get("ping_targets") or [] if (t.get("host") if isinstance(t, dict) else t)]
+        worst = float(cfg.get("ping_timeout", 0)) * int(cfg.get("ping_count", 0)) * max(1, len(targets))
+        idx = next(i for i, c in enumerate(out) if c.field == "interval_sec")
+        if out[idx].ok and worst > float(cfg.get("interval_sec", 60)):
+            out[idx] = FieldCheck("interval_sec", False, f"A round of pings can take {worst:g} s "
+                                  "(count × timeout × targets); make the interval longer")
+    except (TypeError, ValueError, StopIteration):
+        pass
+
+    seen_hosts: dict[str, int] = {}
+    for r, t in enumerate(cfg.get("ping_targets") or []):
+        if isinstance(t, str):
+            t = {"host": t}
+        hostv = str(t.get("host") or "").strip()
+        label = str(t.get("subnet") or "").strip()
+        iface = str(t.get("interface") or "").strip()
+        if not (hostv or label or iface):
+            continue
+        if not hostv:
+            err = "Required: the address or name to ping"
+        elif _looks_like_ip(hostv):
+            err = _check_ipv4(hostv)
+        else:
+            err = "" if _is_hostname(hostv) else f"{hostv!r} is not a valid address or host name"
+        if not err and hostv.lower() in seen_hosts:
+            err = f"Same host as row {seen_hosts[hostv.lower()] + 1}"
+        seen_hosts.setdefault(hostv.lower(), r)
+        label_err, net = _check_subnet_label(label)
+        if not err and net is not None and _looks_like_ip(hostv):
+            import ipaddress
+
+            if ipaddress.IPv4Address(hostv) not in net:  # type: ignore[operator]
+                label_err = f"{hostv} is not inside {net}"
+        put("ping_targets", err, r, "host")
+        put("ping_targets", label_err, r, "subnet")
+        put("ping_targets", "" if iface.isprintable() else "Unprintable characters", r, "interface")
+
+    for r, t in enumerate(cfg.get("dhcp_targets") or []):
+        if isinstance(t, str):
+            t = {"subnet": t}
+        label = str(t.get("subnet") or "").strip()
+        iface = str(t.get("interface") or "").strip()
+        bind = str(t.get("bind_ip") or "").strip()
+        enabled = t.get("enabled", True)
+        if not (label or iface or bind):
+            continue
+        label_err, net = _check_subnet_label(label)
+        if not label and not iface:
+            label_err = "Give a subnet label or an interface"
+        put("dhcp_targets", label_err, r, "subnet")
+        put("dhcp_targets", "" if iface.isprintable() else "Unprintable characters", r, "interface")
+        bind_err = _check_ipv4(bind) if bind else ""
+        if not bind_err and bind and bind != "0.0.0.0" and net is not None:
+            import ipaddress
+
+            if ipaddress.IPv4Address(bind) not in net:  # type: ignore[operator]
+                bind_err = f"{bind} is not inside {net}; use an address of this beacon on it, or 0.0.0.0"
+        put("dhcp_targets", bind_err, r, "bind_ip", ok_msg="OK" if bind else "OK (blank = 0.0.0.0)")
+        en_err = "" if isinstance(enabled, bool) or str(enabled).strip().lower() in _YES_NO else "yes or no"
+        put("dhcp_targets", en_err, r, "enabled")
+    return out
+
+
 @dataclass
 class BuildResult:
     bundle_dir: Path

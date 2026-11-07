@@ -54,7 +54,8 @@ from PySide6.QtWidgets import (
 )
 
 from pfsense_checker import ai, app_log
-from pfsense_checker.beacon_builder import build_bundle, default_config
+from pfsense_checker.beacon_builder import build_bundle, check_config, default_config
+from pfsense_checker.field_shading import shade_cell, shade_widget
 from pfsense_checker.branding import (
     NAV_TREE_STYLE,
     STATUS_BAR_FAIL,
@@ -636,6 +637,7 @@ class MainWindow(QMainWindow):
         self._build_beacon_creator_tab()
         self._build_ai_tab()
         self._build_report_tab()
+        self._build_name_parser_tab()
         self._sync_workspace_nav()
         if self._result is not None:
             # Re-apply last check into newly built tabs when opening mid-session.
@@ -3349,7 +3351,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(intro)
 
         # --- Identity / collector ---
-        ident = QGroupBox("Beacon identity & collector")
+        ident = QGroupBox("Beacon identity && collector")
         form = QFormLayout(ident)
         self.bc_id = QLineEdit("beacon-01")
         self.bc_hostname = QLineEdit()
@@ -3470,10 +3472,14 @@ class MainWindow(QMainWindow):
         gen_btn = QPushButton("Generate bundle(s)")
         gen_btn.setStyleSheet("font-weight: bold;")
         gen_btn.clicked.connect(self._bc_generate)
+        check_btn = QPushButton("Check syntax")
+        check_btn.setToolTip("Shade every field green (good to go) or red (hover for the reason)")
+        check_btn.clicked.connect(self._bc_check_syntax)
         action_row.addWidget(load_btn)
         action_row.addWidget(save_btn)
         action_row.addWidget(prefill_btn)
         action_row.addStretch(1)
+        action_row.addWidget(check_btn)
         action_row.addWidget(gen_btn)
         gv.addLayout(action_row)
 
@@ -3488,7 +3494,75 @@ class MainWindow(QMainWindow):
 
         # seed with defaults
         self._bc_apply_config(default_config("beacon-01"))
+        # After the first Check syntax, any edit re-checks so colours stay true.
+        self._bc_checked = False
+        for w in (self.bc_id, self.bc_hostname, self.bc_site, self.bc_collector, self.bc_token):
+            w.textChanged.connect(self._bc_recheck)
+        for w in (self.bc_interval, self.bc_ping_count, self.bc_ping_timeout, self.bc_dhcp_timeout):
+            w.valueChanged.connect(self._bc_recheck)
+        self.bc_ping_table.itemChanged.connect(self._bc_recheck)
+        self.bc_dhcp_table.itemChanged.connect(self._bc_recheck)
+        self.bc_ping_table.model().rowsRemoved.connect(self._bc_recheck)
+        self.bc_dhcp_table.model().rowsRemoved.connect(self._bc_recheck)
         self.tabs.addTab(scroll, "Beacon Creator")
+
+    _BC_PING_COLS = ("host", "subnet", "interface")
+    _BC_DHCP_COLS = ("subnet", "interface", "bind_ip", "enabled")
+
+    def _bc_raw_config(self) -> dict:
+        """Every table row as typed (blank rows kept) so row numbers line up."""
+        cfg = self._bc_collect_config()
+        cfg["beacon_id"] = self.bc_id.text().strip()
+        cfg["ping_targets"] = [
+            {k: self._cell(self.bc_ping_table, r, c) for c, k in enumerate(self._BC_PING_COLS)}
+            for r in range(self.bc_ping_table.rowCount())
+        ]
+        cfg["dhcp_targets"] = [
+            {k: self._cell(self.bc_dhcp_table, r, c) for c, k in enumerate(self._BC_DHCP_COLS)}
+            for r in range(self.bc_dhcp_table.rowCount())
+        ]
+        return cfg
+
+    def _bc_recheck(self, *_args) -> None:  # noqa: ANN002
+        if getattr(self, "_bc_checked", False):
+            self._bc_check_syntax()
+
+    def _bc_check_syntax(self) -> list:
+        """Shade each field / cell green or red; returns the failed checks."""
+        self._bc_checked = True
+        checks = check_config(self._bc_raw_config())
+        widgets = {
+            "beacon_id": self.bc_id, "hostname": self.bc_hostname, "site": self.bc_site,
+            "collector_url": self.bc_collector, "token": self.bc_token,
+            "interval_sec": self.bc_interval, "ping_count": self.bc_ping_count,
+            "ping_timeout": self.bc_ping_timeout, "dhcp_timeout": self.bc_dhcp_timeout,
+        }
+        for table in (self.bc_ping_table, self.bc_dhcp_table):
+            for r in range(table.rowCount()):
+                for c in range(table.columnCount()):
+                    shade_cell(table, r, c, None)
+        for chk in checks:
+            if chk.row is None:
+                w = widgets.get(chk.field)
+                if w is not None:
+                    shade_widget(w, chk.ok, chk.message)
+                continue
+            table, cols = (
+                (self.bc_ping_table, self._BC_PING_COLS) if chk.field == "ping_targets"
+                else (self.bc_dhcp_table, self._BC_DHCP_COLS)
+            )
+            if chk.key in cols and chk.row < table.rowCount():
+                shade_cell(table, chk.row, cols.index(chk.key), chk.ok, chk.message)
+        bad = [c for c in checks if not c.ok]
+        if bad:
+            lines = [f"{len(bad)} field(s) need fixing (red; hover for the reason):"]
+            for c in bad:
+                where = c.field if c.row is None else f"{c.field.replace('_', ' ')} row {c.row + 1} {c.key}"
+                lines.append(f"  x {where}: {c.message}")
+            self.bc_output.setPlainText("\n".join(lines))
+        else:
+            self.bc_output.setPlainText("Syntax check passed: every field is good to go.")
+        return bad
 
     def _bc_add_ping_row(self, host: str = "", subnet: str = "", iface: str = "") -> None:
         t = self.bc_ping_table
@@ -3663,8 +3737,17 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save failed", str(exc))
 
     def _bc_generate(self) -> None:
+        bad = [c for c in self._bc_check_syntax() if c.field != "collector_url"
+               or "placeholder" not in c.message]
+        if bad:
+            QMessageBox.warning(
+                self, "Generate",
+                f"{len(bad)} field(s) are shaded red. Fix them (hover for the reason) and generate again.",
+            )
+            return
         cfg = self._bc_collect_config()
         targets = [k for k, cb in self.bc_os_checks.items() if cb.isChecked()]
+
         if not targets:
             QMessageBox.warning(self, "Generate", "Select at least one target OS.")
             return
@@ -3999,9 +4082,11 @@ class MainWindow(QMainWindow):
         self.wiw_banner.setStyleSheet("padding: 8px; border-radius: 4px; background: #eceff1; color: #37474f;")
         v.addWidget(self.wiw_banner)
         self.wiw_tree = QTreeWidget()
-        self.wiw_tree.setHeaderLabels(["Check", "Result", "Fix"])
-        self.wiw_tree.setColumnWidth(0, 420)
-        self.wiw_tree.setColumnWidth(1, 620)
+        # "Parsed name" decodes coded interface names (Config Check → Name Parser).
+        self.wiw_tree.setHeaderLabels(["Check", "Parsed name", "Result", "Fix"])
+        self.wiw_tree.setColumnWidth(0, 380)
+        self.wiw_tree.setColumnWidth(1, 300)
+        self.wiw_tree.setColumnWidth(2, 560)
         self.wiw_tree.setAlternatingRowColors(True)
         self.wiw_tree.header().setStretchLastSection(True)
         self.wiw_tree.currentItemChanged.connect(self._show_wiw_detail)
@@ -4024,8 +4109,11 @@ class MainWindow(QMainWindow):
 
         if item is None:
             return
-        check, result, fix = (item.text(0), item.text(1), item.text(2))
-        body = f"<b>{html.escape(check)}</b><br/>{html.escape(result)}"
+        check, parsed, result, fix = (item.text(0), item.text(1), item.text(2), item.text(3))
+        body = f"<b>{html.escape(check)}</b>"
+        if parsed:
+            body += f" <span style='color:#5e35b1;'>({html.escape(parsed)})</span>"
+        body += f"<br/>{html.escape(result)}"
         if fix:
             body += f"<br/><span style='color:#1565c0;'>Fix: {html.escape(fix)}</span>"
         self.wiw_detail.setText(body)
@@ -4145,24 +4233,41 @@ class MainWindow(QMainWindow):
         }
         bold = QFont()
         bold.setBold(True)
+        from pfsense_checker import name_parser
+
+        scheme = name_parser.load_scheme()
+        parsed_colour = QColor("#5e35b1")
+        # VLAN rows blue, bridge rows light amber; two shades each keep the banding.
+        row_bands = {
+            "vlan": (QColor("#e3f2fd"), QColor("#cfe5fa")),
+            "bridge": (QColor("#fff8e1"), QColor("#ffecb3")),
+        }
         for area in analysis.areas:
-            top = QTreeWidgetItem([area.area, ca.VERDICT_TEXT[area.status], ""])
-            top.setForeground(1, QColor(verdict_colour[area.status]))
+            top = QTreeWidgetItem([area.area, "", ca.VERDICT_TEXT[area.status], ""])
+            top.setForeground(2, QColor(verdict_colour[area.status]))
             top.setFont(0, bold)
-            top.setFont(1, bold)
+            top.setFont(2, bold)
             tree.addTopLevelItem(top)
             for check in area.checks:
                 icon, colour = check_style[check.status]
-                child = QTreeWidgetItem([check.subject, check.message, check.remediation])
+                parsed = name_parser.readable_in(check.subject, scheme)
+                child = QTreeWidgetItem([check.subject, parsed, check.message, check.remediation])
                 child.setIcon(0, icon)
                 child.setForeground(0, QColor(colour))
+                child.setForeground(1, parsed_colour)
                 child.setToolTip(0, check.subject)
-                child.setToolTip(1, check.message)
-                child.setToolTip(2, check.remediation)
+                child.setToolTip(1, parsed)
+                child.setToolTip(2, check.message)
+                child.setToolTip(3, check.remediation)
+                bands = row_bands.get(name_parser.interface_kind(check.subject, scheme))
+                if bands:
+                    shade = bands[top.childCount() % 2]
+                    for col in range(4):
+                        child.setBackground(col, shade)
                 top.addChild(child)
             for dep in area.missing:
                 child = QTreeWidgetItem(
-                    [f"{dep.role} {dep.address}", f"Config not loaded — cannot check {dep.needed_for}.",
+                    [f"{dep.role} {dep.address}", "", f"Config not loaded — cannot check {dep.needed_for}.",
                      "Load that device's config on Login to Routers."]
                 )
                 child.setIcon(0, style.standardIcon(sp.SP_MessageBoxQuestion))
@@ -4170,7 +4275,210 @@ class MainWindow(QMainWindow):
                 top.addChild(child)
             top.setExpanded(area.status in (ca.FAILS, ca.DEGRADED, ca.WARNINGS))
 
+    # --- Name Parser (coded interface names) ---
+
+    def _build_name_parser_tab(self) -> None:
+        from pfsense_checker import name_parser
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        page = QWidget()
+        scroll.setWidget(page)
+        v = QVBoxLayout(page)
+        intro = QLabel(
+            "Decode coded port / interface names, e.g. <b>0_S3_P0_1G_F_LB_5820_direct</b> → "
+            "Physical port · Slot 3 · Port 0 · 1 Gbps · Fiber · LB 5820 direct. "
+            "The first part is looked up in <b>Type codes</b>; every other part is tried against the "
+            "<b>Part rules</b> (a regular expression for the whole part; {1}, {2} in the meaning are its "
+            "groups). Parts no rule matches are kept as the label. Will it work? shows the result in its "
+            "Parsed name column. Type codes 1–3 are guesses from your names: change them to suit."
+        )
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        v.addWidget(intro)
+
+        sep_row = QHBoxLayout()
+        sep_row.addWidget(QLabel("Separator:"))
+        self.np_sep = QLineEdit()
+        self.np_sep.setMaxLength(3)
+        self.np_sep.setFixedWidth(50)
+        sep_row.addWidget(self.np_sep)
+        sep_row.addStretch(1)
+        v.addLayout(sep_row)
+
+        tables = QHBoxLayout()
+        type_box = QGroupBox("Type codes (first part)")
+        tv = QVBoxLayout(type_box)
+        self.np_types = QTableWidget(0, 2)
+        self.np_types.setHorizontalHeaderLabels(["Code", "Meaning"])
+        self.np_types.horizontalHeader().setStretchLastSection(True)
+        tv.addWidget(self.np_types)
+        tb = QHBoxLayout()
+        add_t = QPushButton("Add code")
+        add_t.clicked.connect(lambda: self._np_add_row(self.np_types, ["", ""]))
+        del_t = QPushButton("Remove selected")
+        del_t.clicked.connect(lambda: self._bc_del_rows(self.np_types))
+        tb.addWidget(add_t)
+        tb.addWidget(del_t)
+        tb.addStretch(1)
+        tv.addLayout(tb)
+        tables.addWidget(type_box, 1)
+
+        rule_box = QGroupBox("Part rules (in order; first match wins)")
+        rv = QVBoxLayout(rule_box)
+        self.np_rules = QTableWidget(0, 4)
+        self.np_rules.setHorizontalHeaderLabels(["Kind", "Pattern (regex)", "Meaning", "Anywhere"])
+        self.np_rules.horizontalHeader().setStretchLastSection(True)
+        self.np_rules.setToolTip("Anywhere = no: only in the coded head, before the first label part "
+                                 "(stops single letters like F / E being read inside labels)")
+        rv.addWidget(self.np_rules)
+        rb = QHBoxLayout()
+        add_r = QPushButton("Add rule")
+        add_r.clicked.connect(lambda: self._np_add_row(self.np_rules, ["", "", "", "yes"]))
+        del_r = QPushButton("Remove selected")
+        del_r.clicked.connect(lambda: self._bc_del_rows(self.np_rules))
+        rb.addWidget(add_r)
+        rb.addWidget(del_r)
+        rb.addStretch(1)
+        rv.addLayout(rb)
+        tables.addWidget(rule_box, 2)
+        v.addLayout(tables)
+
+        try_box = QGroupBox("Try a name")
+        tyv = QVBoxLayout(try_box)
+        self.np_try = QLineEdit("0_S3_P0_1G_F_LB_5820_direct")
+        tyv.addWidget(self.np_try)
+        self.np_try_out = QLabel("")
+        self.np_try_out.setWordWrap(True)
+        self.np_try_out.setStyleSheet("color: #5e35b1; font-weight: 600; padding: 4px;")
+        tyv.addWidget(self.np_try_out)
+        self.np_parts = QTableWidget(0, 3)
+        self.np_parts.setHorizontalHeaderLabels(["Part", "Kind", "Meaning"])
+        self.np_parts.horizontalHeader().setStretchLastSection(True)
+        self.np_parts.setMaximumHeight(170)
+        tyv.addWidget(self.np_parts)
+        v.addWidget(try_box)
+
+        names_box = QGroupBox("Names in the open config")
+        nv = QVBoxLayout(names_box)
+        self.np_names = QTableWidget(0, 3)
+        self.np_names.setHorizontalHeaderLabels(["Interface", "Name", "Parsed"])
+        self.np_names.horizontalHeader().setStretchLastSection(True)
+        self.np_names.setMinimumHeight(220)
+        nv.addWidget(self.np_names)
+        v.addWidget(names_box)
+
+        actions = QHBoxLayout()
+        save = QPushButton("Save")
+        save.setStyleSheet("font-weight: bold;")
+        save.clicked.connect(self._np_save)
+        reset = QPushButton("Reset to defaults")
+        reset.clicked.connect(lambda: self._np_apply(name_parser.default_scheme()))
+        actions.addWidget(save)
+        actions.addWidget(reset)
+        actions.addStretch(1)
+        self.np_status = QLabel("")
+        actions.addWidget(self.np_status)
+        v.addLayout(actions)
+
+        self._np_apply(name_parser.load_scheme())
+        self.np_sep.textChanged.connect(self._np_preview)
+        self.np_try.textChanged.connect(self._np_preview)
+        self.np_types.itemChanged.connect(self._np_preview)
+        self.np_rules.itemChanged.connect(self._np_preview)
+        self.tabs.addTab(scroll, "Name Parser")
+
+    @staticmethod
+    def _np_add_row(table: QTableWidget, values: list[str]) -> None:
+        r = table.rowCount()
+        table.insertRow(r)
+        for c, text in enumerate(values):
+            table.setItem(r, c, QTableWidgetItem(text))
+
+    def _np_apply(self, scheme) -> None:  # noqa: ANN001
+        for t in (self.np_types, self.np_rules):
+            t.blockSignals(True)
+            t.setRowCount(0)
+        self.np_sep.setText(scheme.separator)
+        for code, meaning in scheme.type_codes.items():
+            self._np_add_row(self.np_types, [code, meaning])
+        for rule in scheme.rules:
+            self._np_add_row(self.np_rules, [rule.kind, rule.pattern, rule.meaning,
+                                             "yes" if rule.anywhere else "no"])
+        for t in (self.np_types, self.np_rules):
+            t.blockSignals(False)
+        self.np_rules.resizeColumnsToContents()
+        self._np_preview()
+
+    def _np_scheme_from_ui(self):  # noqa: ANN202
+        from pfsense_checker import name_parser
+
+        codes = {}
+        for r in range(self.np_types.rowCount()):
+            code = self._cell(self.np_types, r, 0)
+            if code:
+                codes[code] = self._cell(self.np_types, r, 1)
+        rules = []
+        for r in range(self.np_rules.rowCount()):
+            pattern = self._cell(self.np_rules, r, 1)
+            if pattern:
+                rules.append(name_parser.TokenRule(
+                    pattern, self._cell(self.np_rules, r, 2), self._cell(self.np_rules, r, 0),
+                    self._cell(self.np_rules, r, 3).lower() not in ("no", "n", "false", "0"),
+                ))
+        return name_parser.NameScheme(self.np_sep.text() or "_", codes, rules)
+
+    def _np_preview(self, *_args) -> None:  # noqa: ANN002
+        from pfsense_checker import name_parser
+
+        scheme = self._np_scheme_from_ui()
+        bad = 0
+        for r in range(self.np_rules.rowCount()):
+            pattern = self._cell(self.np_rules, r, 1)
+            if not pattern:
+                continue
+            err = name_parser.rule_error(name_parser.TokenRule(pattern, self._cell(self.np_rules, r, 2)))
+            shade_cell(self.np_rules, r, 1, not err, err or "OK")
+            bad += bool(err)
+        parts = name_parser.parse(self.np_try.text(), scheme)
+        self.np_try_out.setText(" · ".join(p.meaning for p in parts) or
+                                "Not a coded name under these rules.")
+        self.np_parts.setRowCount(len(parts))
+        for r, p in enumerate(parts):
+            for c, text in enumerate((p.token, p.kind, p.meaning)):
+                self.np_parts.setItem(r, c, QTableWidgetItem(text))
+        result = getattr(self, "_result", None)
+        rows = []
+        for i in getattr(result, "interfaces", []) or []:
+            label = (getattr(i, "descr", "") or "").strip() or i.name
+            rows.append((i.name, label, name_parser.readable(label, scheme)))
+        self.np_names.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, text in enumerate(row):
+                item = QTableWidgetItem(text)
+                if c == 2:
+                    item.setForeground(QColor("#5e35b1"))
+                self.np_names.setItem(r, c, item)
+        self.np_names.resizeColumnsToContents()
+        decoded = sum(1 for row in rows if row[2])
+        msg = f"{decoded} of {len(rows)} names in the open config decode." if rows else "Open a config to see its names here."
+        if bad:
+            msg = f"{bad} rule(s) shaded red will be skipped. " + msg
+        self.np_status.setText(msg)
+
+    def _np_save(self) -> None:
+        from pfsense_checker import name_parser
+
+        try:
+            name_parser.save_scheme(self._np_scheme_from_ui())
+        except OSError as exc:
+            QMessageBox.critical(self, "Name Parser", str(exc))
+            return
+        self.np_status.setText("Saved. Will it work? now uses these rules.")
+        self._render_will_it_work()
+
     def _build_report_tab(self) -> None:
+
         self.report = QTextEdit()
         self.report.setReadOnly(True)
         self.report.setFont(QFont("Consolas", 10))

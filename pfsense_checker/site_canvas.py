@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QFontMetrics,
     QPainter,
     QPainterPath,
+    QPixmap,
     QPainterPathStroker,
     QPen,
 )
@@ -31,6 +32,7 @@ HANDLE_SIZE = 12.0
 MIN_CHASSIS_W = 160.0
 MIN_CHASSIS_H = 80.0
 
+from pfsense_checker import device_identity
 from pfsense_checker.topology_site import Link, PortComponent
 from pfsense_checker.viz import DEVICE_KIND_COLORS, LINK_KIND_COLORS
 
@@ -114,7 +116,39 @@ def _vendor_badge(kind: str, model: str) -> tuple[str, str, str] | None:
     return None
 
 
+_LOGO_CACHE: dict[tuple[str, int], QPixmap | None] = {}
+
+
+def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
+    """Vendor logo scaled to *height*, from assets/logos (None when absent)."""
+    key = (vendor, height)
+    if key in _LOGO_CACHE:
+        return _LOGO_CACHE[key]
+    path = device_identity.logo_path(vendor)
+    pix: QPixmap | None = None
+    if path is not None:
+        if path.suffix.lower() == ".svg":
+            from PySide6.QtSvg import QSvgRenderer
+
+            renderer = QSvgRenderer(str(path))
+            if renderer.isValid():
+                size = renderer.defaultSize()
+                w = max(1, int(size.width() * height / max(1, size.height())))
+                pix = QPixmap(w, height)
+                pix.fill(Qt.GlobalColor.transparent)
+                p = QPainter(pix)
+                renderer.render(p)
+                p.end()
+        else:
+            loaded = QPixmap(str(path))
+            if not loaded.isNull():
+                pix = loaded.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+    _LOGO_CACHE[key] = pix
+    return pix
+
+
 # Port classes: fill / edge colours, and left-to-right group order.
+
 PORT_CLASS_STYLE: dict[str, tuple[str, str]] = {
     "physical": ("#cfd8dc", "#455a64"),
     "bridge": ("#e0f2f1", "#00897b"),
@@ -672,9 +706,18 @@ class ChassisItem(QGraphicsObject):
         painter.setBrush(QBrush(hf))
         painter.drawRoundedRect(hdr.adjusted(1, 1, -1, 0), 6, 6)
 
-        # Vendor wordmark badge (top-right of header).
+        # Vendor logo (assets/logos/<vendor>.svg|png) or wordmark badge, top-right.
         name_width = rect.width() - 16
-        badge = _vendor_badge(self.device.kind, self.device.model)
+        ident = device_identity.identity_for(self.device)
+        logo = _logo_pixmap(ident.vendor or (self.device.kind or "").lower(), 20)
+        badge = None if logo is not None else _vendor_badge(
+            self.device.kind if self.device.kind in _VENDOR_BADGES else ident.vendor or self.device.kind,
+            ident.model or self.device.model,
+        )
+        if logo is not None:
+            lx = rect.width() - logo.width() - 8
+            painter.drawPixmap(int(lx), 5, logo)
+            name_width = max(40.0, lx - 14)
         if badge:
             label, bg, fg = badge
             bfont = QFont()
@@ -707,7 +750,11 @@ class ChassisItem(QGraphicsObject):
         font2.setPointSize(7)
         painter.setFont(font2)
         painter.setPen(QColor("#37474f"))
-        sub = self.device.chassis_subtitle()[:90]
+        type_text = device_identity.type_line(self.device)
+        extra = self.device.chassis_subtitle()
+        sub = type_text
+        if extra and extra.lower() not in type_text.lower():
+            sub = f"{type_text} · {extra}" if type_text else extra
         painter.drawText(
             QRectF(8, 22, rect.width() - 16, 16),
             Qt.AlignmentFlag.AlignLeft,
@@ -1185,6 +1232,10 @@ class SiteTopologyView(QGraphicsView):
 
         for dev in site.devices:
             dev.ensure_components()
+            if not (dev.model or "").strip():
+                # Hardware model from the device's config (# model = …), so the
+                # header names the box instead of just the vendor.
+                dev.model = device_identity.identity_for(dev).model
             ch = ChassisItem(dev, snap=self._snap, grid=self._grid)
             ch.set_locked(self._locked)
             ch.moved.connect(self._on_chassis_moved)

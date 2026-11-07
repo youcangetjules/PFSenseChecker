@@ -66,7 +66,7 @@ def _parse_pairs(line: str) -> dict[str, str]:
 def _logical_lines(text: str) -> list[str]:
     """Join RouterOS backslash line-continuations into single logical lines.
 
-    RouterOS wraps exports mid-token (e.g. ``name=\`` / ``    W1-CFG1``), so
+    RouterOS wraps exports mid-token (e.g. ``name=\\`` / ``    W1-CFG1``), so
     continuation lines are joined with their leading indent removed and no
     separator inserted.
     """
@@ -137,6 +137,11 @@ RAW_SECTIONS = frozenset(
         "caps-man interface",
         "caps-man provisioning",
         "interface ethernet",
+        # CRS1xx/2xx switch-chip VLANs (vlan_enforcement.py)
+        "interface ethernet switch",
+        "interface ethernet switch vlan",
+        "interface ethernet switch egress-vlan-tag",
+        "interface ethernet switch ingress-vlan-translation",
         "interface bonding",
         "queue simple",
         "queue tree",

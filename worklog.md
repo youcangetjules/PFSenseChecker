@@ -4,6 +4,13 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Name Parser (`name_parser.py`, Config Check tab), Parsed name column and VLAN / bridge row shading in Will it work?; topology type / model / OS / identity line and logo lookup (`device_identity.py`); Graphviz panel (`graphviz_status.py`) (1.3.95).
+- Graphviz 16.1.0 is installed at C:\Program Files\Graphviz\bin and renders, but is not on PATH; the Python graphviz package is not installed.
+- librouteros: all four MikroTiks (RouterOS 7.22.3) have api (8728, plain text) and api-ssl (8729) enabled, but api-ssl has no certificate. librouteros and keyring are not installed in C:\Python312. Operator decision: not yet — no API work until asked.
+- guardian's long SSH username is deliberate (operator decision); leave it in topology.json and ssh_host_credentials and do not flag it.
+- Beacon Creator syntax check, green / red per field and cell (1.3.94).
+- Config Check VLAN awareness (`vlan_enforcement.py`): bridge filtering vs switch-chip VLANs vs none; the CAP vlan-filtering ERROR is gone where the switch chip enforces VLANs (1.3.94, BUG-043).
+- Live config findings: CRS109-1 and CRS109-2 enforce VLANs in the switch chip (pass). CRS109-3 has a bridge VLAN table (600/630/662/710) but nothing enforces it. CRS109-1 has VLAN 662 in its bridge table but not in the switch chip, so its own 222.10.70.10 address on VL662 is unreachable. CRS328-MASTER filters on the bridge (offloaded on CRS3xx).
 - Subnet Health device scan (`device_scan.py`): nmap first (ping sweep + ARP fallback; nmap not installed yet), router ARP / DHCP tables, loaded-config pools and static maps, beacons; connection types; problem list; device age in PostgreSQL `subnet_devices`. Old ping / speed checks kept on an Access & speed tab; settings rebuilt with the collector token in the keyring. Beacon bundles fixed (1.3.93, BUG-024, BUG-042).
 - First live scan of 222.10.50.0/24: 11 devices (guardian, four MikroTiks, a pfSense static mapping at .11, this PC, .64–.67 in guardian's DHCP pool), no problems. MikroTik tables were not read from the command line (no SSH password in that process); guardian was skipped (sshguard).
 - Topology chassis: one row, typed / shaded ports, pfSense ports by name, port-exact cables in lanes; drag a loaded config onto Config Check (1.3.92).

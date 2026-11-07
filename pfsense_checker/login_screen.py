@@ -880,9 +880,43 @@ class BeaconCreatorDialog(QDialog):
         gen = QPushButton("Generate bundle(s)")
         gen.setStyleSheet(_primary_btn_style())
         gen.clicked.connect(self._generate)
+        check_btn = QPushButton("Check syntax")
+        check_btn.setToolTip("Shade every field green (good to go) or red (hover for the reason)")
+        check_btn.clicked.connect(self._check_syntax)
         close_btn = QPushButton("Cancel")
         close_btn.clicked.connect(self.reject)
-        root.addLayout(_action_button_row(gen, close_btn))
+        root.addLayout(_action_button_row(gen, check_btn, close_btn))
+        self._checked = False
+        for w in (self.bc_id, self.bc_site, self.bc_collector, self.bc_token):
+            w.textChanged.connect(lambda _t: self._checked and self._check_syntax())
+
+    def _config(self) -> dict:
+        from pfsense_checker.beacon_builder import default_config
+
+        cfg = default_config(self.bc_id.text().strip() or "beacon-01")
+        cfg["beacon_id"] = self.bc_id.text().strip()
+        cfg["site"] = self.bc_site.text().strip()
+        cfg["collector_url"] = self.bc_collector.text().strip()
+        cfg["token"] = self.bc_token.text().strip()
+        return cfg
+
+    def _check_syntax(self) -> list:
+        from pfsense_checker.beacon_builder import check_config
+        from pfsense_checker.field_shading import shade_widget
+
+        self._checked = True
+        widgets = {"beacon_id": self.bc_id, "site": self.bc_site,
+                   "collector_url": self.bc_collector, "token": self.bc_token}
+        checks = [c for c in check_config(self._config()) if c.field in widgets]
+        for c in checks:
+            shade_widget(widgets[c.field], c.ok, c.message)
+        bad = [c for c in checks if not c.ok]
+        self.output.setPlainText(
+            "\n".join([f"{len(bad)} field(s) need fixing (red; hover for the reason):"]
+                      + [f"  x {c.field}: {c.message}" for c in bad])
+            if bad else "Syntax check passed: every field is good to go."
+        )
+        return bad
 
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Output folder", self.outdir.text())
@@ -896,6 +930,18 @@ class BeaconCreatorDialog(QDialog):
         if not targets:
             QMessageBox.warning(self, "Beacon Creation", "Select at least one OS.")
             return
+        bad = self._check_syntax()
+        placeholder = [c for c in bad if c.field == "collector_url" and "placeholder" in c.message]
+        if len(bad) > len(placeholder):
+            QMessageBox.warning(self, "Beacon Creation",
+                                f"{len(bad)} field(s) are shaded red. Fix them (hover for the reason) "
+                                "and generate again.")
+            return
+        if placeholder and QMessageBox.question(
+            self, "Collector URL", "Collector URL still looks like a placeholder. Generate anyway?"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
         cfg = default_config(self.bc_id.text().strip() or "beacon-01")
         cfg["site"] = self.bc_site.text().strip()
         cfg["collector_url"] = self.bc_collector.text().strip()

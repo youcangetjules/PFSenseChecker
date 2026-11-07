@@ -16,6 +16,7 @@ from typing import Any
 
 from pfsense_checker.checker import check_file
 from pfsense_checker.models import CheckResult, Severity
+from pfsense_checker.vlan_enforcement import MODE_SWITCH_CHIP, bridge_enforcement
 from pfsense_checker.topology_site import CONFIG_SOURCE_MIKROTIK_REST, Device, SiteTopology
 
 
@@ -1538,35 +1539,62 @@ def _check_wireless(snap: SiteSnapshot) -> list[ResiliencyFinding]:
                 wlan_tagged_vlans.extend(
                     v.strip() for v in str(row.get("vlan_ids", "")).split(",") if v.strip()
                 )
+        # vlan-filtering=no is a valid design when the switch chip enforces
+        # the VLANs (CRS1xx/2xx keep hardware offload that way), so judge the
+        # bridge by what really enforces its VLANs (vlan_enforcement).
         if (
             cap_bridge
             and wlan_tagged_vlans
             and manager_uses_tagging
             and vf_map.get(cap_bridge) is False
         ):
-            out.append(
-                ResiliencyFinding(
-                    severity=Severity.ERROR,
-                    category="Wireless",
-                    message=(
-                        f"{cname}: bridge '{cap_bridge}' tags wlan on VLAN(s) "
-                        f"{', '.join(sorted(set(wlan_tagged_vlans)))} but has "
-                        "vlan-filtering=no"
-                    ),
-                    devices=[cname],
-                    vlan=",".join(sorted(set(wlan_tagged_vlans))),
-                    evidence="CAPsMAN datapath uses vlan-mode=use-tag",
-                    impact=(
-                        "Wired ports work via the switch chip, but Wi-Fi VLAN "
-                        "tagging is not enforced on the software bridge — "
-                        "intermittent DHCP/ARP for wireless clients"
-                    ),
-                    remediation=(
-                        f"Set vlan-filtering=yes on '{cap_bridge}' "
-                        "(keep wlan tagged on the VLAN and sfp uplink tagged)"
-                    ),
-                )
+            enf = bridge_enforcement(
+                s.get("raw", {}) or {}, cap_bridge, str(s.get("model", "") or "")
             )
+            wanted = sorted(set(wlan_tagged_vlans))
+            if enf.mode == MODE_SWITCH_CHIP:
+                missing = [v for v in wanted if v not in enf.cpu_vlans]
+                if missing:
+                    out.append(
+                        ResiliencyFinding(
+                            severity=Severity.WARNING,
+                            category="Wireless",
+                            message=(
+                                f"{cname}: Wi-Fi VLAN(s) {', '.join(missing)} are not in the "
+                                f"switch-chip VLAN table with the CPU port"
+                            ),
+                            devices=[cname],
+                            vlan=",".join(missing),
+                            evidence="vlan-filtering=no; VLANs enforced by /interface ethernet switch vlan",
+                            impact="Wireless clients on those VLANs may not reach the uplink",
+                            remediation=(
+                                "Add the VLAN(s) to /interface ethernet switch vlan (ports incl. "
+                                "switch1-cpu and the uplink) and egress-vlan-tag; keep vlan-filtering=no "
+                                "for hardware offload"
+                            ),
+                        )
+                    )
+            else:
+                out.append(
+                    ResiliencyFinding(
+                        severity=Severity.WARNING,
+                        category="Wireless",
+                        message=(
+                            f"{cname}: bridge '{cap_bridge}' tags wlan on VLAN(s) "
+                            f"{', '.join(wanted)} but nothing enforces VLANs there "
+                            "(vlan-filtering=no and no switch-chip VLAN rules)"
+                        ),
+                        devices=[cname],
+                        vlan=",".join(wanted),
+                        evidence="CAPsMAN datapath uses vlan-mode=use-tag",
+                        impact=(
+                            "Tagged frames pass between any ports, so VLANs are not "
+                            "isolated (VLAN hopping)"
+                        ),
+                        remediation=enf.remedy(),
+                    )
+                )
+
 
         # wlan interfaces tagged in bridge VLANs but not handed to CAPsMAN
         cap_ifaces = {i.lower() for i in cap.get("interfaces", []) or []}

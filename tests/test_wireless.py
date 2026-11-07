@@ -69,9 +69,26 @@ def test_wireless_findings() -> None:
     assert any("client-to-client-forwarding=no" in m for m in messages)
     # disabled radio on the manager
     assert any("radio(s) disabled on the manager: AP-1" in m for m in messages)
-    # CAP bridge without vlan-filtering while manager tags VLANs
+    # CAP bridge without vlan-filtering or switch-chip VLANs: a warning that
+    # offers the switch chip first, not an error demanding vlan-filtering.
     vf = [f for f in findings if "vlan-filtering=no" in f.message]
-    assert vf and vf[0].severity is Severity.ERROR and "CAP-Bridge" in vf[0].message
+    assert vf and vf[0].severity is Severity.WARNING and "CAP-Bridge" in vf[0].message
+    assert "switch chip" in vf[0].remediation
+
+
+def test_wireless_ok_when_switch_chip_carries_the_vlans() -> None:
+    global CAP_RSC
+    original = CAP_RSC
+    CAP_RSC = original + (
+        "/interface ethernet switch vlan\nadd ports=sfp1,switch1-cpu vlan-id=630\n"
+        "/interface ethernet switch egress-vlan-tag\nadd tagged-ports=sfp1,switch1-cpu vlan-id=630\n"
+    )
+    try:
+        findings = _check_wireless(_snapshot())
+    finally:
+        CAP_RSC = original
+    assert not any("vlan-filtering=no" in f.message or "switch-chip VLAN table" in f.message for f in findings)
+
 
 
 def test_wireless_ok_when_vlan_filtering_enabled() -> None:

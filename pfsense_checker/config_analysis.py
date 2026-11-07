@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Sequence
 
 from pfsense_checker.models import CheckResult, Finding, Severity
+from pfsense_checker import vlan_enforcement
 
 PASS, WARN, FAIL, INFO = "pass", "warn", "fail", "info"
 WORKS, WARNINGS, FAILS, DEGRADED, ABSENT = (
@@ -669,19 +670,25 @@ def _security_verdict(auth: str, ciphers: str, mode: str = "dynamic-keys") -> tu
     return PASS, f"Security {auth} ({ciphers or 'aes-ccm'}); WPA3 not enabled."
 
 
+def _enforcement(dev: _Device, bridge: str) -> vlan_enforcement.Enforcement:
+    return vlan_enforcement.bridge_enforcement(
+        dev.result.summary.get("raw", {}), bridge, dev.result.summary.get("model", "")
+    )
+
+
 def _cap_vlan_ok(cap: _Device, bridge: str, vlan_id: str) -> str:
-    """'yes' / 'no' / 'unfiltered' (tags pass, nothing enforced) / 'unknown'."""
+    """'yes' / 'no' / 'chip' (carried by the switch chip, filtering off by design) /
+    'chip-missing' / 'unfiltered' (tags pass, nothing enforced) / 'unknown'."""
     raw = cap.result.summary.get("raw", {})
-    bridges = {b.get("name", ""): b for b in raw.get("interface bridge", [])}
-    br = bridges.get(bridge)
-    if br is None:
+    if not any(b.get("name", "") == bridge for b in raw.get("interface bridge", [])):
         return "unknown"
-    if not _yes(br.get("vlan-filtering")):
-        return "unfiltered"
-    for entry in raw.get("interface bridge vlan", []):
-        if entry.get("bridge") == bridge and vlan_id in _split(entry.get("vlan-ids")):
-            return "yes"
-    return "no"
+    enf = _enforcement(cap, bridge)
+    state = enf.carries(vlan_id)
+    if enf.mode == vlan_enforcement.MODE_SWITCH_CHIP:
+        return "chip" if state == "yes" else "chip-missing"
+    if enf.mode == vlan_enforcement.MODE_BRIDGE:
+        return state if state == "yes" else "no"
+    return "unfiltered"
 
 
 def _vlan_result(verdict: AreaVerdict, subject: str, where: str, bridge: str, cfg: dict[str, str], state: str,
@@ -692,14 +699,23 @@ def _vlan_result(verdict: AreaVerdict, subject: str, where: str, bridge: str, cf
                     "those clients reach nothing.", f"Add VLAN {vid} to {bridge} (tagged on the uplink).")
     elif state == "yes":
         verdict.add(PASS, subject, f"SSID '{ssid}' → VLAN {vid} is carried on {bridge}{where}.")
+    elif state == "chip":
+        verdict.add(PASS, subject, f"SSID '{ssid}' → VLAN {vid} is carried on {bridge}{where} by the switch "
+                    "chip (VLAN filtering off by design, keeping hardware offload).")
+    elif state == "chip-missing":
+        verdict.add(WARN, subject, f"SSID '{ssid}' tags VLAN {vid}, but the switch chip{where} has no VLAN {vid} "
+                    "entry with the CPU port as a member, so those clients may not reach the uplink.",
+                    f"Add VLAN {vid} to /interface ethernet switch vlan (ports incl. switch1-cpu and the uplink) "
+                    "and to egress-vlan-tag.")
     elif state == "unfiltered":
         verdict.add(PASS, subject, f"SSID '{ssid}' → VLAN {vid}: tagged frames pass bridge {bridge}{where} "
-                    "(VLAN filtering is off).")
+                    "(VLANs are not enforced on this bridge).")
         if bridge not in warned:
             warned.add(bridge)
-            verdict.add(WARN, subject, f"VLAN filtering is off on {bridge}{where}: tags are not enforced, so any "
-                        "port or wireless client path can send frames into any VLAN (VLAN hopping), including "
-                        "management.", f"Set vlan-filtering=yes on {bridge} once its VLAN table is complete.")
+            verdict.add(WARN, subject, f"Nothing enforces VLANs on {bridge}{where}: VLAN filtering is off and the "
+                        "switch chip has no VLAN rules, so any port can send frames into any VLAN (VLAN hopping), "
+                        "including management.", "Enforce VLANs in the switch chip (keeps hardware offload) or "
+                        "with vlan-filtering=yes; see Reachability for which suits this model.")
 
 
 def _wireless_mikrotik(dev: _Device, verdict: AreaVerdict, peers: list[_Device], known: Mapping[str, str]) -> None:
@@ -1274,7 +1290,13 @@ def mt_vlan_iface_state(dev: _Device, name: str) -> tuple[bool, str]:
     if parent.lower() not in dev.ifaces:
         return False, f"its parent interface {parent} does not exist"
     bridge = next((b for b in raw.get("interface bridge", []) if (b.get("name") or "") == parent), None)
-    if bridge is None or not _yes(bridge.get("vlan-filtering")):
+    if bridge is None:
+        return True, ""
+    if not _yes(bridge.get("vlan-filtering")):
+        enf = _enforcement(dev, parent)
+        if enf.mode == vlan_enforcement.MODE_SWITCH_CHIP and vid not in enf.cpu_vlans:
+            return False, (f"the switch chip enforces VLANs on {parent} and VLAN {vid} has no switch VLAN entry "
+                           "with the CPU port (switch1-cpu) as a member")
         return True, ""
     for entry in raw.get("interface bridge vlan", []):
         if _disabled(entry) or vid not in _split(entry.get("vlan-ids")):
@@ -1390,16 +1412,57 @@ def _first_internet_rule(result: CheckResult, ifname: str):  # noqa: ANN202
     return None
 
 
+def _vlan_enforcement_checks(dev: _Device, verdict: AreaVerdict, peers: list[_Device]) -> None:
+    """Judge VLAN filtering by how this bridge really enforces VLANs."""
+    raw = dev.result.summary.get("raw", {})
+    model = dev.result.summary.get("model", "")
+    chip_peer = next((p.name for p in peers if p.kind == "mikrotik" and p is not dev and any(
+        e.mode == vlan_enforcement.MODE_SWITCH_CHIP
+        for e in vlan_enforcement.device_bridges(p.result.summary.get("raw", {}), p.result.summary.get("model", ""))
+    )), "")
+    for enf in vlan_enforcement.device_bridges(raw, model):
+        subject = f"bridge {enf.bridge}"
+        if enf.mode == vlan_enforcement.MODE_BRIDGE:
+            if enf.hw_filtering:
+                verdict.add(PASS, subject, f"VLANs enforced by {enf.describe()}.")
+            else:
+                verdict.add(INFO, subject, f"VLANs enforced by {enf.describe()}. Switch-chip VLAN rules with "
+                            "vlan-filtering=no would keep hardware offload, if throughput matters here.")
+            continue
+        if enf.mode == vlan_enforcement.MODE_SWITCH_CHIP:
+            verdict.add(PASS, subject, f"VLANs {', '.join(sorted(enf.chip_vlans, key=int))} enforced by "
+                        f"{enf.describe()}.")
+            ignored = sorted(enf.bridge_vlans - enf.chip_vlans, key=lambda v: int(v) if v.isdigit() else 0)
+            if ignored:
+                verdict.add(WARN, subject, f"VLAN(s) {', '.join(ignored)} are in the bridge VLAN table but not in the "
+                            "switch chip. With vlan-filtering=no the bridge table is ignored, so they are not "
+                            "carried as configured.", "Add them to /interface ethernet switch vlan and "
+                            "egress-vlan-tag, or remove them from the bridge VLAN table if unused.")
+            if enf.unchecked_ports:
+                verdict.add(WARN, subject, f"Port(s) {', '.join(enf.unchecked_ports)} are not in "
+                            "drop-if-invalid-or-src-port-not-member-of-vlan-on-ports, so frames they send for "
+                            "VLANs they are not members of are not dropped (VLAN hopping).",
+                            "Add them to that list under /interface ethernet switch.")
+            continue
+        if enf.bridge_vlans:
+            verdict.add(WARN, subject, f"VLAN table lists {', '.join(sorted(enf.bridge_vlans, key=lambda v: int(v) if v.isdigit() else 0))}, "
+                        "but nothing enforces it (vlan-filtering=no and no switch-chip VLAN rules). Tagged frames pass between any ports "
+                        "(VLAN hopping).", enf.remedy(chip_peer))
+
+
 def _reach_mikrotik(dev: _Device, verdict: AreaVerdict, peers: list[_Device], known: Mapping[str, str]) -> None:
     raw = dev.result.summary.get("raw", {})
+    _vlan_enforcement_checks(dev, verdict, peers)
     for iface in dev.ifaces.values():
         if not iface.networks:
             continue
         ok, why = mt_vlan_iface_state(dev, iface.name)
         subject = _subject(iface, iface.name)
         if not ok:
-            verdict.add(FAIL, subject, f"This device's address here is unreachable: {why}.",
-                        "Add the bridge as a tagged member of the VLAN (/interface bridge vlan).")
+            fix = ("Add VLAN to /interface ethernet switch vlan with switch1-cpu as a member."
+                   if "switch chip" in why else "Add the bridge as a tagged member of the VLAN (/interface bridge vlan).")
+            verdict.add(FAIL, subject, f"This device's address here is unreachable: {why}.", fix)
+
     routes = [r for r in raw.get("ip route", []) if not _disabled(r) and r.get("dst-address") in ("0.0.0.0/0", None)]
     if not routes:
         verdict.add(WARN, "Default route", "No default route: this device cannot reach other networks "

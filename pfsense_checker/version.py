@@ -72,6 +72,44 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.95",
+        date="2026-11-07",
+        notes=(
+            "Config Check → Name Parser: decode coded port names (e.g. "
+            "0_S3_P0_1G_F_… = Physical port · Slot 3 · Port 0 · 1 Gbps · Fiber). "
+            "Separator, type codes and part rules are editable, checked (bad "
+            "patterns red), tried live, and saved to data/name_parser.json.",
+            "Will it work? has a Parsed name column between Check and Result; "
+            "VLAN rows are shaded blue and bridge rows light amber, still banded.",
+            "Topology: each box shows its type, vendor, model, OS version and "
+            "identity (from its config), e.g. Switch + Wi-Fi · MikroTik "
+            "CRS109-8G-1S-2HnD · RouterOS 7.22.3. Empty models are filled from "
+            "the config. Logos come from assets/logos/<vendor>.svg|png when "
+            "present, else the wordmark badge.",
+            "Python Modules: a separate Graphviz panel (installed, version, on "
+            "PATH, test render, Python package).",
+        ),
+    ),
+    Change(
+        version="1.3.94",
+        date="2026-11-07",
+        notes=(
+            "Beacon Creator: Check syntax shades every field and table cell green "
+            "(good to go) or red (hover for the reason); after the first check it "
+            "re-checks as you type. Generate refuses red fields (the placeholder "
+            "collector URL still asks). Same check in the sign-in Beacon Creation "
+            "dialog.",
+            "Config Check reads how each MikroTik bridge really enforces VLANs: "
+            "bridge filtering, the switch chip (CRS1xx/2xx with vlan-filtering=no "
+            "keep hardware offload — now a pass, not an error), or nothing. Fixes "
+            "offer switch-chip rules first where vlan-filtering would cost "
+            "hardware offload.",
+            "New VLAN findings: VLANs in the bridge table but missing from the "
+            "switch chip, ports outside drop-if-not-member, and VLAN interfaces "
+            "the switch chip does not carry to the CPU.",
+        ),
+    ),
+    Change(
         version="1.3.93",
         date="2026-11-07",
         notes=(

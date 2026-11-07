@@ -255,8 +255,39 @@ def test_unfiltered_cap_bridge_passes_tags_but_warns(tmp_path) -> None:
     cap = _rsc(tmp_path, "cap", _cap_rsc("no", "10"))
     mgr = _rsc(tmp_path, "mgr", MANAGER_RSC)
     w = ca.analyse(cap, [mgr]).area("Wireless")
-    assert any("VLAN filtering is off" in m for m in _msgs(w, ca.PASS))
+    assert any("VLANs are not enforced on this bridge" in m for m in _msgs(w, ca.PASS))
     assert any("VLAN hopping" in m for m in _msgs(w, ca.WARN))
+    reach = ca.analyse(cap, [mgr]).area("Reachability")
+    warn = [c for c in reach.checks if c.status == ca.WARN and "nothing enforces it" in c.message]
+    assert warn and "switch chip" in warn[0].remediation  # keep hardware offload first
+
+
+SWITCH_CHIP = """/interface ethernet switch
+set drop-if-invalid-or-src-port-not-member-of-vlan-on-ports=ether1,sfp1
+/interface ethernet switch vlan
+add ports=ether1,sfp1,switch1-cpu vlan-id=630
+/interface ethernet switch egress-vlan-tag
+add tagged-ports=sfp1,switch1-cpu vlan-id=630
+/interface bridge port
+add bridge=capbr hw=yes interface=ether1
+add bridge=capbr hw=yes interface=ether2
+add bridge=capbr hw=yes interface=sfp1
+"""
+
+
+def test_switch_chip_vlans_with_filtering_off_are_by_design(tmp_path) -> None:
+    """CRS1xx keep hardware offload with vlan-filtering=no and VLANs in the switch chip."""
+    cap = _rsc(tmp_path, "cap", "# model = CRS109-8G-1S-2HnD\n" + _cap_rsc("no", "630,662") + SWITCH_CHIP)
+    mgr = _rsc(tmp_path, "mgr", MANAGER_RSC)
+    w = ca.analyse(cap, [mgr]).area("Wireless")
+    assert any("by the switch chip" in m for m in _msgs(w, ca.PASS))
+    assert not any("VLAN hopping" in m for m in _msgs(w, ca.WARN))
+    reach = ca.analyse(cap, [mgr]).area("Reachability")
+    assert any("enforced by the switch chip" in m for m in _msgs(reach, ca.PASS))
+    warns = "\n".join(_msgs(reach, ca.WARN))
+    assert "VLAN(s) 662 are in the bridge VLAN table but not in the switch chip" in warns
+    assert "Port(s) ether2 are not in drop-if-invalid" in warns
+    assert "vlan-filtering=yes" not in warns
 
 
 def test_manager_alone_needs_its_caps(tmp_path) -> None:

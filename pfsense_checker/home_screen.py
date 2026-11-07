@@ -1630,12 +1630,61 @@ class HomeScreen(QWidget):
         tip.setStyleSheet("color: #555;")
         v.addWidget(tip)
 
+        # Graphviz is a program, not a Python module: its own panel.
+        gv_box = QGroupBox("Graphviz (program, not a Python module)")
+        gv_lay = QHBoxLayout(gv_box)
+        self.graphviz_badge = QLabel("Checking…")
+        self.graphviz_badge.setMinimumWidth(230)
+        self.graphviz_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gv_lay.addWidget(self.graphviz_badge)
+        self.graphviz_detail = QLabel("")
+        self.graphviz_detail.setWordWrap(True)
+        self.graphviz_detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        gv_lay.addWidget(self.graphviz_detail, stretch=1)
+        btn_gv = QPushButton("Check again")
+        btn_gv.clicked.connect(self._graphviz_refresh)
+        gv_lay.addWidget(btn_gv)
+        v.addWidget(gv_box)
+        QTimer.singleShot(0, self._graphviz_refresh)
+
         self._modules_baseline: list[tuple[bool, bool]] = []
         self._modules_status_rows: list = []
         self._modules_refresh()
         return page
 
+    def _graphviz_refresh(self) -> None:
+        from pfsense_checker import graphviz_status
+
+        st = graphviz_status.check()
+        if st.works and st.on_path:
+            bg, fg = "#c8e6c9", "#1b5e20"
+        elif st.works:
+            bg, fg = "#fff3e0", "#e65100"
+        else:
+            bg, fg = "#ffcdd2", "#b71c1c"
+        self.graphviz_badge.setText(st.summary)
+        self.graphviz_badge.setStyleSheet(
+            f"background: {bg}; color: {fg}; font-weight: 600; border: 1px solid {fg}; "
+            "border-radius: 4px; padding: 6px 10px;"
+        )
+        lines = []
+        if st.installed:
+            lines.append(f"{st.version or 'dot'}  ·  {st.path}")
+            lines.append(
+                f"Test render: {'OK in ' + format(st.render_ms, 'g') + ' ms' if st.works else 'failed — ' + st.error}"
+                f"  ·  On PATH: {'yes' if st.on_path else 'no'}"
+            )
+        else:
+            lines.append(st.error)
+        lines.append(
+            f"Python graphviz package: {st.python_package or 'not installed'}"
+            + (f" (finds dot: {'yes' if st.python_finds_dot else 'no'})" if st.python_package else "")
+        )
+        lines += st.notes
+        self.graphviz_detail.setText("\n".join(lines))
+
     def _modules_checkbox(self, checked: bool, tooltip: str = "") -> QWidget:
+
         box = QCheckBox()
         box.setChecked(checked)
         box.setStyleSheet(_modules_checkbox_style())
