@@ -590,13 +590,15 @@ class ResizeHandle(QGraphicsObject):
 class ChassisItem(QGraphicsObject):
     """Physical device box; NICs/ports are child PortItems (components)."""
 
-    moved = Signal(str, float, float)  # device_name, x, y
-    resized = Signal(str, float, float)  # device_name, w, h
+    moved = Signal(str, float, float)  # device_name, x, y — every step of a drag
+    resized = Signal(str, float, float)  # device_name, w, h — every step of a resize
+    edit_finished = Signal(str)  # device_name — drag / resize / layout change done
 
     def __init__(self, device, *, snap: bool = True, grid: int = 20) -> None:  # noqa: ANN001
         super().__init__()
         self.device = device
         self.device_name = device.name
+        self._drag_moved = False
         self._snap = snap
         self._grid = max(5, grid)
         self._locked = False
@@ -660,6 +662,7 @@ class ChassisItem(QGraphicsObject):
         self.device.w = w
         self.device.h = h
         self.resized.emit(self.device_name, w, h)
+        self.edit_finished.emit(self.device_name)
 
     def _place_handle(self) -> None:
         w, h = self._content_size()
@@ -689,6 +692,7 @@ class ChassisItem(QGraphicsObject):
         self.update()
         w, h = self._content_size()
         self.resized.emit(self.device_name, w, h)
+        self.edit_finished.emit(self.device_name)
 
     def _layout_metrics(self) -> tuple[float, float, list[tuple[PortComponent, float, float, bool, float]]]:
         """Return (width, height, list of (comp, x, y, is_sfp, cell width)).
@@ -873,6 +877,7 @@ class ChassisItem(QGraphicsObject):
                 pos = QPointF(round(pos.x() / g) * g, round(pos.y() / g) * g)
             return pos
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self._drag_moved = True
             self.moved.emit(self.device_name, self.pos().x(), self.pos().y())
         return super().itemChange(change, value)
 
@@ -880,6 +885,7 @@ class ChassisItem(QGraphicsObject):
         if event.button() != Qt.MouseButton.LeftButton:
             event.ignore()
             return
+        self._drag_moved = False
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
         super().mousePressEvent(event)
 
@@ -888,6 +894,10 @@ class ChassisItem(QGraphicsObject):
             Qt.CursorShape.ArrowCursor if self._locked else Qt.CursorShape.OpenHandCursor
         )
         super().mouseReleaseEvent(event)
+        if self._drag_moved:
+            # One announcement per drag, after the mouse is let go (BUG-046).
+            self._drag_moved = False
+            self.edit_finished.emit(self.device_name)
 
     def port_anchor(self, port_name: str, toward: QPointF | None = None, facing: str = "bottom") -> QPointF:
         item = self.port_items.get(port_name)
@@ -1295,9 +1305,12 @@ class SiteTopologyView(QGraphicsView):
         dev = self._site.device(name)
         if dev is None:
             return
+        # Every pixel of a drag lands here. Only record it: listeners re-render
+        # the whole site (Login to Routers rebuilds every chassis), which used
+        # to destroy the box under the mouse mid-drag and make it jump
+        # (BUG-046). positions_changed goes out once, on edit_finished.
         dev.x = x
         dev.y = y
-        self.positions_changed.emit()
 
     def _on_chassis_resized(self, name: str, w: float, h: float) -> None:
         if self._site is None:
@@ -1306,8 +1319,7 @@ class SiteTopologyView(QGraphicsView):
         if dev is None:
             return
         dev.w = w
-        dev.h = h
-        self.positions_changed.emit()
+        dev.h = h  # live resize: recorded; announced on edit_finished (BUG-046)
 
     def arrange_by_tier(self) -> None:
         if self._site is None:
@@ -1351,6 +1363,7 @@ class SiteTopologyView(QGraphicsView):
             ch.set_locked(self._locked)
             ch.moved.connect(self._on_chassis_moved)
             ch.resized.connect(self._on_chassis_resized)
+            ch.edit_finished.connect(lambda _name: self.positions_changed.emit())
             self._scene.addItem(ch)
             self._chassis[dev.name] = ch
 

@@ -72,6 +72,15 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.101",
+        date="2026-11-07",
+        notes=(
+            "Dragging or resizing a device box no longer makes it jump: the canvas "
+            "announces the change once, when the mouse is let go, instead of on every "
+            "step, which made Login to Routers rebuild every box mid-drag (BUG-046).",
+        ),
+    ),
+    Change(
         version="1.3.100",
         date="2026-11-07",
         notes=(

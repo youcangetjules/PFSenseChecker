@@ -4,6 +4,7 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Fixed device boxes jumping while dragged on Login to Routers / Topology (1.3.101, BUG-046).
 - Logos fill the chassis title bar, aspect kept, margins trimmed; operator's mikrotik.png, pfsense.png and juniper.jpg in assets/logos (1.3.100).
 - Panel title pills restyled to the Lumen glass chip (motifs.md section 3), app-wide (1.3.99).
 - DNS Leakage test package and page (1.3.98). First run on this PC (VLAN 630, 222.10.50.25): uses 222.10.50.1 as it should, but plain DNS to 1.1.1.1 / 8.8.8.8 / 9.9.9.9 (UDP and TCP 53) goes straight out, DoT (853) and DoH reach Cloudflare / Google / Quad9, and use-application-dns.net resolves. DNS egress 172.70.161.26 (Cloudflare: guardian forwards). Windows' fec0:0:0:ffff::1-3 placeholder IPv6 DNS servers are ignored.
