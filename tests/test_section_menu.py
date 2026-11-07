@@ -110,3 +110,23 @@ def test_main_window_lists_config_tabs_under_config_check() -> None:
     finally:
         window.close()
         window.deleteLater()
+
+
+def test_back_arrow_returns_to_full_list_and_reopens_at_last_child() -> None:
+    menu = _menu()
+    picked: list[str] = []
+    menu.section_selected.connect(picked.append)
+    menu.select("setup.logging", animate=False)
+    assert menu.back_btn.toolTip() == "Back to all sections"
+    assert not menu.back_btn.icon().isNull()
+
+    menu.back()
+    menu._apply(0.0)  # finish the slide
+    assert not menu.is_open()
+    assert menu.main.width() == 300
+    assert menu.main.currentItem().text(0) == "Setup"
+    assert picked == []  # back does not change the page
+
+    menu._on_main_clicked(menu.main.topLevelItem(2), 0)
+    assert picked[-1] == "setup.logging"
+    assert menu.open_parent() == "setup"

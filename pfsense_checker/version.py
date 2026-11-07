@@ -72,6 +72,29 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.76",
+        date="2026-11-07",
+        notes=(
+            "A back arrow (curving up and back) sits above the submenu title. "
+            "It slides the menu back to the full section list and leaves the "
+            "current page open; picking the section again reopens its "
+            "submenu where you were.",
+        ),
+    ),
+    Change(
+        version="1.3.75",
+        date="2026-11-07",
+        notes=(
+            "Every device a subnet sweep sees is added to the Devices panel "
+            "under that subnet's tab, with its kind from discovery (pfsense, "
+            "mikrotik, …). A device already listed by IP or MAC is not added "
+            "again; a kind you chose is kept, a generic one is upgraded.",
+            "Selecting a subnet row (or its Devices button) shows that "
+            "subnet's tab. Until you pick a tab, the panel opens on the first "
+            "tab with devices instead of an empty one.",
+        ),
+    ),
+    Change(
         version="1.3.74",
         date="2026-11-07",
         notes=(

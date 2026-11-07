@@ -4,6 +4,8 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Section menu: back arrow above the submenu title returns to the full section list (1.3.76).
+- Seen devices are added to their subnet's Devices tab (kind from discovery, no duplicates); the tab follows the selected subnet (1.3.75, BUG-039).
 - Subnets right-click: Scan / Alter (address + prefix) / Remove. Show live subnets fixed: `subnet_health.py` and `ssh_inventory.py` were committed empty; rebuilt the adapter-discovery part of `subnet_health` (1.3.74, BUG-024, BUG-037, BUG-038).
 - Sliding section menu (`section_menu.py`): Config Check and Setup open a submenu, main list slides to a greyed 20 % strip. Config Check workspace now lives under Home with its tabs as the submenu (1.3.73).
 - Login to Routers → Subnets: Seen and Connected columns, background discovery of routers / switches / gateways / firewalls (`net_discovery.py`). 222.10.50.0/24: pfSense Plus at .1 (gateway) and MikroTiks at .5, .10, .20, .30 (1.3.72, BUG-035, BUG-036).

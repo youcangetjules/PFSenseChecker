@@ -667,6 +667,7 @@ class SessionScreen(QWidget):
         self._seen_error: dict[str, str] = {}
         self._discovery_worker: _DiscoveryWorker | None = None
         self._discovery_queue: list[str] = []
+        self._device_tab_user_chosen = False
         self._connected_name: str | None = None
         self._config_pull_for_check = False
         self._splitters_restored = False
@@ -738,6 +739,7 @@ class SessionScreen(QWidget):
         )
         self.subnet_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.subnet_table.customContextMenuRequested.connect(self._subnet_context_menu)
+        self.subnet_table.itemSelectionChanged.connect(self._on_subnet_row_selected)
         sn.addWidget(self.subnet_table)
         subnet_row = QHBoxLayout()
         self.subnet_edit = QLineEdit()
@@ -1195,11 +1197,16 @@ class SessionScreen(QWidget):
         for key in ordered:
             count = len(groups.get(key, []))
             self.device_subnet_tabs.addTab(QWidget(), f"{key} ({count})")
+        target = 0
+        if prev in ordered and (self._device_tab_user_chosen or groups.get(prev)):
+            target = ordered.index(prev)
+        else:
+            populated = [i for i, k in enumerate(ordered) if groups.get(k)]
+            if populated:
+                target = populated[0]
+        if ordered:
+            self.device_subnet_tabs.setCurrentIndex(target)
         self.device_subnet_tabs.blockSignals(False)
-        if prev in ordered:
-            self.device_subnet_tabs.setCurrentIndex(ordered.index(prev))
-        elif ordered:
-            self.device_subnet_tabs.setCurrentIndex(0)
         self._apply_device_subnet_tab_styles(ordered, groups)
         self._apply_device_subnet_tab_filter()
 
@@ -1255,8 +1262,23 @@ class SessionScreen(QWidget):
             self._refresh_device_details(None)
 
     def _on_device_subnet_tab_changed(self, _index: int) -> None:
+        self._device_tab_user_chosen = True
         self._apply_device_subnet_tab_filter()
         self._refresh_connect_button()
+
+    def _select_device_tab(self, cidr: str) -> None:
+        """Show the Devices panel tab for *cidr*."""
+        if cidr in self._device_subnet_keys:
+            idx = self._device_subnet_keys.index(cidr)
+            if self.device_subnet_tabs.currentIndex() != idx:
+                self.device_subnet_tabs.setCurrentIndex(idx)
+            else:
+                self._apply_device_subnet_tab_filter()
+
+    def _on_subnet_row_selected(self) -> None:
+        cidr = self._selected_subnet()
+        if cidr:
+            self._select_device_tab(cidr)
 
     def _focus_subnet_tab_for_device(self, dev: Device | None) -> None:
         if dev is None or not self._device_subnet_keys:
@@ -2339,6 +2361,7 @@ class SessionScreen(QWidget):
             QMessageBox.warning(self, "Devices", f"Not a valid subnet: {cidr}")
             return
         self.address_edit.setText(cidr)
+        self._select_device_tab(cidr)
         self._start_subnet_scan(cidr)
 
     def _add_subnet(self) -> None:
@@ -3385,7 +3408,57 @@ class SessionScreen(QWidget):
         self._seen[cidr] = list(seen)
         self._seen_state[cidr] = "done"
         self._seen_error.pop(cidr, None)
+        if self._add_seen_to_site(seen):
+            keep = self._selected_subnet()
+            self.set_site(self._ensure_site())
+            if keep and self._site and keep in self._site.subnets:
+                self.subnet_table.selectRow(self._site.subnets.index(keep))
+            self.site_changed.emit()
         self._refresh_subnet_connected_labels()
+
+    _GENERIC_SEEN_KINDS = {"", "router", "switch", "host", "other"}
+
+    def _add_seen_to_site(self, seen: list) -> bool:
+        """Put each seen network device on the login list (no duplicates).
+
+        A device already listed by IP or MAC keeps its name and any kind the
+        operator chose; only a generic kind is upgraded. Returns True if the
+        site changed.
+        """
+        site = self._ensure_site()
+        changed = False
+        for found in seen:
+            kind = net_discovery.kind_for(found)
+            evidence = "; ".join(found.evidence)
+            existing = self._find_device_by_host_or_mac(ip=found.ip, mac=found.mac)
+            if existing is not None:
+                if (existing.kind or "") in self._GENERIC_SEEN_KINDS and kind != existing.kind:
+                    existing.kind = kind
+                    changed = True
+                ssh = existing.ensure_ssh()
+                if not ssh.host:
+                    ssh.host = found.ip
+                    changed = True
+                continue
+            notes = "; ".join(
+                part
+                for part in (f"MAC {found.mac}" if found.mac else "", f"seen: {evidence}")
+                if part
+            )
+            dev = Device(
+                name=self._unique_device_name(found.ip),
+                kind=kind,
+                mgmt_ip=found.ip,
+                notes=notes,
+            )
+            dev.ensure_ssh().host = found.ip
+            self._hydrate_device_from_saved_credentials(dev, found.ip)
+            site.add_or_update_device(dev)
+            app_log.get_logger("discovery").info(
+                "Seen device added: %s %s (%s)", found.ip, kind, found.vendor or found.role
+            )
+            changed = True
+        return changed
 
     def _on_discovery_failed(self, cidr: str, message: str, too_large: bool) -> None:
         self._seen_state[cidr] = "too_large" if too_large else "error"

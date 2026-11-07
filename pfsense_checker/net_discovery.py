@@ -382,3 +382,20 @@ def connected_summary(names: list[str]) -> tuple[str, str]:
     if n == 0:
         return "none connected", IDLE_COLOR
     return f"{n} connected", CONNECTED_COLOR
+
+
+_KIND_BY_VENDOR = {
+    "pfSense": "pfsense",
+    "Netgate": "pfsense",
+    "OPNsense": "opnsense",
+    "MikroTik": "mikrotik",
+    "Juniper": "juniper",
+    "Ubiquiti": "ubiquiti",
+}
+
+
+def kind_for(device: SeenDevice) -> str:
+    """Login-list device kind for a seen device (the Kind dropdown values)."""
+    if device.vendor in _KIND_BY_VENDOR:
+        return _KIND_BY_VENDOR[device.vendor]
+    return "switch" if device.role == ROLE_SWITCH else "router"

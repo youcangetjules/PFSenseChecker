@@ -190,3 +190,69 @@ def test_subnets_panel_shows_seen_and_connected_columns(monkeypatch) -> None:
     assert cell(0, 2) == "none connected"
     assert cell(1, 1) == "too large"
     assert screen.btn_rescan.isEnabled()
+
+
+def test_kind_for_maps_vendors_to_login_kinds() -> None:
+    assert nd.kind_for(nd.SeenDevice(ip="1", role="firewall", vendor="pfSense")) == "pfsense"
+    assert nd.kind_for(nd.SeenDevice(ip="1", role="router", vendor="MikroTik")) == "mikrotik"
+    assert nd.kind_for(nd.SeenDevice(ip="1", role="switch")) == "switch"
+    assert nd.kind_for(nd.SeenDevice(ip="1", role="gateway")) == "router"
+
+
+def test_seen_devices_fill_the_subnet_tab(monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker import session_screen
+    from pfsense_checker.topology_site import Device, SiteTopology
+
+    app = QApplication.instance() or QApplication([])
+    seen = [nd.SeenDevice(ip="222.10.50.1", role="firewall", vendor="pfSense",
+                          mac="ec:0d:9a:d9:85:1b", evidence=("web GUI: pfSense",))]
+    seen += [
+        nd.SeenDevice(ip=f"222.10.50.{n}", role="router", vendor="MikroTik",
+                      mac=f"18:fd:74:00:00:{n:02x}")
+        for n in (5, 10, 20, 30)
+    ]
+    monkeypatch.setattr(nd, "discover", lambda cidr, **k: seen if cidr.startswith("222.") else [])
+    monkeypatch.setattr(nd, "default_gateways", lambda: set())
+    monkeypatch.setattr(
+        session_screen.SessionScreen, "_hydrate_device_from_saved_credentials",
+        lambda self, dev, host: None,
+    )
+
+    site = SiteTopology(subnets=["172.28.112.0/20", "222.10.50.0/24"])
+    for n, kind in ((5, "juniper"), (10, "router")):  # one operator choice, one generic
+        dev = Device(name=f"host-222-10-50-{n}", kind=kind, mgmt_ip=f"222.10.50.{n}")
+        dev.ensure_ssh().host = f"222.10.50.{n}"
+        site.add_or_update_device(dev)
+
+    screen = session_screen.SessionScreen()
+    screen.set_site(site)
+    for _ in range(50):
+        w = screen._discovery_worker
+        if w is not None:
+            w.wait(5000)
+        app.processEvents()
+        if screen._discovery_worker is None and not screen._discovery_queue:
+            break
+
+    hosts = sorted(d.mgmt_ip for d in screen._site.devices)
+    assert hosts == [f"222.10.50.{n}" for n in (1, 10, 20, 30, 5)]  # no duplicates
+    kinds = {d.mgmt_ip: d.kind for d in screen._site.devices}
+    assert kinds["222.10.50.5"] == "juniper"  # operator's choice kept
+    assert kinds["222.10.50.10"] == "mikrotik"  # generic upgraded
+    assert kinds["222.10.50.1"] == "pfsense"
+
+    # The panel opens on the populated tab, not the empty /20.
+    tabs = screen.device_subnet_tabs
+    assert tabs.tabText(tabs.currentIndex()) == "222.10.50.0/24 (5)"
+    visible = [r for r in range(screen.table.rowCount()) if not screen.table.isRowHidden(r)]
+    assert len(visible) == 5
+
+    # Selecting a subnet row shows its tab.
+    screen.subnet_table.selectRow(0)
+    app.processEvents()
+    assert tabs.tabText(tabs.currentIndex()).startswith("172.28.112.0/20")
+    screen.subnet_table.selectRow(1)
+    app.processEvents()
+    assert tabs.tabText(tabs.currentIndex()) == "222.10.50.0/24 (5)"

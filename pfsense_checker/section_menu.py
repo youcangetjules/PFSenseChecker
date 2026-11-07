@@ -8,9 +8,11 @@ The strip stays clickable, so any main section is one click away.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QPointF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QLabel,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -32,6 +34,37 @@ _GREYED_STYLE = (
 _SUB_TITLE_STYLE = (
     "font-weight: bold; color: #1a237e; padding: 4px 6px 2px 6px;"
 )
+_BACK_BTN_STYLE = (
+    "QToolButton { border: none; border-radius: 4px; padding: 2px 4px; }"
+    "QToolButton:hover { background: #e3eef8; }"
+    "QToolButton:pressed { background: #c5d9ef; }"
+)
+
+
+def back_arrow_icon(size: int = 22, color: str = "#1a237e") -> QIcon:
+    """A return arrow: up from the bottom right, curving back to the left."""
+    scale = 4  # draw large, let Qt scale down for smooth edges
+    s = size * scale
+    pix = QPixmap(s, s)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 2.2 * scale)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    u = s / 22.0
+    path = QPainterPath(QPointF(17 * u, 19 * u))
+    path.lineTo(QPointF(17 * u, 11 * u))
+    path.quadTo(QPointF(17 * u, 5 * u), QPointF(11 * u, 5 * u))
+    path.lineTo(QPointF(4 * u, 5 * u))
+    p.drawPath(path)
+    head = QPainterPath(QPointF(8.5 * u, 0.8 * u))
+    head.lineTo(QPointF(4 * u, 5 * u))
+    head.lineTo(QPointF(8.5 * u, 9.2 * u))
+    p.drawPath(head)
+    p.end()
+    return QIcon(pix)
 
 
 class SlidingSectionMenu(QWidget):
@@ -63,6 +96,15 @@ class SlidingSectionMenu(QWidget):
         sub_lay = QVBoxLayout(self.sub_panel)
         sub_lay.setContentsMargins(4, 0, 0, 0)
         sub_lay.setSpacing(2)
+        self.back_btn = QToolButton()
+        self.back_btn.setIcon(back_arrow_icon())
+        self.back_btn.setIconSize(QSize(22, 22))
+        self.back_btn.setToolTip("Back to all sections")
+        self.back_btn.setAccessibleName("Back to all sections")
+        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.back_btn.setStyleSheet(_BACK_BTN_STYLE)
+        self.back_btn.clicked.connect(self.back)
+        sub_lay.addWidget(self.back_btn, 0, Qt.AlignmentFlag.AlignLeft)
         self.sub_title = QLabel("")
         self.sub_title.setStyleSheet(_SUB_TITLE_STYLE)
         self.sub_title.setWordWrap(True)
@@ -162,6 +204,17 @@ class SlidingSectionMenu(QWidget):
             self._close(animate=animate)
         if emit:
             self.section_selected.emit(key)
+
+    def back(self) -> None:
+        """Slide back to the full section list; the current page stays.
+
+        The parent stays marked in the main list, and clicking it again
+        reopens the submenu at the child that was showing.
+        """
+        if not self._open_parent:
+            return
+        self._mark_main(self._open_parent)
+        self._close(animate=True)
 
     def _on_main_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         key = str(item.data(0, _KEY) or "")
