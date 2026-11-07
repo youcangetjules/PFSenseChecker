@@ -4,6 +4,7 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Right-drag pans the topology canvases; room to pan round the devices; redraws keep the view (1.3.109).
 - Map pick switches the Devices subnet tab; subnet tabs repainted with their colours and a highlighted selected tab (1.3.108, BUG-047).
 - Linksys support and logo background clearing (1.3.106); linksys.jpg moved into assets/logos.
 - WLANs coloured by SSID VLAN via CAPsMAN on CRS328 (630 LAN / 710 IOT) and placed in each CRS109's bridge; right-click no longer rubber-bands; ports below the title bar with room for the bridge name (1.3.107).

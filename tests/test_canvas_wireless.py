@@ -104,16 +104,28 @@ def _send(view, kind, pos: QPoint, button, buttons) -> None:  # noqa: ANN001
     QApplication.processEvents()
 
 
-def test_right_drag_on_empty_space_does_not_rubber_band() -> None:
+def test_right_drag_pans_and_right_click_still_opens_the_menu() -> None:
+    from PySide6.QtGui import QContextMenuEvent
+
     view = _view()
     empty = QPoint(850, 450)
     assert view.itemAt(empty) is None
+    h0, v0 = view.horizontalScrollBar().value(), view.verticalScrollBar().value()
     _send(view, QEvent.Type.MouseButtonPress, empty, Qt.MouseButton.RightButton, Qt.MouseButton.RightButton)
     for i in range(1, 5):
         _send(view, QEvent.Type.MouseMove, empty - QPoint(i * 30, i * 20), Qt.MouseButton.NoButton,
               Qt.MouseButton.RightButton)
-        assert view.rubberBandRect().isNull()
+        assert view.rubberBandRect().isNull()  # no selection box
+    # dragging up-left moves the view down-right
+    assert view.horizontalScrollBar().value() > h0 and view.verticalScrollBar().value() > v0
     _send(view, QEvent.Type.MouseButtonRelease, empty, Qt.MouseButton.RightButton, Qt.MouseButton.NoButton)
+    menu = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, empty, view.viewport().mapToGlobal(empty))
+    QApplication.sendEvent(view.viewport(), menu)  # real right-clicks arrive at the viewport
+    assert menu.isAccepted() and not view._suppress_menu  # noqa: SLF001 - the pan swallowed this menu
+    # a plain right-click (no movement) is not a pan: its menu goes ahead
+    _send(view, QEvent.Type.MouseButtonPress, empty, Qt.MouseButton.RightButton, Qt.MouseButton.RightButton)
+    _send(view, QEvent.Type.MouseButtonRelease, empty, Qt.MouseButton.RightButton, Qt.MouseButton.NoButton)
+    assert not view._suppress_menu and not view._panning  # noqa: SLF001
     # left-drag still selects with a rubber band
     _send(view, QEvent.Type.MouseButtonPress, empty, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
     _send(view, QEvent.Type.MouseMove, empty - QPoint(60, 40), Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton)

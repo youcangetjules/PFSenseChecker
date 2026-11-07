@@ -72,6 +72,15 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.109",
+        date="2026-11-07",
+        notes=(
+            "Topology canvases: right-drag pans the view (grab-hand cursor); a plain "
+            "right-click still opens the menu. 800px of canvas is kept round the devices "
+            "so there is always room to pan, and redraws keep the view where it was.",
+        ),
+    ),
+    Change(
         version="1.3.108",
         date="2026-11-07",
         notes=(

@@ -1279,6 +1279,8 @@ class LinkItem(QGraphicsPathItem):
         self.setPath(path)
 
 
+PAN_MARGIN = 800.0  # empty canvas kept around the devices, so there is room to pan
+PAN_START_PX = 4  # right-button movement that turns a click into a pan
 ZOOM_MIN = 0.1
 ZOOM_MAX = 4.0
 _ZOOM_STEPS = 200  # slider resolution; positions map logarithmically to zoom
@@ -1376,6 +1378,9 @@ class SiteTopologyView(QGraphicsView):
         self.vlan_legend = VlanLegend(self)
         self._place_overlays()
         self._quiet_selection = False
+        self._pan_origin: QPointF | None = None
+        self._panning = False
+        self._suppress_menu = False
         self._pulse_t0 = time.monotonic()
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(PULSE_FRAME_MS)
@@ -1448,6 +1453,14 @@ class SiteTopologyView(QGraphicsView):
             return
         if name:
             self.device_selected.emit(name)
+
+    def _on_chassis_edit_finished(self, _name: str) -> None:
+        # A moved or stretched box keeps PAN_MARGIN of canvas around it.
+        items = self._scene.itemsBoundingRect()
+        grown = self._scene.sceneRect().united(items.adjusted(-PAN_MARGIN, -PAN_MARGIN, PAN_MARGIN, PAN_MARGIN))
+        if grown != self._scene.sceneRect():
+            self._scene.setSceneRect(grown)
+        self.positions_changed.emit()
 
     def _live_chassis(self) -> list["ChassisItem"]:
         out = []
@@ -1533,6 +1546,10 @@ class SiteTopologyView(QGraphicsView):
         return True
 
     def contextMenuEvent(self, event) -> None:  # noqa: ANN001, N802
+        if self._suppress_menu or self._panning:
+            self._suppress_menu = False  # the right button was used to pan
+            event.accept()
+            return
         sp = self.mapToScene(event.pos())
         link_item = self._link_item_at(sp)
         if link_item is not None and not self._locked:
@@ -1681,11 +1698,13 @@ class SiteTopologyView(QGraphicsView):
         self.links_changed.emit()
         self.positions_changed.emit()
 
+    # Right button: a click opens the menu; a drag pans the canvas. (Qt would
+    # otherwise start a rubber-band selection on any button.)
+
     def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
-        # Right button is for the context menu only. Qt would otherwise start a
-        # rubber-band selection on any button, so a right-drag on empty space
-        # dragged a selection box around.
         if event.button() == Qt.MouseButton.RightButton:
+            self._pan_origin = event.position()
+            self._panning = False
             event.accept()
             return
         super().mousePressEvent(event)
@@ -1697,12 +1716,29 @@ class SiteTopologyView(QGraphicsView):
             self._wire_line.setLine(QLineF(line.p1(), sp))
             event.accept()
             return
-        if event.buttons() & Qt.MouseButton.RightButton and not event.buttons() & Qt.MouseButton.LeftButton:
-            event.accept()  # right-drag does nothing
+        if self._pan_origin is not None and event.buttons() & Qt.MouseButton.RightButton:
+            delta = event.position() - self._pan_origin
+            if not self._panning and delta.manhattanLength() >= PAN_START_PX:
+                self._panning = True
+                self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            if self._panning:
+                h, v = self.horizontalScrollBar(), self.verticalScrollBar()
+                h.setValue(h.value() - round(delta.x()))
+                v.setValue(v.value() - round(delta.y()))
+                self._pan_origin = event.position()
+            event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: ANN001, N802
+        if event.button() == Qt.MouseButton.RightButton and self._pan_origin is not None:
+            if self._panning:
+                self._suppress_menu = True  # a pan is not a right-click
+                self.viewport().unsetCursor()
+            self._pan_origin = None
+            self._panning = False
+            event.accept()
+            return
         if self._wire_from is not None and event.button() == Qt.MouseButton.LeftButton:
             sp = self.mapToScene(event.position().toPoint())
             target = self._port_item_at(sp)
@@ -1844,6 +1880,9 @@ class SiteTopologyView(QGraphicsView):
         self.render_site(self._site)
 
     def render_site(self, site) -> None:  # noqa: ANN001
+        keep_centre = (
+            self.mapToScene(self.viewport().rect().center()) if self._chassis else None
+        )
         self._site = site
         self._grid = max(5, int(getattr(site, "grid_size", 20) or 20))
         site.ensure_positions()
@@ -1852,7 +1891,7 @@ class SiteTopologyView(QGraphicsView):
         tip = self._scene.addText(
             "Drag chassis · right-click chassis for Pull Config / Show more · "
             "drag a port onto another device's port to link · "
-            "Save Topology to persist · Esc cancels a cable · zoom: slider (bottom right) or Ctrl+wheel"
+            "Save Topology to persist · Esc cancels a cable · right-drag to pan · zoom: slider (bottom right) or Ctrl+wheel"
         )
         tip.setDefaultTextColor(QColor("#90a4ae"))
         tipf = QFont()
@@ -1892,7 +1931,7 @@ class SiteTopologyView(QGraphicsView):
             ch.set_locked(self._locked)
             ch.moved.connect(self._on_chassis_moved)
             ch.resized.connect(self._on_chassis_resized)
-            ch.edit_finished.connect(lambda _name: self.positions_changed.emit())
+            ch.edit_finished.connect(self._on_chassis_edit_finished)
             self._scene.addItem(ch)
             self._chassis[dev.name] = ch
 
@@ -1968,7 +2007,15 @@ class SiteTopologyView(QGraphicsView):
             empty.setPos(20, 20)
 
         bounds = self._scene.itemsBoundingRect()
-        self._scene.setSceneRect(bounds.adjusted(-80, -80, 160, 160))
+        # Room all round so right-drag can pan even when everything fits.
+        self._scene.setSceneRect(bounds.adjusted(-PAN_MARGIN, -PAN_MARGIN, PAN_MARGIN, PAN_MARGIN))
+        if keep_centre is not None:
+            self.centerOn(keep_centre)  # redraws keep the view where it was
+        else:
+            # First draw: the devices' top-left corner near the view's top-left.
+            vp = self.viewport().rect()
+            z = self.zoom() or 1.0
+            self.centerOn(bounds.left() - 20 + vp.width() / (2 * z), bounds.top() - 20 + vp.height() / (2 * z))
         if self._highlight_devices or self._highlight_path:
             self.highlight_devices(
                 self._highlight_devices or self._highlight_path,
