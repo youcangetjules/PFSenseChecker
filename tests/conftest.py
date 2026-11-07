@@ -45,3 +45,12 @@ def _no_cached_adapters(monkeypatch):
     from pfsense_checker import subnet_health
 
     monkeypatch.setattr(subnet_health, "_cache", None)
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_identification():
+    from pfsense_checker import net_discovery
+
+    net_discovery.clear_ident_cache()
+    yield
+    net_discovery.clear_ident_cache()

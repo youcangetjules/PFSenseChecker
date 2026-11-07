@@ -130,3 +130,35 @@ def test_back_arrow_returns_to_full_list_and_reopens_at_last_child() -> None:
     menu._on_main_clicked(menu.main.topLevelItem(2), 0)
     assert picked[-1] == "setup.logging"
     assert menu.open_parent() == "setup"
+
+
+def test_loaded_configs_list_opens_config_check(tmp_path) -> None:
+    _app()
+    from pfsense_checker.home_screen import HomeScreen, loaded_config_devices
+    from pfsense_checker.topology_site import ConfigSource, Device, SiteTopology
+
+    cfg = tmp_path / "host-222-10-50-5.rsc"
+    cfg.write_text("# export", encoding="utf-8")
+    site = SiteTopology(subnets=["222.10.50.0/24"])
+    with_cfg = Device(name="host-222-10-50-5", kind="mikrotik", mgmt_ip="222.10.50.5")
+    with_cfg.config_source = ConfigSource.from_local_path(str(cfg))
+    ignored = Device(name="dup-gw", kind="pfsense", mgmt_ip="222.10.50.1", ignored=True)
+    ignored.config_source = ConfigSource.from_local_path(str(cfg))
+    missing = Device(name="gone", kind="mikrotik", mgmt_ip="222.10.50.9")
+    missing.config_source = ConfigSource.from_local_path(str(tmp_path / "nope.rsc"))
+    for d in (with_cfg, ignored, missing):
+        site.add_or_update_device(d)
+
+    rows = loaded_config_devices(site)
+    assert [r[0] for r in rows] == ["host-222-10-50-5", "dup-gw"]  # ignored last
+    assert rows[0][1:4] == ("mikrotik", "222.10.50.5", str(cfg))
+
+    home = HomeScreen()
+    assert home.loaded_configs.item(0).text().startswith("None yet")
+    home._live_site = site
+    home._refresh_loaded_configs()
+    assert home.loaded_configs.count() == 2
+    opened: list[str] = []
+    home.config_pulled_for_check.connect(opened.append)
+    home._open_loaded_config(home.loaded_configs.item(0))
+    assert opened == [str(cfg)]

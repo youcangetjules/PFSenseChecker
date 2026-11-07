@@ -72,6 +72,36 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.78",
+        date="2026-11-07",
+        notes=(
+            "Loaded configs: under the section menu, every Login to Routers "
+            "device with a config file attached (name, kind, IP). Click one to "
+            "open it in Config Check. Ignored devices are listed greyed.",
+            "Database: next to Save login, the live connection's state — "
+            "logged in as user@database, and whether SSL is really in use "
+            "(read from pg_stat_ssl, with protocol), or a red SSL OFF warning. "
+            "The tooltip notes that prefer/allow can fall back to plain text "
+            "and that require does not verify the server certificate.",
+        ),
+    ),
+    Change(
+        version="1.3.77",
+        date="2026-11-07",
+        notes=(
+            "Right-click a device → Ignore device: the row is greyed out, its "
+            "Use box is unticked and locked, it is never tested or connected "
+            "and does not count as connected. For a box also listed through "
+            "another VLAN. Saved with the site; sweeps leave it alone. "
+            "Stop ignoring device undoes it.",
+            "Discovery no longer trips pfSense sshguard: one SSH connection per "
+            "host that sends NetCheck's own version line before closing (a bare "
+            "connect made sshd log a missing identification string), and each "
+            "host is identified once per run. Automatic sweeps only ping known "
+            "hosts; Scan this subnet / Rescan subnets look again.",
+        ),
+    ),
+    Change(
         version="1.3.76",
         date="2026-11-07",
         notes=(

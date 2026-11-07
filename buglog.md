@@ -5,6 +5,7 @@ Do not put passwords, hashes, tokens, or key material in this file.
 
 | ID | Status | Found | Area | Summary |
 |----|--------|-------|------|---------|
+| BUG-040 | fixed | 2026-11-07 | Discovery | Sweeps opened two bare SSH connections per host (port check + banner) and closed them unidentified. sshd logs that as a missing identification string, which pfSense sshguard scores as an attack; after repeated sweeps 222.10.50.1 stopped answering this PC on 22 and 8445 (its GUI) while ping and 80 still worked. The 222.10.50.1 entry was saved as a generic gateway because the title read failed. Fixed in 1.3.77: one identified SSH connection per host and per-run caching. The existing block on the firewall expires on its own or can be cleared under Diagnostics → Tables → sshguard. |
 | BUG-039 | fixed | 2026-11-07 | Login to Routers | 222.10.50.0/24 showed 5 seen but its Devices tab listed 2, and the panel opened on the empty 172.28.112.0/20 tab, so the table looked empty. Fixed in 1.3.75: seen devices join their subnet tab, and the tab follows the selected subnet. |
 | BUG-038 | fixed | 2026-11-07 | Login to Routers | Show live subnets failed: `subnet_health.discover_local_subnets` missing (empty module, BUG-024). Fixed in 1.3.74. |
 | BUG-037 | fixed | 2026-11-07 | Login to Routers | "Local adapter: unavailable" while this PC is on-link in 222.10.50.0/24 (222.10.50.25). Likely the same broken `subnet_health` module as BUG-024. Fixed in 1.3.74 with the rebuilt adapter discovery. |

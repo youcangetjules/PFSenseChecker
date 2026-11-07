@@ -108,12 +108,12 @@ def test_discover_probes_only_management_ports() -> None:
         "222.10.50.0/24",
         scan=lambda *a, **k: hosts,
         probe=probe,
-        banner=lambda ip: "SSH-2.0-ROSSSH",
+        ssh=lambda ip: (ip == "222.10.50.20", "SSH-2.0-ROSSSH" if ip == "222.10.50.20" else ""),
         title=lambda ip, ports: "RouterOS",
         gateways=GW,
     )
     assert [d.ip for d in seen] == ["222.10.50.20"]
-    assert {p for _ip, p in probed} <= set(nd.NETWORK_PORTS)
+    assert {p for _ip, p in probed} <= set(nd.NETWORK_PORTS) - {22}  # 22: one ssh probe only
     assert all(ip != "10.9.9.9" for ip, _p in probed)
 
 
@@ -256,3 +256,57 @@ def test_seen_devices_fill_the_subnet_tab(monkeypatch) -> None:
     screen.subnet_table.selectRow(1)
     app.processEvents()
     assert tabs.tabText(tabs.currentIndex()) == "222.10.50.0/24 (5)"
+
+
+def test_ssh_probe_identifies_itself_before_closing() -> None:
+    """sshd must not log 'did not receive identification' (sshguard bait)."""
+    import socket
+    import threading
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    got: list[bytes] = []
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        conn.sendall(b"SSH-2.0-OpenSSH_10.3\r\n")
+        conn.settimeout(3)
+        try:
+            got.append(conn.recv(100))
+        finally:
+            conn.close()
+
+    th = threading.Thread(target=serve)
+    th.start()
+    is_open, line = nd.probe_ssh("127.0.0.1", port, timeout=3)
+    th.join(5)
+    server.close()
+    assert (is_open, line) == (True, "SSH-2.0-OpenSSH_10.3")
+    assert got and got[0].startswith(b"SSH-2.0-NetCheck")
+
+
+def test_identification_is_cached_until_refresh() -> None:
+    calls = {"ssh": 0, "probe": 0}
+
+    def ssh(ip):  # noqa: ANN001
+        calls["ssh"] += 1
+        return True, "SSH-2.0-ROSSSH"
+
+    def probe(ip, port, timeout):  # noqa: ANN001
+        calls["probe"] += 1
+        return False
+
+    kw = dict(
+        scan=lambda *a, **k: [LanHost(ip="10.1.1.1")],
+        probe=probe,
+        ssh=ssh,
+        title=lambda ip, ports: "",
+        gateways=set(),
+    )
+    assert [d.vendor for d in nd.discover("10.1.1.0/24", **kw)] == ["MikroTik"]
+    nd.discover("10.1.1.0/24", **kw)  # automatic sweep: ping only
+    assert calls["ssh"] == 1
+    nd.discover("10.1.1.0/24", refresh=True, **kw)  # Scan this subnet
+    assert calls["ssh"] == 2

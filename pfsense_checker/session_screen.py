@@ -569,9 +569,10 @@ class _DiscoveryWorker(QThread):
     subnet_done = Signal(str, list)  # cidr, list[SeenDevice]
     subnet_failed = Signal(str, str, bool)  # cidr, message, too_large
 
-    def __init__(self, cidrs: list[str]) -> None:
+    def __init__(self, cidrs: list[str], refresh: set[str] | None = None) -> None:
         super().__init__()
         self._cidrs = list(cidrs)
+        self._refresh = set(refresh or ())
 
     def run(self) -> None:  # noqa: D102
         gateways = net_discovery.default_gateways()
@@ -584,6 +585,7 @@ class _DiscoveryWorker(QThread):
                     cidr,
                     gateways=gateways,
                     should_stop=self.isInterruptionRequested,
+                    refresh=cidr in self._refresh,
                 )
             except net_discovery.SweepTooLarge as exc:
                 self.subnet_failed.emit(cidr, str(exc), True)
@@ -667,6 +669,7 @@ class SessionScreen(QWidget):
         self._seen_error: dict[str, str] = {}
         self._discovery_worker: _DiscoveryWorker | None = None
         self._discovery_queue: list[str] = []
+        self._discovery_refresh: set[str] = set()  # explicit scans: look again
         self._device_tab_user_chosen = False
         self._connected_name: str | None = None
         self._config_pull_for_check = False
@@ -1469,6 +1472,8 @@ class SessionScreen(QWidget):
 
             self._set_status_cell(row, ssh.last_status or "never", ssh.last_error)
             self._set_config_button(row, self._device_has_loaded_config(dev))
+            if dev.ignored:
+                self._apply_ignored_row(row)
         for dev in devices:
             if not dev.components:
                 refresh_device_topology_from_config(dev)
@@ -1954,8 +1959,72 @@ class SessionScreen(QWidget):
 
     # ------------------------------------------------ add IP / MAC / search
 
+    _IGNORED_NOTE = 'Ignored — right-click → Stop ignoring device. Not tested, connected or counted (for example the same box reached through another VLAN).'
+
+    def _apply_ignored_row(self, row: int) -> None:
+        """Grey out an ignored device's row and lock its Use box."""
+        was = self._updating
+        self._updating = True
+        holder = self.table.cellWidget(row, COL_INCLUDE)
+        box = holder.findChild(QCheckBox) if holder is not None else None
+        if box is not None:
+            box.setChecked(False)
+            box.setEnabled(False)
+            box.setToolTip(self._IGNORED_NOTE)
+        grey = QColor("#9e9e9e")
+        for col in (COL_DEVICE, COL_HOST, COL_PORT, COL_USER):
+            item = self.table.item(row, col)
+            if item is None:
+                continue
+            item.setForeground(grey)
+            font = item.font()
+            font.setItalic(True)
+            item.setFont(font)
+            item.setToolTip(self._IGNORED_NOTE)
+        status = QTableWidgetItem("● ignored")
+        status.setForeground(grey)
+        status.setFlags(status.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        status.setToolTip(self._IGNORED_NOTE)
+        self.table.setItem(row, COL_STATUS, status)
+        for col in (COL_KIND, COL_CONFIG):
+            widget = self.table.cellWidget(row, col)
+            if widget is not None:
+                widget.setEnabled(False)
+        self._updating = was
+
+    def _set_device_ignored(self, dev: Device, ignored: bool) -> None:
+        if bool(dev.ignored) == ignored:
+            return
+        dev.ignored = ignored
+        app_log.get_logger("session").info(
+            "Device %s %s", dev.name, "ignored" if ignored else "no longer ignored"
+        )
+        keep = dev.name
+        self.set_site(self._ensure_site())
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, COL_DEVICE)
+            if item is not None and item.text() == keep:
+                self.table.selectRow(row)
+                break
+        self.site_changed.emit()
+
     def _table_context_menu(self, pos) -> None:  # noqa: ANN001
         menu = QMenu(self)
+        row = self.table.indexAt(pos).row()
+        dev = self._device_for_row(row) if row >= 0 else None
+        if dev is not None:
+            self.table.selectRow(row)
+            if dev.ignored:
+                act = menu.addAction("Stop ignoring device")
+                act.triggered.connect(lambda _c=False, d=dev: self._set_device_ignored(d, False))
+            else:
+                act = menu.addAction("Ignore device")
+                act.setToolTip(
+                    "Grey this device out: not tested, connected or counted. "
+                    "Use it for a box that is also listed through another VLAN."
+                )
+                act.triggered.connect(lambda _c=False, d=dev: self._set_device_ignored(d, True))
+            menu.addSeparator()
         act_search = QAction("Search for devices…", self)
         act_search.triggered.connect(self._search_for_devices)
         menu.addAction(act_search)
@@ -2330,6 +2399,8 @@ class SessionScreen(QWidget):
             return []
         out: list[Device] = []
         for dev in self._connectable_devices():
+            if dev.ignored:
+                continue
             ssh = dev.ssh
             if not ssh or (ssh.last_status or "") != "ok":
                 continue
@@ -2900,6 +2971,14 @@ class SessionScreen(QWidget):
             self.username_edit.setFocus()
             return
 
+        if dev.ignored:
+            QMessageBox.information(
+                self,
+                "Connect",
+                f"“{dev.name}” is ignored. Right-click it → Stop ignoring device "
+                "to connect.",
+            )
+            return
         self._connected_name = dev.name
         row = self._exactly_one_selected_row()
         if row is not None:
@@ -3172,6 +3251,7 @@ class SessionScreen(QWidget):
                 if dev is not None:
                     devices.append(dev)
                     self._set_status_cell(row, "never", "testing…")
+        devices = [d for d in devices if not d.ignored]
         if not devices:
             return
         self.btn_connect.setEnabled(False)
@@ -3321,7 +3401,7 @@ class SessionScreen(QWidget):
         )
 
     def _emit_summary(self) -> None:
-        devs = self._connectable_devices()
+        devs = [d for d in self._connectable_devices() if not d.ignored]
         up = sum(1 for d in devs if d.ssh and d.ssh.last_status == "ok")
         self.ssh_summary_changed.emit(f"SSH {up}/{len(devs)} connected")
         # Keep subnet "N connected" labels in sync without requiring a full
@@ -3377,6 +3457,8 @@ class SessionScreen(QWidget):
         if not rescan:
             wanted = [c for c in wanted if c not in self._seen_state]
         for cidr in wanted:
+            if rescan:
+                self._discovery_refresh.add(cidr)
             if cidr not in self._discovery_queue:
                 self._discovery_queue.append(cidr)
                 self._seen_state[cidr] = "pending"
@@ -3391,8 +3473,10 @@ class SessionScreen(QWidget):
             self.btn_rescan.setEnabled(True)
             return
         batch, self._discovery_queue = self._discovery_queue, []
+        refresh = {c for c in batch if c in self._discovery_refresh}
+        self._discovery_refresh -= refresh
         self.btn_rescan.setEnabled(False)
-        worker = _DiscoveryWorker(batch)
+        worker = _DiscoveryWorker(batch, refresh)
         worker.subnet_started.connect(self._on_discovery_started)
         worker.subnet_done.connect(self._on_discovery_done)
         worker.subnet_failed.connect(self._on_discovery_failed)
@@ -3432,6 +3516,8 @@ class SessionScreen(QWidget):
             evidence = "; ".join(found.evidence)
             existing = self._find_device_by_host_or_mac(ip=found.ip, mac=found.mac)
             if existing is not None:
+                if existing.ignored:
+                    continue
                 if (existing.kind or "") in self._GENERIC_SEEN_KINDS and kind != existing.kind:
                     existing.kind = kind
                     changed = True

@@ -4,6 +4,8 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Loaded configs list under the section menu (click to open in Config Check). Database page shows logged-in user@db and real SSL state (TLSv1.3 on localhost) next to Save login (1.3.78).
+- Ignore device on the Login to Routers device list (saved, greyed, never probed). Discovery made sshguard-safe after it got this PC blocked from 222.10.50.1 SSH/GUI (1.3.77, BUG-040).
 - Section menu: back arrow above the submenu title returns to the full section list (1.3.76).
 - Seen devices are added to their subnet's Devices tab (kind from discovery, no duplicates); the tab follows the selected subnet (1.3.75, BUG-039).
 - Subnets right-click: Scan / Alter (address + prefix) / Remove. Show live subnets fixed: `subnet_health.py` and `ssh_inventory.py` were committed empty; rebuilt the adapter-discovery part of `subnet_health` (1.3.74, BUG-024, BUG-037, BUG-038).

@@ -238,6 +238,11 @@ class DatabaseScreen(QWidget):
         btn_save = QPushButton("Save login")
         btn_save.clicked.connect(self._save_login)
         row.addWidget(btn_save)
+        # What the live connection really is: logged in? encrypted?
+        self.login_state = QLabel()
+        self.login_state.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row.addWidget(self.login_state)
+        self._show_login_state(None)
         row.addStretch(1)
         form.addRow(row)
         return box
@@ -370,6 +375,31 @@ class DatabaseScreen(QWidget):
             save_password=self.pg_save_pw.isChecked(),
         )
 
+    def _show_login_state(self, sec: pg.ConnectionSecurity | None) -> None:
+        mode = self._settings.sslmode if self._settings else "prefer"
+        text, color, tip = pg.security_summary(sec, mode)
+        self.login_state.setText(text)
+        self.login_state.setToolTip(tip)
+        self.login_state.setStyleSheet(
+            f"color: {color}; font-weight: 600; padding-left: 10px;"
+        )
+
+    def _refresh_login_state(self) -> None:
+        if self._conn is None:
+            self._show_login_state(None)
+            return
+        try:
+            sec = pg.connection_security(self._conn)
+        except Exception as exc:  # noqa: BLE001
+            app_log.get_logger("database").warning("Login state check failed: %s", exc)
+            self._show_login_state(None)
+            return
+        self._show_login_state(sec)
+        app_log.get_logger("database").info(
+            "Postgres login %s@%s ssl=%s %s",
+            sec.user, sec.database, sec.ssl, sec.protocol,
+        )
+
     def _save_login(self) -> None:
         settings = self._settings_from_ui()
         try:
@@ -430,6 +460,7 @@ class DatabaseScreen(QWidget):
             except OSError:
                 pass
         short = version.split(",")[0] if version else "connected"
+        self._refresh_login_state()
         self.db_status.setText(f"Connected — {short}")
         self.db_status.setStyleSheet("color: #2e7d32;")
         self.status_changed.emit(f"Postgres: {self._settings.database}@{self._settings.host}")
@@ -457,6 +488,7 @@ class DatabaseScreen(QWidget):
         )
 
     def _on_connect_failed(self, msg: str) -> None:
+        self._show_login_state(None)
         self.db_status.setText(f"Connection failed: {msg}")
         self.db_status.setStyleSheet("color: #c62828;")
         self.status_changed.emit("Postgres: not connected")
@@ -471,6 +503,7 @@ class DatabaseScreen(QWidget):
             except Exception:  # noqa: BLE001
                 pass
             self._conn = None
+        self._show_login_state(None)
         self._set_connected_ui(False)
         self.table_tree.clear()
         self.data_table.setRowCount(0)

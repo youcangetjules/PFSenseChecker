@@ -7,8 +7,14 @@ Scope and footprint (this is network discovery, so it is kept narrow):
   silently truncated.
 * Liveness is ping + ARP (``lan_scan.scan_subnet``). Live hosts then get a
   TCP connect on ``NETWORK_PORTS`` only — management ports, no range scan.
-* One read per service to identify the box: the SSH greeting line, and the
-  HTTP(S) ``<title>``. An HTTP redirect is followed once, and only to the
+* SSH gets exactly one connection per host: it reads the server greeting
+  (which also answers "is 22 open"), sends NetCheck's own version line, and
+  closes. A bare connect-and-close makes sshd log "did not receive
+  identification", which pfSense's sshguard counts as an attack; two sweeps
+  of that got this PC blocked from the firewall's SSH and GUI on 2026-11-07.
+* Each host is identified once per run and cached. Later sweeps only ping;
+  ``refresh=True`` (Scan this subnet / Rescan subnets) looks again.
+* One read per web GUI to identify the box: the HTTP(S) ``<title>``. An HTTP redirect is followed once, and only to the
   same IP. TLS certificates are not verified (self-signed admin GUIs);
   nothing is sent but ``GET /``, and no credentials are ever used.
 * Vendors come from a local OUI table. MACs are not sent to any lookup
@@ -75,6 +81,14 @@ _VENDOR_OUI: dict[str, str] = {
 }
 
 
+# ip → (open ports, ssh greeting, web title). Process lifetime.
+_IDENT_CACHE: dict[str, tuple[tuple[int, ...], str, str]] = {}
+
+
+def clear_ident_cache() -> None:
+    _IDENT_CACHE.clear()
+
+
 class SweepTooLarge(ValueError):
     """The subnet has more addresses than ``MAX_SWEEP_HOSTS``."""
 
@@ -105,16 +119,39 @@ def sweep_size(cidr: str) -> int:
     return max(0, net.num_addresses - 2) if net.prefixlen < 31 else net.num_addresses
 
 
+_CLIENT_IDENT = b"SSH-2.0-NetCheck_discovery\r\n"
+
+
+def probe_ssh(ip: str, port: int = 22, timeout: float = _PROBE_TIMEOUT) -> tuple[bool | None, str]:
+    """One polite SSH connection: (open?, greeting line).
+
+    open is True / False (refused) / None (no answer), as ``_tcp_probe``.
+    """
+    try:
+        sock = socket.create_connection((ip, port), timeout=timeout)
+    except ConnectionRefusedError:
+        return False, ""
+    except OSError as exc:
+        err = getattr(exc, "winerror", None) or getattr(exc, "errno", None)
+        return (False if err in {10061, 111} else None), ""
+    data = b""
+    try:
+        sock.settimeout(timeout)
+        data = sock.recv(255)
+        # Identify ourselves before leaving, so sshd does not log a
+        # missing identification string (an sshguard attack signature).
+        sock.sendall(_CLIENT_IDENT)
+    except OSError:
+        pass
+    finally:
+        sock.close()
+    line = data.split(b"\n", 1)[0].strip().decode("ascii", "replace")
+    return True, (line if line.startswith("SSH-") else "")
+
+
 def read_ssh_banner(ip: str, port: int = 22, timeout: float = _PROBE_TIMEOUT) -> str:
     """Return the server's SSH greeting line (``SSH-2.0-…``), or ""."""
-    try:
-        with socket.create_connection((ip, port), timeout=timeout) as sock:
-            sock.settimeout(timeout)
-            data = sock.recv(255)
-    except OSError:
-        return ""
-    line = data.split(b"\n", 1)[0].strip().decode("ascii", "replace")
-    return line if line.startswith("SSH-") else ""
+    return probe_ssh(ip, port, timeout)[1]
 
 
 def _http_get(
@@ -292,12 +329,17 @@ def discover(
     *,
     scan: Callable[..., list[LanHost]] = scan_subnet,
     probe: Callable[[str, int, float], bool | None] = _tcp_probe,
-    banner: Callable[[str], str] = read_ssh_banner,
+    ssh: Callable[[str], tuple[bool | None, str]] = probe_ssh,
     title: Callable[[str, tuple[int, ...]], str] = read_http_title,
     gateways: set[str] | None = None,
     should_stop: Callable[[], bool] = lambda: False,
+    refresh: bool = False,
 ) -> list[SeenDevice]:
-    """Sweep *cidr* and return the network devices seen on it."""
+    """Sweep *cidr* and return the network devices seen on it.
+
+    Hosts identified earlier in this run reuse that result unless
+    *refresh* is True, so automatic sweeps only ping them.
+    """
     net = ipaddress.ip_network(cidr, strict=False)
     size = sweep_size(str(net))
     if size > MAX_SWEEP_HOSTS:
@@ -315,19 +357,28 @@ def discover(
     )
     hosts = [h for h in hosts if _in(h.ip, net)]
 
+    def _identify(ip: str) -> tuple[tuple[int, ...], str, str]:
+        ssh_open, greeting = ssh(ip)
+        ports = {p for p in NETWORK_PORTS if p != 22 and probe(ip, p, _PROBE_TIMEOUT) is True}
+        if ssh_open is True:
+            ports.add(22)
+        open_ports = tuple(sorted(ports))
+        page = title(ip, open_ports) if {80, 443} & ports else ""
+        return open_ports, greeting, page
+
     def _look(host: LanHost) -> SeenDevice | None:
         if should_stop():
             return None
-        open_ports = tuple(
-            p for p in NETWORK_PORTS if probe(host.ip, p, _PROBE_TIMEOUT) is True
-        )
-        ssh = banner(host.ip) if 22 in open_ports else ""
-        page = title(host.ip, open_ports) if {80, 443} & set(open_ports) else ""
+        cached = None if refresh else _IDENT_CACHE.get(host.ip)
+        if cached is None:
+            cached = _identify(host.ip)
+            _IDENT_CACHE[host.ip] = cached
+        open_ports, ssh_line, page = cached
         return classify(
             host.ip,
             mac=host.mac,
             open_ports=open_ports,
-            ssh_banner=ssh,
+            ssh_banner=ssh_line,
             http_title=page,
             gateways=gws,
         )

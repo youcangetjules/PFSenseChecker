@@ -137,3 +137,46 @@ def test_windows_adapter_discovery_parses_powershell(monkeypatch) -> None:
     text = subnet_health.describe_local_adapter("222.10.50.0/24")
     assert "speed 1 Gbps" in text and "MTU 1500" in text
     assert "reached by routing" in subnet_health.describe_local_adapter("100.48.64.0/24")
+
+
+def test_ignore_device_greys_out_and_is_saved(monkeypatch) -> None:
+    from PySide6.QtWidgets import QCheckBox
+
+    from pfsense_checker import session_screen
+    from pfsense_checker.topology_site import Device, SiteTopology
+
+    _app()
+    monkeypatch.setattr(nd, "discover", lambda cidr, **k: [])
+    monkeypatch.setattr(nd, "default_gateways", lambda: set())
+    site = SiteTopology(subnets=["222.10.50.0/24"])
+    for n in (1, 5):
+        dev = Device(name=f"host-222-10-50-{n}", kind="mikrotik", mgmt_ip=f"222.10.50.{n}")
+        ssh = dev.ensure_ssh()
+        ssh.host, ssh.last_status = f"222.10.50.{n}", "ok"
+        site.add_or_update_device(dev)
+    screen = session_screen.SessionScreen()
+    screen.set_site(site)
+    _drain(screen)
+    assert len(screen._connected_devices_in_subnet("222.10.50.0/24")) == 2
+
+    gw = screen._site.device("host-222-10-50-1")
+    screen._set_device_ignored(gw, True)
+    row = next(r for r in range(screen.table.rowCount())
+               if screen.table.item(r, session_screen.COL_DEVICE).text() == gw.name)
+    box = screen.table.cellWidget(row, session_screen.COL_INCLUDE).findChild(QCheckBox)
+    assert not box.isChecked() and not box.isEnabled()
+    assert screen.table.item(row, session_screen.COL_STATUS).text() == "● ignored"
+    assert gw.name not in screen._included_device_names()
+    assert [d.name for d in screen._connected_devices_in_subnet("222.10.50.0/24")] == [
+        "host-222-10-50-5"
+    ]
+    # Saved with the site and restored.
+    again = SiteTopology.from_dict(screen._site.to_dict())
+    assert again.device(gw.name).ignored is True
+    # A later sweep that sees it does not touch it.
+    seen = [nd.SeenDevice(ip="222.10.50.1", role="firewall", vendor="pfSense")]
+    assert screen._add_seen_to_site(seen) is False
+    assert gw.kind == "mikrotik"
+
+    screen._set_device_ignored(gw, False)
+    assert len(screen._connected_devices_in_subnet("222.10.50.0/24")) == 2

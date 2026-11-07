@@ -453,3 +453,63 @@ def cell_to_str(value: Any) -> str:
     if value is None:
         return "NULL"
     return str(value)
+
+
+# ---- Login / transport status for the Database page ----
+
+@dataclass(frozen=True)
+class ConnectionSecurity:
+    """What the open connection really is (not what was asked for)."""
+
+    user: str
+    database: str
+    ssl: bool
+    protocol: str = ""
+    cipher: str = ""
+
+
+def connection_security(conn: Any) -> ConnectionSecurity:
+    """Read login and TLS state from a live connection."""
+    ssl, protocol, cipher = False, "", ""
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_user, current_database()")
+        user, database = cur.fetchone()
+        try:
+            cur.execute(
+                "SELECT ssl, version, cipher FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+            )
+            row = cur.fetchone()
+            if row:
+                ssl, protocol, cipher = bool(row[0]), str(row[1] or ""), str(row[2] or "")
+        except Exception:  # noqa: BLE001 — older servers / no pg_stat_ssl
+            ssl = bool(getattr(getattr(conn, "pgconn", None), "ssl_in_use", False))
+    return ConnectionSecurity(
+        user=str(user), database=str(database), ssl=ssl, protocol=protocol, cipher=cipher
+    )
+
+
+def security_summary(
+    sec: ConnectionSecurity | None, sslmode: str = "prefer"
+) -> tuple[str, str, str]:
+    """(text, colour, tooltip) for the login status next to Save login."""
+    if sec is None:
+        return "● Not logged in", "#78909c", "Connect to log in to PostgreSQL"
+    who = f"Logged in as {sec.user}@{sec.database}"
+    mode = (sslmode or "prefer").strip().lower()
+    if sec.ssl:
+        tls = " · ".join(x for x in (sec.protocol, sec.cipher) if x)
+        tip = f"Connection is encrypted ({tls or 'TLS'}). sslmode={mode}."
+        if mode in {"prefer", "allow"}:
+            tip += (
+                " With sslmode=prefer a server that stops offering TLS would be "
+                "used in plain text without warning; set require to refuse that."
+            )
+        if mode in {"prefer", "allow", "require"}:
+            tip += " The server certificate is not verified at this mode."
+        return f"● {who} · SSL on ({sec.protocol or 'TLS'})", "#2e7d32", tip
+    return (
+        f"● {who} · SSL OFF — password and data in plain text",
+        "#c62828",
+        f"The connection is not encrypted (sslmode={mode}). Set SSL mode to "
+        "require, and enable ssl on the server.",
+    )

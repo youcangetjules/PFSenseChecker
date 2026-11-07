@@ -591,6 +591,9 @@ class Device:
     # Optional chassis size override (scene pixels). None = auto-fit content.
     w: float | None = None
     h: float | None = None
+    # Operator chose to ignore this device on Login to Routers (for example
+    # the same box reached through another VLAN). Greyed out, never probed.
+    ignored: bool = False
 
     def ensure_ssh(self) -> SshAccess:
         """Return (creating if needed) the SSH access record for this device."""
@@ -655,6 +658,7 @@ class Device:
             "y": self.y,
             "w": self.w,
             "h": self.h,
+            "ignored": self.ignored,
         }
 
     @classmethod
@@ -691,6 +695,7 @@ class Device:
             y=float(y) if y is not None else None,
             w=float(w) if w is not None else None,
             h=float(h) if h is not None else None,
+            ignored=bool(d.get("ignored", False)),
         )
         device.ensure_config_source()
         return device

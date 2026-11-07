@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
@@ -139,6 +140,25 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "setup.version": "App version · full changelog of each release",
     "about": "Product info · licensing · credits (placeholder)",
 }
+
+
+def loaded_config_devices(site: SiteTopology | None) -> list[tuple[str, str, str, str, bool]]:
+    """(name, kind, ip, config path, ignored) for devices with a config on disk.
+
+    Same rule as the Config Loaded button on Login to Routers.
+    """
+    out: list[tuple[str, str, str, str, bool]] = []
+    if site is None:
+        return out
+    for dev in site.devices:
+        src = dev.ensure_config_source()
+        path = (src.analyzable_path() if src is not None else "") or dev.config_file or ""
+        if not path or not Path(path).is_file():
+            continue
+        ip = ((dev.ssh.host if dev.ssh else "") or dev.mgmt_ip or "").strip()
+        out.append((dev.name, dev.kind or "", ip, path, bool(getattr(dev, "ignored", False))))
+    out.sort(key=lambda r: (r[4], r[0].lower()))
+    return out
 
 
 def section_title(key: str) -> str:
@@ -248,6 +268,24 @@ class HomeScreen(QWidget):
         self.nav.parent_opened.connect(self._on_menu_parent_opened)
         nav_col.addWidget(self.nav, stretch=1)
 
+        # Devices whose config is already loaded (Login to Routers): one
+        # click opens it in Config Check.
+        loaded_title = QLabel("Loaded configs")
+        loaded_title.setStyleSheet("font-weight: bold; color: #1a237e; padding: 6px 2px 2px 2px;")
+        nav_col.addWidget(loaded_title)
+        self.loaded_configs = QListWidget()
+        self.loaded_configs.setFixedWidth(300)
+        self.loaded_configs.setMaximumHeight(170)
+        self.loaded_configs.setStyleSheet(
+            "QListWidget { border: 1px solid #cfd8dc; border-radius: 4px; background: #f7f9fa; }"
+            "QListWidget::item { padding: 4px 8px; }"
+            "QListWidget::item:hover { background: #e3eef8; }"
+        )
+        self.loaded_configs.setToolTip("Click a device to open its config in Config Check")
+        self.loaded_configs.itemClicked.connect(self._open_loaded_config)
+        nav_col.addWidget(self.loaded_configs)
+        self._refresh_loaded_configs()
+
         btn_workspace = QPushButton("Full workspace…")
         btn_workspace.setToolTip("Open the full analysis tab set")
         btn_workspace.clicked.connect(lambda: self.open_workspace.emit(""))
@@ -347,6 +385,34 @@ class HomeScreen(QWidget):
         elif key == "console":
             self._refresh_console_status()
         return idx
+
+    def _refresh_loaded_configs(self) -> None:
+        lst = getattr(self, "loaded_configs", None)
+        if lst is None:
+            return
+        lst.clear()
+        rows = loaded_config_devices(self._live_site)
+        if not rows:
+            item = QListWidgetItem("None yet — Load Config on Login to Routers")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            item.setForeground(QColor("#90a4ae"))
+            lst.addItem(item)
+            return
+        for name, kind, ip, path, ignored in rows:
+            detail = " · ".join(x for x in (kind, ip) if x)
+            item = QListWidgetItem(f"{name}  —  {detail}" if detail else name)
+            item.setData(Qt.ItemDataRole.UserRole, path)
+            item.setToolTip(f"{path}\nClick to open in Config Check")
+            if ignored:
+                item.setForeground(QColor("#9e9e9e"))
+                item.setToolTip(f"{path}\nIgnored on Login to Routers")
+            lst.addItem(item)
+
+    def _open_loaded_config(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if path:
+            app_log.get_logger("nav").info("Open loaded config: %s", item.text())
+            self.config_pulled_for_check.emit(str(path))
 
     def _menu_sections(self) -> list[tuple[str, str, list[tuple[str, str]] | None]]:
         out: list[tuple[str, str, list[tuple[str, str]] | None]] = []
@@ -909,6 +975,7 @@ class HomeScreen(QWidget):
         if self._topology_mode == "live" and hasattr(self, "topo_preview"):
             self.topo_preview.render_site(self._live_site)
         self._refresh_speed_sources()
+        self._refresh_loaded_configs()
         self.site_changed.emit()
 
     def _build_topology(self) -> QWidget:
@@ -3288,6 +3355,7 @@ class HomeScreen(QWidget):
             self.topo_preview.render_site(self._topology_site)
         self._refresh_speed_sources()
         self._syslog_refresh_sources()
+        self._refresh_loaded_configs()
         if hasattr(self, "btn_use_live"):
             self._update_mode_buttons()
 
