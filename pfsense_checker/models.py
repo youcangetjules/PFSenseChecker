@@ -137,6 +137,11 @@ class RuleInfo:
     dst_port: str = ""
     out_interface: str = ""
     direction: str = ""  # in / out / both / ""
+    gateway: str = ""  # policy-routing gateway or group
+    floating: bool = False
+    quick: bool = False
+    source_not: bool = False
+    destination_not: bool = False
 
 
 @dataclass
@@ -150,6 +155,7 @@ class VpnEndpoint:
     local_address: str = ""
     networks: list[str] = field(default_factory=list)  # routed / interesting traffic
     protocol: str = ""  # wireguard / openvpn / ipsec / …
+    vpnid: str = ""  # OpenVPN vpnid (ovpnc<N> / ovpns<N>) or IPsec ikeid
 
 
 @dataclass
@@ -178,9 +184,13 @@ class CheckResult:
     nat_rules: list[RuleInfo] = field(default_factory=list)
     vpn: list[VpnEndpoint] = field(default_factory=list)
     gateways: list[dict[str, str]] = field(default_factory=list)
+    # {"name": str, "descr": str, "members": [gateway name, ...]}
+    gateway_groups: list[dict[str, Any]] = field(default_factory=list)
     static_routes: list[dict[str, str]] = field(default_factory=list)
     virtual_ips: list[dict[str, str]] = field(default_factory=list)
     aliases: list[dict[str, str]] = field(default_factory=list)
+    # System > Advanced settings that change filtering: "disablenegate" plus sysctl tunables
+    firewall_options: dict[str, str] = field(default_factory=dict)
     dhcp_scopes: list[dict[str, str]] = field(default_factory=list)
     ip_pools: list[dict[str, str]] = field(default_factory=list)
     dns: dict[str, Any] = field(default_factory=dict)

@@ -72,6 +72,137 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.70",
+        date="2026-10-18",
+        notes=(
+            "A WAN in no gateway group (WAN3 on igb3) has its port card left of the NIC, "
+            "beside the gateway groups, and links NIC → WAN port → Internet.",
+        ),
+    ),
+    Change(
+        version="1.3.69",
+        date="2026-10-18",
+        notes=(
+            "Segmentation check: the filter rules are evaluated in pfSense order for every "
+            "pair of inside subnets (any protocol, some services, or blocked), with a "
+            "0–100 score and a finding per subnet that can reach every other.",
+            "Each subnet card on the topology has a reach badge (red open, amber limited, "
+            "green isolated); hover lists what it reaches. A subnet-to-subnet matrix sits "
+            "under the topology.",
+            "Bridges are reported as layer 2 joins, with which rules actually filter them.",
+        ),
+    ),
+    Change(
+        version="1.3.68",
+        date="2026-10-18",
+        notes=(
+            "Topology is narrower: each column is as wide as its longest label "
+            "(120–270 px) with a fixed gap, instead of stretching to the window.",
+            "The physical NICs sit inside one frame labelled with the firewall and "
+            "its hostname: the box itself.",
+            "Bridges have their own column on the right of the VLANs.",
+        ),
+    ),
+    Change(
+        version="1.3.67",
+        date="2026-10-18",
+        notes=(
+            "Topology: Internet and the external VLANs share the left column. A WAN NIC "
+            "in a gateway group reaches Internet only through the group's card; the group "
+            "feeds both Internet and the tunnels bound to it. A WAN NIC in no group goes "
+            "straight to Internet. Every gateway group with a member NIC is drawn.",
+        ),
+    ),
+    Change(
+        version="1.3.66",
+        date="2026-10-18",
+        notes=(
+            "Topology reads left to right as Internet | External VLANs | Gateway groups | "
+            "Physical NICs | Port name | VLANs. Internet is one tall card on the far left, "
+            "and every WAN NIC runs straight into it. Tunnels and EVL-named VLANs are "
+            "external VLANs: each hangs off the WAN it is bound to, or off its gateway "
+            "group's card, which sits between that group's NICs. Rows are placed so no "
+            "two links cross; bridge links run on the outer right.",
+            "Gateway groups and OpenVPN/IPsec ids are parsed. A tunnel bound to a name "
+            "that is not an interface or gateway group is a VPN warning.",
+        ),
+    ),
+    Change(
+        version="1.3.65",
+        date="2026-10-18",
+        notes=(
+            "Topology links are drawn again after the window resizes. Columns are "
+            "Physical NIC → Port name → VLANs / tunnels → Edge. A NIC with its own "
+            "port name feeds its VLANs through that name; a NIC without one feeds "
+            "its VLANs directly. Every WAN port (gateway, DHCP/PPPoE, or WAN in the "
+            "name) reaches Internet and carries the tunnel interfaces. Each NIC's "
+            "cards share a row band, and links from different cards use separate lanes.",
+        ),
+    ),
+    Change(
+        version="1.3.64",
+        date="2026-10-18",
+        notes=(
+            "Topology links stay in the gaps between cards. A link that skips "
+            "a column crosses in a gap, or below the cards when they are packed. "
+            "The four columns spread across the window.",
+        ),
+    ),
+    Change(
+        version="1.3.63",
+        date="2026-10-18",
+        notes=(
+            "A yellow Help button sits between AI Help and Close on the status bar. "
+            "It explains Home versus the config checker, findings, topology, and Log Pipeline.",
+        ),
+    ),
+    Change(
+        version="1.3.62",
+        date="2026-10-18",
+        notes=(
+            "Topology: one physical NIC fans out to every VLAN on that port. "
+            "The port name is the label. OPT15 and the other assignment ids "
+            "are on the second line, and they are not drawn as NICs.",
+        ),
+    ),
+    Change(
+        version="1.3.61",
+        date="2026-10-18",
+        notes=(
+            "Right-click a finding for Explain Issue, Explain Severity, Suggest Fix, "
+            "or What Breaks if Removed. Each write-up uses the rule or interface "
+            "from the file. Save Analysis writes that window to a text file.",
+        ),
+    ),
+    Change(
+        version="1.3.60",
+        date="2026-10-18",
+        notes=(
+            "The config-check sidebar is labeled OPNsense/pfSense Config Checker "
+            "above Choose a section, so it is not mistaken for the main NetCheck menu.",
+        ),
+    ),
+    Change(
+        version="1.3.59",
+        date="2026-10-18",
+        notes=(
+            "Home → Log Pipeline streams logs in from pfSense. The incoming "
+            "port is selectable and defaults to 59000 (UDP syslog and a TCP "
+            "line stream on that same port).",
+        ),
+    ),
+    Change(
+        version="1.3.58",
+        date="2026-10-18",
+        notes=(
+            "Dragging a config in writes an attack-surface assessment "
+            "(management plane, WAN exposure, any-to-any passes, published "
+            "admin ports, VPN crypto, DNS, logging) on the dashboard. "
+            "The result stays EXPOSED while warnings remain; it is not PASS. "
+            "Signing in no longer crashes when background work is still marked busy.",
+        ),
+    ),
+    Change(
         version="1.3.57",
         date="2026-10-18",
         notes=(

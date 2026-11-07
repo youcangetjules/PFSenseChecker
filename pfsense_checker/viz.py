@@ -15,7 +15,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QPointF, Qt, QRectF, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsItem,
@@ -24,8 +24,11 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +50,10 @@ KIND_COLORS = {
     "gif": "#795548",
     "gre": "#5d4037",
     "ppp": "#ff8f00",
+    "external": "#2e7d32",
+    "edge": COLOR_OK,
+    "gwgroup": "#6d4c41",
+    "wanport": "#00695c",
     "other": "#616161",
 }
 
@@ -241,10 +248,18 @@ class TimeSeriesChartView(QChartView):
             s.attachAxis(axis_y)
 
 
+def badge_font() -> QFont:
+    font = QFont()
+    font.setBold(True)
+    font.setPointSize(7)
+    return font
+
+
 class _TopoNode(QGraphicsObject):
     """Draggable topology node; X stays in its layer column."""
 
     moved = Signal()
+    user_moved = Signal()
 
     def __init__(
         self,
@@ -268,6 +283,10 @@ class _TopoNode(QGraphicsObject):
         self.w = width
         self.h = height
         self.column_x = 0.0
+        self.order_index = 0
+        self.row_span = 1
+        self.badge: tuple[str, str] | None = None  # (text, colour)
+        self._press_y = 0.0
         self._locked = False
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -290,28 +309,53 @@ class _TopoNode(QGraphicsObject):
         del option, widget
         pen = QPen(QColor(self.color))
         pen.setWidth(2 if not self.isSelected() else 3)
-        fill = QColor(self.color)
-        fill.setAlpha(40 if not self.dim else 15)
+        base = QColor(self.color)
+        mix = 0.16 if not self.dim else 0.08
+        fill = QColor(
+            int(base.red() * mix + 255 * (1 - mix)),
+            int(base.green() * mix + 255 * (1 - mix)),
+            int(base.blue() * mix + 255 * (1 - mix)),
+        )
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
         painter.drawRoundedRect(self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+
+        room = self.w - 16
+        if self.badge:
+            text, colour = self.badge
+            bfont = badge_font()
+            bw = QFontMetrics(bfont).horizontalAdvance(text) + 10
+            rect = QRectF(self.w - bw - 6, 7, bw, 15)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(colour)))
+            painter.drawRoundedRect(rect, 7, 7)
+            painter.setPen(QColor("#ffffff"))
+            painter.setFont(bfont)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+            room -= bw + 4
 
         painter.setPen(QColor("#b0b0b0") if self.dim else QColor("#212121"))
         font = QFont()
         font.setBold(True)
         font.setPointSize(9)
         painter.setFont(font)
-        painter.drawText(QRectF(8, 5, self.w - 16, 18), Qt.AlignmentFlag.AlignLeft, self.title)
+        title = QFontMetrics(font).elidedText(
+            self.title, Qt.TextElideMode.ElideRight, int(room)
+        )
+        painter.drawText(QRectF(8, 6, room, 20), Qt.AlignmentFlag.AlignLeft, title)
 
         if self.subtitle:
             painter.setPen(QColor("#78909c"))
             font2 = QFont()
-            font2.setPointSize(7)
+            font2.setPointSize(8)
             painter.setFont(font2)
+            subtitle = QFontMetrics(font2).elidedText(
+                self.subtitle, Qt.TextElideMode.ElideRight, int(self.w - 16)
+            )
             painter.drawText(
-                QRectF(8, 22, self.w - 16, 18),
+                QRectF(8, 26, self.w - 16, 20),
                 Qt.AlignmentFlag.AlignLeft,
-                self.subtitle,
+                subtitle,
             )
 
     def itemChange(self, change, value):  # noqa: ANN001, N802
@@ -324,6 +368,7 @@ class _TopoNode(QGraphicsObject):
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
+        self._press_y = self.pos().y()
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
         super().mousePressEvent(event)
 
@@ -332,6 +377,8 @@ class _TopoNode(QGraphicsObject):
             Qt.CursorShape.ArrowCursor if self._locked else Qt.CursorShape.OpenHandCursor
         )
         super().mouseReleaseEvent(event)
+        if abs(self.pos().y() - self._press_y) > 0.5:
+            self.user_moved.emit()
 
     def center_right(self) -> QPointF:
         return self.mapToScene(QPointF(self.w, self.h / 2))
@@ -341,14 +388,16 @@ class _TopoNode(QGraphicsObject):
 
 
 class _TopoEdge(QGraphicsPathItem):
-    """Orthogonal elbow edge between two nodes (right → left of next column)."""
+    """Orthogonal elbow that stays in the gutters and the gaps."""
 
-    def __init__(self, src: _TopoNode, dst: _TopoNode, color: str) -> None:
+    def __init__(self, src: _TopoNode, dst: _TopoNode, color: str, view: TopologyView) -> None:
         super().__init__()
         self.src = src
         self.dst = dst
         self.color = color
-        self.setZValue(1)
+        self._view = view
+        self.lanes: dict[int, float] = {}
+        self.setZValue(0)
         pen = QPen(QColor(color))
         pen.setWidth(2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -359,99 +408,37 @@ class _TopoEdge(QGraphicsPathItem):
         self.rebuild()
 
     def rebuild(self) -> None:
-        a = self.src.center_right()
-        b = self.dst.center_left()
-        mid_x = (a.x() + b.x()) / 2
-        path = QPainterPath(a)
-        # Orthogonal: horizontal → vertical → horizontal. Same-layer order
-        # (after barycenter layout) keeps these from crossing.
-        path.lineTo(mid_x, a.y())
-        path.lineTo(mid_x, b.y())
-        path.lineTo(b)
+        view = self._view
+        if view is None or view._reflowing:
+            return
+        from pfsense_checker.topo_route import route_edge
+
+        layers = view._layers
+        columns = [(view._col_x[name], 0.0, view._col_w[name], 0.0) for name in layers]
+        boxes: list[list[tuple[float, float, float, float]]] = [[] for _ in layers]
+        index = {name: i for i, name in enumerate(layers)}
+        for node in view._nodes.values():
+            slot = index.get(node.layer)
+            if slot is None:
+                continue
+            pos = node.pos()
+            boxes[slot].append((pos.x(), pos.y(), node.w, node.h))
+        src_pos = self.src.pos()
+        dst_pos = self.dst.pos()
+        points = route_edge(
+            (src_pos.x(), src_pos.y(), self.src.w, self.src.h),
+            (dst_pos.x(), dst_pos.y(), self.dst.w, self.dst.h),
+            columns,
+            boxes,
+            lanes=self.lanes,
+            flat_dst=self.dst.row_span > 1,
+        )
+        if not points:
+            return
+        path = QPainterPath(QPointF(points[0][0], points[0][1]))
+        for x, y in points[1:]:
+            path.lineTo(x, y)
         self.setPath(path)
-
-
-def _count_crossings(order_a: list[str], order_b: list[str], edges: list[tuple[str, str]]) -> int:
-    pos_a = {n: i for i, n in enumerate(order_a)}
-    pos_b = {n: i for i, n in enumerate(order_b)}
-    pairs = [
-        (pos_a[u], pos_b[v])
-        for u, v in edges
-        if u in pos_a and v in pos_b
-    ]
-    crossings = 0
-    for i in range(len(pairs)):
-        for j in range(i + 1, len(pairs)):
-            a1, b1 = pairs[i]
-            a2, b2 = pairs[j]
-            if (a1 - a2) * (b1 - b2) < 0:
-                crossings += 1
-    return crossings
-
-
-def _barycenter_order(
-    fixed: list[str],
-    movable: list[str],
-    edges: list[tuple[str, str]],
-    *,
-    from_left: bool,
-) -> list[str]:
-    """Reorder ``movable`` by average neighbour index in ``fixed``."""
-    pos = {n: i for i, n in enumerate(fixed)}
-    scores: dict[str, float] = {}
-    counts: dict[str, int] = {}
-    for u, v in edges:
-        left, right = (u, v) if from_left else (v, u)
-        if from_left:
-            if right not in movable or left not in pos:
-                continue
-            scores[right] = scores.get(right, 0.0) + pos[left]
-            counts[right] = counts.get(right, 0) + 1
-        else:
-            if left not in movable or right not in pos:
-                continue
-            scores[left] = scores.get(left, 0.0) + pos[right]
-            counts[left] = counts.get(left, 0) + 1
-
-    def key(n: str) -> tuple[float, str]:
-        if counts.get(n):
-            return (scores[n] / counts[n], n)
-        # Unconnected nodes keep relative alphabetical fallback at the end
-        return (len(fixed) + 0.5, n)
-
-    return sorted(movable, key=key)
-
-
-def minimize_layer_crossings(
-    layers: dict[str, list[str]],
-    edges: list[tuple[str, str, str, str]],
-    layer_order: list[str],
-    *,
-    passes: int = 8,
-) -> dict[str, list[str]]:
-    """Sugiyama-style barycenter heuristic across consecutive layers."""
-    orders = {k: list(v) for k, v in layers.items()}
-    # Adjacent-layer edge lists
-    adj: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    for src_layer, src_id, dst_layer, dst_id in edges:
-        adj.setdefault((src_layer, dst_layer), []).append((src_id, dst_id))
-
-    for _ in range(passes):
-        # Left → right
-        for i in range(len(layer_order) - 1):
-            left, right = layer_order[i], layer_order[i + 1]
-            e = adj.get((left, right), [])
-            if not e:
-                continue
-            orders[right] = _barycenter_order(orders[left], orders[right], e, from_left=True)
-        # Right → left
-        for i in range(len(layer_order) - 1, 0, -1):
-            left, right = layer_order[i - 1], layer_order[i]
-            e = adj.get((left, right), [])
-            if not e:
-                continue
-            orders[left] = _barycenter_order(orders[right], orders[left], e, from_left=False)
-    return orders
 
 
 class TopologyView(QGraphicsView):
@@ -463,22 +450,40 @@ class TopologyView(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QBrush(QColor("#fbfbfb")))
         self.setMinimumHeight(360)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self._nodes: dict[str, _TopoNode] = {}
         self._edges: list[_TopoEdge] = []
+        self._header_items: dict[str, object] = {}
+        self._tip_item = None
         self._locked = False
+        self._reflowing = False
+        self._rendering = False
+        self._dragged: set[str] = set()
         self._custom_y: dict[str, float] = {}
         self._last_result = None
         self._last_path: str | None = None
-        self._col_x = {"phys": 20.0, "agg": 260.0, "logical": 500.0, "edge": 740.0}
-        self._node_w = 170.0
-        self._node_h = 46.0
-        self._gap_y = 14.0
+        from pfsense_checker.firewall_topology import LAYERS
+
+        self._layers: list[str] = list(LAYERS)
+        self._col_x = {name: 16.0 + i * 304.0 for i, name in enumerate(LAYERS)}
+        self._col_w = {name: 220.0 for name in LAYERS}
+        self._gutter = 72.0
+        self._chassis_item = None
+        self._chassis_label = None
+        self.segmentation = None
+        self._node_h = 52.0
+        self._gap_y = 28.0
+        self._row_top = 36.0
 
     def clear(self) -> None:
         self._scene.clear()
         self._nodes.clear()
         self._edges.clear()
+        self._header_items.clear()
+        self._tip_item = None
+        self._chassis_item = None
+        self._chassis_label = None
 
     def set_locked(self, locked: bool) -> None:
         self._locked = locked
@@ -488,12 +493,14 @@ class TopologyView(QGraphicsView):
     def reset_layout(self) -> None:
         """Clear manual positions and re-run auto-layout."""
         self._custom_y.clear()
+        self._dragged.clear()
         if self._last_result is not None:
             self.render_topology(self._last_result)
 
     def apply_auto_layout(self) -> None:
         """Re-order by crossing minimization but keep manual Y overrides cleared."""
         self._custom_y.clear()
+        self._dragged.clear()
         if self._last_result is not None:
             self.render_topology(self._last_result)
 
@@ -502,194 +509,368 @@ class TopologyView(QGraphicsView):
             self._custom_y[nid] = node.pos().y()
 
     def _on_node_moved(self) -> None:
+        if self._reflowing or self._rendering:
+            return
         self._remember_positions()
+        self._update_chassis()
         bounds = self._scene.itemsBoundingRect()
-        self._scene.setSceneRect(bounds.adjusted(-40, -40, 40, 40))
+        self._scene.setSceneRect(bounds.adjusted(-24, -48, 24, 24))
+
+    def _add_chassis(self, result) -> None:  # noqa: ANN001
+        """One frame around the physical NICs: the firewall itself."""
+        pen = QPen(QColor("#37474f"))
+        pen.setWidth(2)
+        frame = self._scene.addRect(QRectF(), pen, QBrush(QColor("#eceff1")))
+        frame.setZValue(-1)
+        vendor = {"pfsense": "pfSense", "opnsense": "OPNsense"}.get(
+            (getattr(result, "source_type", "") or "").lower(), "Firewall"
+        )
+        host = (getattr(result, "hostname", "") or "").strip()
+        label = self._scene.addText(vendor + (f"\n{host}" if host else ""))
+        label.setDefaultTextColor(QColor("#37474f"))
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(8)
+        label.setFont(font)
+        label.setZValue(3)
+        domain = (getattr(result, "domain", "") or "").strip()
+        tip = f"{vendor} {host}.{domain}" if host and domain else f"{vendor} {host}".strip()
+        frame.setToolTip(tip)
+        label.setToolTip(tip)
+        self._chassis_item = frame
+        self._chassis_label = label
+        self._update_chassis()
+
+    def _update_chassis(self) -> None:
+        frame, label = self._chassis_item, self._chassis_label
+        if frame is None or label is None:
+            return
+        nics = [node for node in self._nodes.values() if node.layer == "phys"]
+        if not nics:
+            frame.setVisible(False)
+            label.setVisible(False)
+            return
+        pad = 8.0
+        head = label.boundingRect().height() + 2
+        top = min(node.pos().y() for node in nics) - pad - head
+        bottom = max(node.pos().y() + node.h for node in nics) + pad
+        left = self._col_x["phys"] - pad
+        width = self._col_w["phys"] + 2 * pad
+        frame.setRect(QRectF(left, top, width, bottom - top))
+        label.setTextWidth(width)
+        label.setPos(left, top + 1)
+
+    def _segmentation_badges(self, result, graph) -> dict[tuple[str, str], tuple[str, str, str]]:  # noqa: ANN001
+        """(layer, id) → (badge text, colour, tooltip) for every routed inside subnet."""
+        from pfsense_checker.segmentation import LIMITED, OPEN, analyse_segmentation
+
+        try:
+            seg = analyse_segmentation(result)
+        except Exception:  # noqa: BLE001
+            self.segmentation = None
+            return {}
+        self.segmentation = seg
+        others = len(seg.zones) - 1
+        titles = {z.name: z.title for z in seg.zones}
+        out = {}
+        for zone in seg.zones:
+            key = next(
+                (
+                    k
+                    for k in (("vlan", zone.device), ("bridge", zone.device), ("port", zone.name))
+                    if k in graph.boxes
+                ),
+                None,
+            )
+            summary = seg.summaries.get(zone.name)
+            if key is None or summary is None or others < 1:
+                continue
+            lines = [f"{zone.title} · {zone.network}"]
+            if summary.grade == OPEN:
+                text, colour = f"open {len(summary.open_to)}/{others}", COLOR_ERROR
+            elif summary.grade == LIMITED:
+                text, colour = f"limited {len(summary.limited_to)}/{others}", COLOR_WARN
+            else:
+                text, colour = "isolated", COLOR_OK
+            for dst in summary.open_to:
+                reach = seg.reach[(zone.name, dst)]
+                rules = ", ".join(f"#{n}" for n in reach.rules)
+                lines.append(f"→ {titles[dst]}: any protocol (rule {rules})")
+            for dst in summary.limited_to:
+                reach = seg.reach[(zone.name, dst)]
+                lines.append(f"→ {titles[dst]}: {', '.join(reach.services)}")
+            if summary.grade not in {OPEN, LIMITED}:
+                lines.append("No rule lets it reach another inside subnet.")
+            out[key] = (text, colour, "\n".join(lines))
+        return out
+
+    def _measure_columns(self, graph, headers: dict[str, str], badges=None) -> None:  # noqa: ANN001
+        """Each column is as wide as its longest label, within limits."""
+        badges = badges or {}
+        badge_fm = QFontMetrics(badge_font())
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(9)
+        sub_font = QFont()
+        sub_font.setPointSize(8)
+        head_font = QFont()
+        head_font.setBold(True)
+        head_font.setPointSize(10)
+        title_fm, sub_fm, head_fm = QFontMetrics(title_font), QFontMetrics(sub_font), QFontMetrics(head_font)
+        for layer in self._layers:
+            widest = head_fm.horizontalAdvance(headers.get(layer, ""))
+            for node_id in graph.layers.get(layer, []):
+                box = graph.boxes[(layer, node_id)]
+                badge = badges.get((layer, node_id))
+                extra = badge_fm.horizontalAdvance(badge[0]) + 14 if badge else 0
+                widest = max(
+                    widest,
+                    title_fm.horizontalAdvance(box.title) + extra,
+                    sub_fm.horizontalAdvance(box.subtitle),
+                )
+            self._col_w[layer] = max(120.0, min(270.0, widest + 32.0))
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802
+        super().resizeEvent(event)
+        if self._rendering or self._reflowing or not self._nodes:
+            return
+        self._reflow()
+
+    def _fit_columns(self) -> None:
+        """Pack the columns side by side at their measured widths."""
+        x = 12.0
+        for layer in self._layers:
+            self._col_x[layer] = x
+            x += self._col_w[layer] + self._gutter
+
+    def _fit_spacing(self, count: int) -> None:
+        """Open the rows up when the view is taller than the packed cards."""
+        self._node_h = 52.0
+        self._row_top = 36.0
+        height = max(self.viewport().height(), self.height())
+        if height < 300:
+            height = 800
+        usable = height - self._row_top - 24.0
+        if count <= 1:
+            self._gap_y = 28.0
+            return
+        gap = (usable - count * self._node_h) / (count - 1)
+        self._gap_y = max(26.0, min(72.0, gap))
+
+    def _assign_lanes(self) -> None:
+        """One vertical lane per card in each gutter, ordered by the card's row.
+
+        Links that fan into one card share that card's lane, so they join as a
+        bracket. Other links take their source card's lane.
+        """
+        from pfsense_checker.topo_route import same_column_gutter
+
+        layers = self._layers
+        index = {name: i for i, name in enumerate(layers)}
+        last = len(layers) - 1
+
+        def gutters_of(edge: _TopoEdge) -> list[int]:
+            a, b = index[edge.src.layer], index[edge.dst.layer]
+            if a == b:
+                return [same_column_gutter(a, last)]
+            return list(range(min(a, b), max(a, b)))
+
+        fan_in: dict[tuple[int, str], int] = {}
+        for edge in self._edges:
+            for gutter in gutters_of(edge):
+                key = (gutter, f"{edge.dst.layer}:{edge.dst.node_id}")
+                fan_in[key] = fan_in.get(key, 0) + 1
+        rows: dict[int, dict[str, float]] = {}
+        slots: list[tuple[_TopoEdge, list[tuple[int, str]]]] = []
+        for edge in self._edges:
+            pairs = []
+            for gutter in gutters_of(edge):
+                dst_key = f"{edge.dst.layer}:{edge.dst.node_id}"
+                if fan_in.get((gutter, dst_key), 0) > 1 and edge.dst.row_span == 1:
+                    key, y = "in:" + dst_key, edge.dst.pos().y()
+                else:
+                    key, y = "out:" + f"{edge.src.layer}:{edge.src.node_id}", edge.src.pos().y()
+                rows.setdefault(gutter, {})[key] = y
+                pairs.append((gutter, key))
+            slots.append((edge, pairs))
+        gutter_w = self._gutter
+        offsets: dict[tuple[int, str], float] = {}
+        for gutter, keys in rows.items():
+            ordered = sorted(keys, key=lambda k: (keys[k], k))
+            count = len(ordered)
+            spacing = min(10.0, max(gutter_w - 24.0, 0.0) / max(count - 1, 1))
+            for i, key in enumerate(ordered):
+                offsets[(gutter, key)] = (i - (count - 1) / 2) * spacing
+        for edge, pairs in slots:
+            edge.lanes = {gutter: offsets[(gutter, key)] for gutter, key in pairs}
+
+    def _span_height(self, span: int) -> float:
+        return span * self._node_h + (span - 1) * self._gap_y
+
+    def _mark_dragged(self, node: _TopoNode) -> None:
+        self._dragged.add(f"{node.layer}:{node.node_id}")
+
+    def _reflow(self) -> None:
+        """Keep a dragged card where the operator put it; spread the rest."""
+        if not self._nodes or self._reflowing:
+            return
+        layers = self._layers
+
+        old = (
+            round(self._gap_y, 1),
+            tuple(round(self._col_x[name], 1) for name in layers),
+        )
+        self._fit_columns()
+        tallest = max(node.order_index + node.row_span for node in self._nodes.values())
+        self._fit_spacing(tallest)
+        new = (
+            round(self._gap_y, 1),
+            tuple(round(self._col_x[name], 1) for name in layers),
+        )
+        if new == old:
+            return
+        self._reflowing = True
+        try:
+            for layer, item in self._header_items.items():
+                item.setPos(self._col_x.get(layer, 16.0), -18)
+            if self._tip_item is not None:
+                self._tip_item.setPos(16, -40)
+            for node in self._nodes.values():
+                node.prepareGeometryChange()
+                node.w = self._col_w.get(node.layer, node.w)
+                node.h = self._span_height(node.row_span)
+                node.column_x = self._col_x.get(node.layer, node.column_x)
+                key = f"{node.layer}:{node.node_id}"
+                if key in self._dragged:
+                    y = node.pos().y()
+                else:
+                    y = self._row_top + node.order_index * (self._node_h + self._gap_y)
+                node.setPos(node.column_x, y)
+        finally:
+            self._reflowing = False
+        # Edges skip rebuilds while _reflowing; route them once every card has moved.
+        self._update_chassis()
+        self._assign_lanes()
+        for edge in self._edges:
+            edge.rebuild()
+        bounds = self._scene.itemsBoundingRect()
+        self._scene.setSceneRect(bounds.adjusted(-24, -48, 24, 24))
 
     def render_topology(self, result) -> None:  # noqa: ANN001
         """Build an editable, crossing-minimized diagram from a CheckResult."""
+        self._rendering = True
+        try:
+            self._render_topology(result)
+        finally:
+            self._rendering = False
+
+    def _render_topology(self, result) -> None:  # noqa: ANN001
         path_key = str(result.path) if getattr(result, "path", None) else None
         if path_key != self._last_path:
             self._custom_y.clear()
+            self._dragged.clear()
             self._last_path = path_key
         prev_y = dict(self._custom_y)
         self._last_result = result
         self.clear()
         self._custom_y = prev_y
 
-        # --- Collect layered nodes ---
-        phys: dict[str, str] = {}
-        for b in result.bridges:
-            for m in b.members:
-                phys.setdefault(m, "bridge member")
-        for lg in result.laggs:
-            for m in lg.members:
-                phys.setdefault(m, "lagg member")
-        for v in result.vlans:
-            if v.if_parent:
-                phys.setdefault(v.if_parent, "vlan parent")
-        for i in result.interfaces:
-            if i.kind == "physical" and i.device:
-                phys.setdefault(i.device, "assigned")
+        from pfsense_checker.firewall_topology import LAYERS, build_config_topology, tree_order
 
-        agg_meta: dict[str, tuple[str, str, str]] = {}  # id -> (title, subtitle, color)
-        for b in result.bridges:
-            key = (b.bridgeif or "bridge").lower()
-            agg_meta[key] = (
-                b.bridgeif or "bridge",
-                f"bridge · stp {'on' if b.stp_enabled else 'off'}",
-                KIND_COLORS["bridge"],
+        graph = build_config_topology(result)
+        self._layers = [name for name in LAYERS if name == "phys" or graph.layers.get(name)]
+        raw_edges = [
+            (
+                e.src_layer,
+                e.src_id,
+                e.dst_layer,
+                e.dst_id,
+                COLOR_OK if e.kind == "edge" else KIND_COLORS.get(e.kind, KIND_COLORS["other"]),
             )
-        for lg in result.laggs:
-            key = (lg.laggif or "lagg").lower()
-            agg_meta[key] = (
-                lg.laggif or "lagg",
-                f"lagg · {lg.proto}",
-                KIND_COLORS["lagg"],
-            )
-        for v in result.vlans:
-            key = (v.vlanif or f"vlan{v.tag}").lower()
-            agg_meta[key] = (
-                v.vlanif or f"vlan{v.tag}",
-                f"vlan {v.tag} on {v.if_parent}",
-                KIND_COLORS["vlan"],
-            )
-
-        logical_meta: dict[str, tuple[str, str, str, bool]] = {}
-        for i in result.interfaces:
-            key = i.name.lower()
-            ip = i.ipaddr
-            if i.subnet and i.ipaddr not in ("dhcp", ""):
-                ip = f"{i.ipaddr}/{i.subnet}"
-            logical_meta[key] = (
-                i.name.upper(),
-                f"{i.device} · {ip or 'no ip'}",
-                KIND_COLORS.get(i.kind, KIND_COLORS["other"]),
-                not i.enabled,
-            )
-
-        # --- Edges as (src_layer, src_id, dst_layer, dst_id, color) ---
-        raw_edges: list[tuple[str, str, str, str, str]] = []
-
-        for b in result.bridges:
-            dst = (b.bridgeif or "").lower()
-            for m in b.members:
-                src = m.lower()
-                if src in {k.lower() for k in phys} and dst in agg_meta:
-                    raw_edges.append(("phys", src, "agg", dst, KIND_COLORS["bridge"]))
-        for lg in result.laggs:
-            dst = (lg.laggif or "").lower()
-            for m in lg.members:
-                src = m.lower()
-                if src in {k.lower() for k in phys} and dst in agg_meta:
-                    raw_edges.append(("phys", src, "agg", dst, KIND_COLORS["lagg"]))
-        for v in result.vlans:
-            dst = (v.vlanif or f"vlan{v.tag}").lower()
-            if v.if_parent:
-                src = v.if_parent.lower()
-                if src in {k.lower() for k in phys} and dst in agg_meta:
-                    raw_edges.append(("phys", src, "agg", dst, KIND_COLORS["vlan"]))
-
-        phys_keys = {k.lower() for k in phys}
-        for i in result.interfaces:
-            dst = i.name.lower()
-            src = (i.device or "").lower()
-            color = KIND_COLORS.get(i.kind, KIND_COLORS["other"])
-            if src in agg_meta:
-                raw_edges.append(("agg", src, "logical", dst, color))
-            elif src in phys_keys:
-                raw_edges.append(("phys", src, "logical", dst, color))
-
-        wan_ids = [
-            i.name.lower()
-            for i in result.interfaces
-            if i.name.lower() == "wan" or "wan" in i.name.lower()
+            for e in graph.edges
         ]
-        if wan_ids:
-            for wid in wan_ids:
-                raw_edges.append(("logical", wid, "edge", "internet", COLOR_OK))
-
-        # Initial layer membership
-        layers: dict[str, list[str]] = {
-            "phys": sorted({k.lower() for k in phys}),
-            "agg": sorted(agg_meta.keys()),
-            "logical": sorted(logical_meta.keys()),
-            "edge": ["internet"] if wan_ids else [],
+        layout = tree_order(graph)
+        orders = layout.rows
+        headers = {
+            "ext": "Internet / External VLANs",
+            "gw": "Gateway groups / WAN ports",
+            "phys": "Physical NICs",
+            "port": "Port name",
+            "vlan": "VLANs",
+            "bridge": "Bridges",
         }
 
-        layout_edges = [(a, b, c, d) for a, b, c, d, _ in raw_edges]
-        # Only keep edges between consecutive conceptual layers for ordering;
-        # phys→logical is treated as phys→agg phantom via inserting through order.
-        # For crossing min, include phys-logical by routing through a virtual hop:
-        # we still minimize on real consecutive pairs, and separately on phys-logical.
-        orders = minimize_layer_crossings(
-            layers, layout_edges, ["phys", "agg", "logical", "edge"], passes=10
+        badges = self._segmentation_badges(result, graph)
+        self._measure_columns(graph, headers, badges)
+        self._fit_columns()
+        tallest = max(
+            (
+                row + layout.spans.get((layer, nid), 1)
+                for layer, rows in orders.items()
+                for nid, row in rows.items()
+            ),
+            default=1,
         )
-
-        # Extra pass for direct phys→logical edges
-        phys_log = [(b, d) for a, b, c, d in layout_edges if a == "phys" and c == "logical"]
-        if phys_log:
-            orders["logical"] = _barycenter_order(
-                orders["phys"], orders["logical"], phys_log, from_left=True
-            )
-            orders["phys"] = _barycenter_order(
-                orders["logical"], orders["phys"], phys_log, from_left=False
-            )
+        self._fit_spacing(max(tallest, 1))
 
         # Place nodes
-        headers = {
-            "phys": "Physical NICs",
-            "agg": "Aggregation",
-            "logical": "Interfaces",
-            "edge": "Edge",
-        }
-        for layer, label in headers.items():
+        for layer in self._layers:
+            label = headers[layer]
             hdr = self._scene.addText(label)
             hdr.setDefaultTextColor(QColor("#455a64"))
             hf = QFont()
             hf.setBold(True)
             hf.setPointSize(10)
             hdr.setFont(hf)
-            hdr.setPos(self._col_x[layer], -8)
-            hdr.setZValue(0)
+            hdr.setPos(self._col_x[layer], -18)
+            hdr.setZValue(3)
+            self._header_items[layer] = hdr
 
         def place(layer: str, node_id: str, title: str, subtitle: str, color: str, dim: bool = False) -> _TopoNode:
             node = _TopoNode(node_id, layer, title, subtitle, color, dim=dim,
-                             width=self._node_w, height=self._node_h)
+                             width=self._col_w[layer], height=self._node_h)
             node.column_x = self._col_x[layer]
-            order = orders.get(layer, [])
-            try:
-                idx = order.index(node_id)
-            except ValueError:
-                idx = len(order)
-            auto_y = 24 + idx * (self._node_h + self._gap_y)
+            rows = orders.get(layer, {})
+            idx = rows.get(node_id, tallest)
+            node.order_index = idx
+            node.row_span = layout.spans.get((layer, node_id), 1)
+            node.h = self._span_height(node.row_span)
+            auto_y = self._row_top + idx * (self._node_h + self._gap_y)
             y = self._custom_y.get(f"{layer}:{node_id}", auto_y)
             node.setPos(node.column_x, y)
             node.set_locked(self._locked)
+            if (layer, node_id) in badges:
+                text, colour, tip = badges[(layer, node_id)]
+                node.badge = (text, colour)
+                node.setToolTip(tip)
             node.moved.connect(self._on_node_moved)
+            node.user_moved.connect(lambda node=node: self._mark_dragged(node))
             self._scene.addItem(node)
             self._nodes[f"{layer}:{node_id}"] = node
             return node
 
-        for pid in orders["phys"]:
-            # recover original case note
-            note = next((n for k, n in phys.items() if k.lower() == pid), "nic")
-            title = next((k for k in phys if k.lower() == pid), pid)
-            place("phys", pid, title, note, KIND_COLORS["physical"])
+        for pid in orders.get("phys", []):
+            box = graph.boxes.get(("phys", pid))
+            if box is None:
+                continue
+            place("phys", pid, box.title, box.subtitle, KIND_COLORS.get(box.kind, KIND_COLORS["physical"]), dim=box.dim)
 
-        if not orders["phys"]:
+        if not orders.get("phys"):
             place("phys", "(none)", "(no NICs)", "", COLOR_MUTED, dim=True)
 
-        for aid in orders["agg"]:
-            title, subtitle, color = agg_meta[aid]
-            place("agg", aid, title, subtitle, color)
-
-        for lid in orders["logical"]:
-            title, subtitle, color, dim = logical_meta[lid]
-            place("logical", lid, title, subtitle, color, dim=dim)
-
-        if orders["edge"]:
-            place("edge", "internet", "Internet", "upstream / WAN", COLOR_OK)
+        for layer in ("ext", "gw", "port", "vlan", "bridge"):
+            for nid in orders.get(layer, []):
+                box = graph.boxes.get((layer, nid))
+                if box is None:
+                    continue
+                place(
+                    layer,
+                    nid,
+                    box.title,
+                    box.subtitle,
+                    KIND_COLORS.get(box.kind, KIND_COLORS["other"]),
+                    dim=box.dim,
+                )
 
         # Draw edges (orthogonal). Sort by source then dest Y after layout so
         # stub ordering is stable.
@@ -701,25 +882,27 @@ class TopologyView(QGraphicsView):
             dst = self._nodes.get(node_key(dst_layer, dst_id))
             if src is None or dst is None:
                 continue
-            edge = _TopoEdge(src, dst, color)
+            edge = _TopoEdge(src, dst, color, self)
             self._scene.addItem(edge)
             self._edges.append(edge)
-
-        # Nudge: if two nodes share nearly the same Y and an edge would be flat
-        # across a long gap, fine — orthogonal midpoints still won't cross when
-        # orders are consistent.
+        self._assign_lanes()
+        for edge in self._edges:
+            edge.rebuild()
 
         tip = self._scene.addText(
-            "Drag nodes vertically to edit · Auto-layout minimises crossings · Lock to freeze"
+            "Drag nodes vertically to edit · Links stay in the gaps · Lock to freeze"
         )
         tip.setDefaultTextColor(QColor("#90a4ae"))
         tf = QFont()
         tf.setPointSize(8)
         tip.setFont(tf)
-        tip.setPos(20, -28)
+        tip.setPos(16, -40)
+        tip.setZValue(3)
+        self._tip_item = tip
+        self._add_chassis(result)
 
         bounds = self._scene.itemsBoundingRect()
-        self._scene.setSceneRect(bounds.adjusted(-40, -40, 40, 40))
+        self._scene.setSceneRect(bounds.adjusted(-24, -48, 24, 24))
         self._remember_positions()
 
 
@@ -1123,6 +1306,83 @@ class SiteTopologyView(QGraphicsView):
 
         bounds = self._scene.itemsBoundingRect()
         self._scene.setSceneRect(bounds.adjusted(-30, -40, 40, 40))
+
+
+class SegmentationMatrix(QWidget):
+    """Which inside subnet may reach which: rows are sources, columns destinations."""
+
+    _CELL = {
+        "open": ("ANY", COLOR_ERROR),
+        "limited": ("some", COLOR_WARN),
+        "blocked": ("—", COLOR_OK),
+    }
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.summary = QLabel("Load a config to see how the subnets are separated.")
+        self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.summary)
+        self.table = QTableWidget()
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.table, stretch=1)
+
+    def set_segmentation(self, seg) -> None:  # noqa: ANN001
+        self.table.clear()
+        if seg is None or not seg.reach:
+            self.table.setRowCount(0)
+            self.table.setColumnCount(0)
+            self.summary.setText("Fewer than two routed inside subnets: nothing to separate.")
+            return
+        zones = seg.zones
+        colour = COLOR_OK if seg.score >= 90 else COLOR_WARN if seg.score >= 60 else COLOR_ERROR
+        text = (
+            f"<b style='color:{colour}'>Segmentation {seg.score}/100: {seg.verdict}.</b> "
+            f"{seg.count('open')} of {seg.pairs} subnet pairs allow any protocol, "
+            f"{seg.count('limited')} allow some services, {seg.count('blocked')} are blocked. "
+            "Rows are the source subnet (rules on its interface), columns the destination."
+        )
+        extra = seg.layer2 + seg.notes
+        if extra:
+            text += "<br>" + "<br>".join(f"• {line}" for line in extra)
+        self.summary.setText(text)
+
+        self.table.setRowCount(len(zones))
+        self.table.setColumnCount(len(zones))
+        labels = [f"{z.title}\n{z.name.upper()} · {z.network}" for z in zones]
+        self.table.setVerticalHeaderLabels(labels)
+        self.table.setHorizontalHeaderLabels([z.name.upper() for z in zones])
+        for c, label in enumerate(labels):
+            self.table.horizontalHeaderItem(c).setToolTip(label)
+        for r, src in enumerate(zones):
+            for c, dst in enumerate(zones):
+                if src.name == dst.name:
+                    item = QTableWidgetItem("")
+                    item.setBackground(QBrush(QColor("#eceff1")))
+                    self.table.setItem(r, c, item)
+                    continue
+                reach = seg.reach[(src.name, dst.name)]
+                label, col = self._CELL[reach.level]
+                item = QTableWidgetItem(label)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setForeground(QBrush(QColor("#ffffff")))
+                item.setBackground(QBrush(QColor(col)))
+                tip = f"{src.title} → {dst.title}: "
+                if reach.level == "open":
+                    tip += f"any protocol (rule {', '.join(f'#{n}' for n in reach.rules)})"
+                elif reach.level == "limited":
+                    tip += ", ".join(reach.services)
+                else:
+                    tip += "blocked (no pass rule matches)"
+                if reach.note:
+                    tip += f"\n{reach.note}"
+                item.setToolTip(tip)
+                self.table.setItem(r, c, item)
 
 
 def flow_row(*widgets: QWidget) -> QWidget:

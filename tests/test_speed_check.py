@@ -78,6 +78,7 @@ def test_home_sections_defined() -> None:
         "problems",
         "console",
         "syslog",
+        "log_pipeline",
         "wireshark",
         "setup",
         "about",
@@ -91,6 +92,7 @@ def test_setup_subsections_defined() -> None:
     assert keys == [
         "setup.oui",
         "setup.logging",
+        "setup.openobserve",
         "setup.snmp",
         "setup.mibs",
         "setup.version",

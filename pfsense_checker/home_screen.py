@@ -16,6 +16,7 @@ Sections:
   • Problems/Troubleshooting — findings, resiliency, live monitor
   • Console — live debug / failure log viewer
   • Syslog — receive remote syslog from attached routers
+  • Log Pipeline — stream incoming pfSense logs on a chosen port (default 59000)
   • Wireshark — Lua API bridge (capture / dissection hooks)
   • Setup — API keys, OpenObserve, and tool preferences (subcategories)
   • About — app info (placeholder)
@@ -87,6 +88,7 @@ SECTIONS = (
     ("problems", "Problems/Troubleshooting"),
     ("console", "Console"),
     ("syslog", "Syslog"),
+    ("log_pipeline", "Log Pipeline"),
     ("wireshark", "Wireshark"),
     ("setup", "Setup"),
     ("about", "About"),
@@ -118,6 +120,7 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "problems": "Findings · resiliency · live monitor · AI advisor",
     "console": "Live app logs · failures · debug output",
     "syslog": "UDP/TCP receiver · attached-router allowlist · live messages",
+    "log_pipeline": "Stream incoming pfSense logs · listen port default 59000",
     "wireshark": "Lua API bridge · Listener / Field / Proto hooks",
     "setup": "API keys and tool preferences",
     "setup.oui": "RapidAPI MAC/OUI vendor lookup key",
@@ -272,6 +275,7 @@ class HomeScreen(QWidget):
             "problems": self._build_problems,
             "console": self._build_console,
             "syslog": self._build_syslog,
+            "log_pipeline": self._build_log_pipeline,
             "wireshark": self._build_wireshark,
             "setup.oui": self._build_setup_oui,
             "setup.logging": self._build_setup_logging,
@@ -331,6 +335,8 @@ class HomeScreen(QWidget):
             self._refresh_speed_sources()
         elif key == "users" and hasattr(self, "users_page"):
             self.users_page.set_current_user(self._current_user)
+        elif key == "log_pipeline" and hasattr(self, "log_pipeline"):
+            self.log_pipeline._refresh_hint()
         elif key == "syslog":
             self._syslog_refresh_sources()
             if hasattr(self, "syslog_bind") and isinstance(self.syslog_bind, QComboBox):
@@ -2175,6 +2181,12 @@ class HomeScreen(QWidget):
         from PySide6.QtCore import QUrl
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _build_log_pipeline(self) -> QWidget:
+        from pfsense_checker.log_pipeline_screen import LogPipelinePage
+
+        self.log_pipeline = LogPipelinePage()
+        return self.log_pipeline
 
     def _build_syslog(self) -> QWidget:
         page = QWidget()

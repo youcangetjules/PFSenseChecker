@@ -4,6 +4,21 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-10-18
 
+- WAN3 (0_S2_P3_E_1G_last_line on igb3) moved left of its NIC: igb3 → WAN port card → Internet (1.3.70, BUG-027).
+- Segmentation analysis (`segmentation.py`): subnet-to-subnet reach from the filter rules, reach badges on the topology cards, a matrix under the topology, and Segmentation findings. guardian scores 8/100: 12 of 13 inside subnets pass any to any (1.3.69).
+- Topology is narrower (columns sized to their labels), the physical NICs are framed as the firewall chassis, and bridges have their own column right of the VLANs (1.3.68).
+- Topology: em0 and mce0 go through FailoverGW to Internet and to the 3_EVL tunnels; igb3 goes straight to Internet. Internet and external VLANs share one column (1.3.67).
+- Topology: Internet and the external VLANs (3_EVL tunnels) are on the left of the physical NICs. em0 + mce0 feed the FailoverGW card, which feeds the three tunnels. No links cross on the guardian config (1.3.66).
+- Config Check warns when a tunnel is bound to a missing interface or gateway group (1.3.66).
+- Topology draws its links again. Columns are Physical NIC → Port name → VLANs / tunnels → Edge. Both WAN ports reach Internet and carry the tunnels. Each NIC's cards share a row band, and links use separate lanes (1.3.65).
+- Topology links no longer run across the cards. Columns spread to the window width (1.3.64).
+- Status bar: yellow Help between AI Help and Close (1.3.63).
+- Topology draws one physical NIC to every VLAN on that port. The port name is the label; OPT15 stays on the second line (1.3.62).
+- Findings right-click: Explain Issue, Explain Severity, Suggest Fix, and What Breaks if Removed, each with a write-up from the loaded config. The window has Save Analysis (1.3.61).
+- Config-check sidebar is labeled OPNsense/pfSense Config Checker above “Choose a section” (1.3.60).
+- Config Check writes an attack-surface assessment onto the dashboard (management plane, WAN exposure, any-to-any passes, published admin ports, VPN crypto, DNS, logging). Result stays EXPOSED while warnings remain (1.3.58).
+- Signing in no longer crashes when background work is still marked busy (1.3.58).
+- Home → Log Pipeline streams logs in from pfSense. The listen port is selectable and defaults to 59000 (1.3.59).
 - Config Check: the dashed area is a real drop target for `config.xml` and RouterOS `.rsc`, including when NetCheck is elevated (1.3.52).
 - Setup → OpenObserve: ingest and read-only search. App logs and accepted syslog can be forwarded. The password stays in the OS keyring (1.3.53).
 - Login panel: Help, Options, Forgot Credentials, Login, and Cancel share one row. Login turns light blue on hover (1.3.54).

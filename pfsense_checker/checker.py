@@ -161,6 +161,7 @@ def check_file(path: Path | str) -> CheckResult:
     _check_dhcp(root, result)
     _check_dns(root, result)
     _check_gateways(root, result)
+    _check_vpn_bindings(result)
     _check_static_routes(root, result)
     _check_virtual_ips(root, result)
     _check_aliases(root, result)
@@ -168,8 +169,13 @@ def check_file(path: Path | str) -> CheckResult:
     _check_users(root, result)
     _collect_packages(root, result)
     _collect_services(root, result)
+    _check_segmentation(result)
 
+    from pfsense_checker.attack_surface import apply_posture, assess_pfsense
+
+    assess_pfsense(root, result)
     _build_summary(result)
+    apply_posture(result)
     return result
 
 
@@ -320,6 +326,12 @@ def _check_system(root: ET.Element, result: CheckResult) -> None:
 
     result.hostname = _find_text(system, "hostname")
     result.domain = _find_text(system, "domain")
+    if _find(system, "disablenegate") is not None:
+        result.firewall_options["disablenegate"] = "1"
+    for item in _find_all(_find(root, "sysctl"), "item"):
+        tunable = _find_text(item, "tunable")
+        if tunable:
+            result.firewall_options[tunable] = _find_text(item, "value")
     if not result.hostname:
         result.findings.append(
             Finding(Severity.WARNING, "System", "No hostname configured", path="system")
@@ -644,6 +656,11 @@ def _check_filter(root: ET.Element, result: CheckResult) -> None:
             src_port=_find_text(_find(rule, "source"), "port") if _find(rule, "source") is not None else "",
             dst_port=_find_text(_find(rule, "destination"), "port") if _find(rule, "destination") is not None else "",
             direction=_find_text(rule, "direction"),
+            gateway=_find_text(rule, "gateway"),
+            floating=_find(rule, "floating") is not None,
+            quick=_find(rule, "quick") is not None,
+            source_not=_find(_find(rule, "source"), "not") is not None,
+            destination_not=_find(_find(rule, "destination"), "not") is not None,
         )
         result.filter_rules.append(info)
         if not info.interface:
@@ -760,6 +777,7 @@ def _collect_vpn(root: ET.Element, result: CheckResult) -> None:
                     details=f"proto={_find_text(s, 'protocol')} port={_find_text(s, 'local_port')}",
                     local_address=_find_text(s, "local_port"),
                     protocol="openvpn",
+                    vpnid=_find_text(s, "vpnid"),
                     networks=[
                         x.strip()
                         for x in _find_text(s, "tunnel_network").split(",")
@@ -778,6 +796,7 @@ def _collect_vpn(root: ET.Element, result: CheckResult) -> None:
                     details=f"server={peer}:{_find_text(c, 'server_port')}",
                     peer=peer,
                     protocol="openvpn",
+                    vpnid=_find_text(c, "vpnid"),
                     networks=[
                         x.strip()
                         for x in _find_text(c, "remote_network").split(",")
@@ -799,6 +818,7 @@ def _collect_vpn(root: ET.Element, result: CheckResult) -> None:
                     details=f"remote={remote}",
                     peer=remote,
                     protocol="ipsec",
+                    vpnid=_find_text(p1, "ikeid"),
                 )
             )
         for p2 in _find_all(ipsec, "phase2"):
@@ -935,6 +955,87 @@ def _check_gateways(root: ET.Element, result: CheckResult) -> None:
                 "disabled": "yes" if _find(gw, "disabled") is not None else "no",
             }
         )
+    for group in _find_all(gws, "gateway_group"):
+        members = []
+        for item in _find_all(group, "item"):
+            name = _text(item).split("|", 1)[0].strip()
+            if name:
+                members.append(name)
+        result.gateway_groups.append(
+            {
+                "name": _find_text(group, "name"),
+                "descr": _find_text(group, "descr"),
+                "members": members,
+            }
+        )
+
+
+_VPN_BIND_KEYWORDS = {"any", "lo0", "localhost", ""}
+
+
+def _check_vpn_bindings(result: CheckResult) -> None:
+    """A tunnel bound to a name that is not an interface or gateway group."""
+    known = {i.name.lower() for i in result.interfaces}
+    known |= {str(g.get("name", "")).lower() for g in result.gateway_groups}
+    for vpn in result.vpn:
+        bound = (vpn.interface or "").strip()
+        low = bound.lower()
+        if vpn.kind not in {"openvpn-server", "openvpn-client", "ipsec-phase1"}:
+            continue
+        if low in _VPN_BIND_KEYWORDS or low in known or low.startswith("_vip"):
+            continue
+        result.findings.append(
+            Finding(
+                Severity.WARNING,
+                "VPN",
+                f"{vpn.name} is bound to '{bound}', which is not an interface or "
+                "gateway group in this config. pfSense cannot pick the intended WAN "
+                "for this tunnel; check which address it actually sources from.",
+                path="openvpn" if vpn.protocol == "openvpn" else "ipsec",
+            )
+        )
+
+
+def _check_segmentation(result: CheckResult) -> None:
+    """Which inside subnets the rules let reach each other."""
+    from pfsense_checker.segmentation import OPEN, analyse_segmentation
+
+    seg = analyse_segmentation(result)
+    if not seg.reach:
+        return
+    titles = {z.name: z.title for z in seg.zones}
+    others = len(seg.zones) - 1
+    result.findings.append(
+        Finding(
+            Severity.WARNING if seg.score < 60 else Severity.INFO,
+            "Segmentation",
+            f"Inside subnets are {seg.verdict} (score {seg.score}/100): "
+            f"{seg.count(OPEN)} of {seg.pairs} subnet pairs allow any protocol, "
+            f"{seg.count('limited')} allow some services.",
+            path="filter",
+            remediation="Give each inside interface an explicit block to RFC1918 / the other "
+            "inside networks above its pass-to-any rule, then pass only the services "
+            "each subnet needs.",
+        )
+    )
+    for name, summary in seg.summaries.items():
+        if not summary.open_to:
+            continue
+        rules = sorted({n for d in summary.open_to for n in seg.reach[(name, d)].rules})
+        reach = "every other inside subnet" if len(summary.open_to) == others else (
+            ", ".join(titles[d] for d in summary.open_to)
+        )
+        result.findings.append(
+            Finding(
+                Severity.WARNING,
+                "Segmentation",
+                f"{titles[name]} ({name.upper()}) can reach {reach} on any protocol "
+                f"(filter rule {', '.join(f'#{n}' for n in rules)}).",
+                path="filter",
+            )
+        )
+    for line in seg.layer2:
+        result.findings.append(Finding(Severity.INFO, "Segmentation", line, path="bridges"))
 
 
 def _check_static_routes(root: ET.Element, result: CheckResult) -> None:

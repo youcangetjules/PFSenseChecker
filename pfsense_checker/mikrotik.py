@@ -697,7 +697,11 @@ def _finalize(result: CheckResult, users: list[str], dns_servers: list[str]) -> 
             Finding(Severity.INFO, "NAT", "Masquerade (srcnat) rule present")
         )
 
+    from pfsense_checker.attack_surface import apply_posture, assess_routeros
+
+    assess_routeros(result)
     _build_summary(result, users)
+    apply_posture(result)
 
 
 def _build_summary(result: CheckResult, users: list[str]) -> None:

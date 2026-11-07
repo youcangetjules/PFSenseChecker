@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -62,7 +63,13 @@ from pfsense_checker.branding import (
     status_bar_stylesheet,
     status_chip_style,
 )
-from pfsense_checker.busy import busy_cursor, busy_hub, is_busy, show_busy_while
+from pfsense_checker.busy import (
+    busy_cursor,
+    busy_hub,
+    busy_message,
+    is_busy,
+    show_busy_while,
+)
 
 from pfsense_checker.checker import check_file
 from pfsense_checker.discovery import infer_links, infer_links_for_site
@@ -585,6 +592,11 @@ class MainWindow(QMainWindow):
             bf.setBold(True)
             brand.setFont(bf)
         nav_col.addWidget(brand)
+        scope = QLabel("OPNsense/pfSense Config Checker")
+        scope.setWordWrap(True)
+        scope.setFixedWidth(200)
+        scope.setStyleSheet("font-weight: bold; color: #1a237e; padding-bottom: 2px;")
+        nav_col.addWidget(scope)
         hint = QLabel("Choose a section")
         hint.setStyleSheet("color: #666; margin-bottom: 6px;")
         nav_col.addWidget(hint)
@@ -1391,6 +1403,24 @@ class MainWindow(QMainWindow):
         ai_help_btn.clicked.connect(self._open_ai_help)
         sb.addPermanentWidget(ai_help_btn)
 
+        help_btn = QPushButton("Help")
+        help_btn.setFont(bar_font)
+        help_btn.setToolTip("How this window is organised")
+        help_btn.setStyleSheet(
+            "QPushButton {"
+            " padding: 2px 18px;"
+            " background-color: #fbc02d;"
+            " border: 1px solid #f9a825;"
+            " border-radius: 3px;"
+            " color: #212121;"
+            " font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #fdd835; }"
+            "QPushButton:pressed { background-color: #f9a825; }"
+        )
+        help_btn.clicked.connect(self._show_main_help)
+        sb.addPermanentWidget(help_btn)
+
         close_btn = QPushButton("Close")
         close_btn.setFont(bar_font)
         close_btn.setToolTip("Close pfSense Config Checker")
@@ -1405,7 +1435,7 @@ class MainWindow(QMainWindow):
             return
         if active:
             bar.setRange(0, 0)
-            bar.setToolTip(busy_hub().busy_message() or "Working…")
+            bar.setToolTip(busy_message() or "Working…")
         else:
             bar.setRange(0, 1)
             bar.setValue(0)
@@ -1425,6 +1455,34 @@ class MainWindow(QMainWindow):
         self._enter_workspace("AI Advisor")
         if hasattr(self, "ai_question"):
             self.ai_question.setFocus()
+
+    def _show_main_help(self) -> None:
+        body = (
+            "<p><b>NetCheck</b></p>"
+            "<p><b>Home</b> is the main section list (Login, Log Pipeline, Syslog, Setup). "
+            "The sidebar that lists Dashboard, Topology, and Findings is only the "
+            "<b>OPNsense/pfSense Config Checker</b>.</p>"
+            "<p><b>Config</b><br/>"
+            "Drop a <code>config.xml</code> or a RouterOS <code>.rsc</code>. "
+            "PASS means no warnings. EXPOSED means the review failed. "
+            "The attack-surface note under the cards is the assessment.</p>"
+            "<p><b>Findings</b><br/>"
+            "Right-click a row: Explain Issue, Explain Severity, Suggest Fix, "
+            "What Breaks if Removed. Save Analysis writes that window to a text file.</p>"
+            "<p><b>Topology</b><br/>"
+            "One physical NIC fans out to every VLAN on that port. "
+            "The label is the port name. OPT15 and the other assignment ids are on the second line.</p>"
+            "<p><b>Log Pipeline</b><br/>"
+            "Home → Log Pipeline listens for a pfSense stream. "
+            "The incoming port defaults to 59000.</p>"
+            "<p><b>AI Help</b> opens the advisor. This Help button is the map of the window.</p>"
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle("NetCheck — Help")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(body)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.exec()
 
     def _build_dashboard_tab(self) -> None:
         scroll = QScrollArea()
@@ -1452,6 +1510,18 @@ class MainWindow(QMainWindow):
             self.kpi_cards[key] = card
             grid_top.addWidget(card, idx // 4, idx % 4)
         v.addLayout(grid_top)
+
+        assess_title = QLabel("Attack surface")
+        assess_title.setStyleSheet("font-weight: bold; font-size: 13px; padding-top: 8px;")
+        v.addWidget(assess_title)
+        self.assessment_view = QTextEdit()
+        self.assessment_view.setReadOnly(True)
+        self.assessment_view.setMinimumHeight(220)
+        self.assessment_view.setFont(QFont("Consolas", 10))
+        self.assessment_view.setPlaceholderText(
+            "Drop a config to assess management exposure, WAN rules, NAT, VPN crypto, DNS, and logging."
+        )
+        v.addWidget(self.assessment_view)
 
         # Charts grid
         charts = QGridLayout()
@@ -1493,13 +1563,26 @@ class MainWindow(QMainWindow):
         controls.addStretch(1)
         v.addLayout(controls)
 
+        from PySide6.QtWidgets import QSplitter
+
+        from pfsense_checker.viz import SegmentationMatrix
+
         self.topology_view = TopologyView()
-        v.addWidget(self.topology_view, stretch=1)
+        self.segmentation_matrix = SegmentationMatrix()
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self.topology_view)
+        split.addWidget(self.segmentation_matrix)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        v.addWidget(split, stretch=1)
 
         hint = QLabel(
-            "Physical NICs → aggregation (bridge / VLAN / LAGG) → logical interfaces → edge. "
-            "Drag nodes vertically to edit the layout; edges stay orthogonal and re-route. "
-            "Auto-layout reduces crossings. Dimmed nodes are disabled interfaces."
+            "One physical NIC fans out to every VLAN on that port. "
+            "The label is the port name, not the OPT assignment. "
+            "Drag a card vertically to edit. Dimmed cards are disabled interfaces. "
+            "The badge on each subnet says how many other inside subnets its rules let it reach "
+            "(red: any protocol, amber: some services, green: isolated); hover for the list. "
+            "The matrix below shows every pair."
         )
         hint.setStyleSheet("color: #607d8b; font-size: 11px;")
         hint.setWordWrap(True)
@@ -3160,6 +3243,8 @@ class MainWindow(QMainWindow):
         v.addLayout(controls)
 
         self.findings_table = _table(["Severity", "Category", "Path", "Line", "Message"])
+        self.findings_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.findings_table.customContextMenuRequested.connect(self._findings_context_menu)
         v.addWidget(self.findings_table)
         self.tabs.addTab(page, "Findings")
 
@@ -4345,6 +4430,9 @@ class MainWindow(QMainWindow):
         self._result = result
         self._render_summary(result)
         self._render_dashboard(result)
+        if hasattr(self, "tabs") and self.tabs.count():
+            self.tabs.setCurrentIndex(0)
+            self._sync_workspace_nav()
         self._render_topology(result)
         self._render_findings(result)
         self._render_interfaces(result)
@@ -4361,10 +4449,14 @@ class MainWindow(QMainWindow):
         )
 
     def _render_summary(self, result: CheckResult) -> None:
-        if result.ok:
-            verdict, color = "OK — no errors", "#2e7d32"
-        elif result.valid_xml:
-            verdict = f"{result.error_count} error(s), {result.warning_count} warning(s)"
+        posture = str(result.summary.get("posture") or "")
+        if posture == "PASS" or (not posture and result.ok and not result.warning_count):
+            verdict, color = "PASS — no exposure found", "#2e7d32"
+        elif posture == "EXPOSED" or (not posture and result.ok and result.warning_count):
+            verdict = f"EXPOSED — {result.warning_count} warning(s)"
+            color = "#ef6c00"
+        elif result.valid_xml or result.source_type == "mikrotik":
+            verdict = f"FAIL — {result.error_count} error(s), {result.warning_count} warning(s)"
             color = "#c62828" if result.error_count else "#ef6c00"
         else:
             verdict, color = "Invalid XML", "#c62828"
@@ -4387,15 +4479,26 @@ class MainWindow(QMainWindow):
 
     def _render_dashboard(self, result: CheckResult) -> None:
         s = result.summary
-        if result.ok:
+        posture = str(s.get("posture") or "")
+        if not posture:
+            if result.error_count or (result.source_type != "mikrotik" and not result.valid_xml):
+                posture = "FAIL" if result.valid_xml or result.source_type == "mikrotik" else "INVALID"
+            elif result.warning_count:
+                posture = "EXPOSED"
+            else:
+                posture = "PASS"
+        if posture == "PASS":
             self.kpi_cards["verdict"].set_value("PASS", COLOR_OK)
-        elif result.valid_xml:
-            self.kpi_cards["verdict"].set_value(
-                "FAIL" if result.error_count else "WARN",
-                COLOR_ERROR if result.error_count else COLOR_WARN,
-            )
-        else:
+        elif posture == "EXPOSED":
+            self.kpi_cards["verdict"].set_value("EXPOSED", COLOR_WARN)
+        elif posture == "INVALID":
             self.kpi_cards["verdict"].set_value("INVALID", COLOR_ERROR)
+        else:
+            self.kpi_cards["verdict"].set_value("FAIL", COLOR_ERROR)
+        if hasattr(self, "assessment_view"):
+            self.assessment_view.setPlainText(
+                str(s.get("assessment") or "No attack-surface assessment for this file.")
+            )
 
         self.kpi_cards["errors"].set_value(
             str(result.error_count), COLOR_ERROR if result.error_count else COLOR_OK
@@ -4457,6 +4560,7 @@ class MainWindow(QMainWindow):
 
     def _render_topology(self, result: CheckResult) -> None:
         self.topology_view.render_topology(result)
+        self.segmentation_matrix.set_segmentation(self.topology_view.segmentation)
 
     def _render_findings(self, result: CheckResult) -> None:
         cats = sorted({f.category for f in result.findings if f.category})
@@ -4492,6 +4596,7 @@ class MainWindow(QMainWindow):
                 continue
             rows.append(f)
 
+        self._visible_findings = rows
         self.findings_table.setRowCount(len(rows))
         for r, f in enumerate(rows):
             sev_item = QTableWidgetItem(f.severity.value.upper())
@@ -4505,6 +4610,87 @@ class MainWindow(QMainWindow):
             )
             self.findings_table.setItem(r, 4, QTableWidgetItem(f.message))
         self.findings_table.resizeColumnsToContents()
+
+    def _findings_context_menu(self, pos) -> None:  # noqa: ANN001
+        row = self.findings_table.rowAt(pos.y())
+        findings = getattr(self, "_visible_findings", [])
+        if row < 0 or row >= len(findings):
+            return
+        finding = findings[row]
+        menu = QMenu(self.findings_table)
+        choices = (
+            ("Explain Issue", "issue"),
+            ("Explain Severity", "severity"),
+            ("Suggest Fix", "fix"),
+            ("What Breaks if Removed", "removal"),
+        )
+        actions = {menu.addAction(label): (label, kind) for label, kind in choices}
+        picked = menu.exec(self.findings_table.viewport().mapToGlobal(pos))
+        if picked not in actions:
+            return
+        title, kind = actions[picked]
+        from pfsense_checker.finding_analysis import analyse
+
+        text = analyse(finding, self._result, kind)
+        self._show_finding_analysis(title, text, finding, kind)
+
+    def _show_finding_analysis(self, title: str, text: str, finding, kind: str) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.resize(780, 560)
+        dlg.setModal(False)
+        layout = QVBoxLayout(dlg)
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setFont(QFont("Consolas", 10))
+        view.setPlainText(text)
+        layout.addWidget(view, stretch=1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        save = QPushButton("Save Analysis")
+        save.clicked.connect(
+            lambda: self._save_finding_analysis(dlg, view.toPlainText(), finding, kind)
+        )
+        buttons.addWidget(save)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.close)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        held = getattr(self, "_finding_analysis_dialogs", None)
+        if held is None:
+            self._finding_analysis_dialogs = []
+            held = self._finding_analysis_dialogs
+        held.append(dlg)
+        dlg.finished.connect(lambda: held.remove(dlg) if dlg in held else None)
+        dlg.show()
+
+    def _save_finding_analysis(self, parent: QWidget, text: str, finding, kind: str) -> None:
+        from pfsense_checker.finding_analysis import suggested_filename
+
+        body = (text or "").strip()
+        if not body:
+            QMessageBox.information(parent, "Save Analysis", "There is no analysis to save.")
+            return
+        result = getattr(self, "_result", None)
+        name = suggested_filename(finding, kind, result)
+        start = name
+        current = getattr(self, "_current_path", None)
+        if current is not None:
+            start = str(Path(current).parent / name)
+        path_str, _ = QFileDialog.getSaveFileName(
+            parent,
+            "Save Analysis",
+            start,
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if not path_str:
+            return
+        try:
+            Path(path_str).write_text(body + "\n", encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(parent, "Save Analysis", str(exc))
+            return
+        self.statusBar().showMessage(f"Analysis saved to {path_str}", 5000)
 
     def _render_interfaces(self, result: CheckResult) -> None:
         rows = [
@@ -4630,11 +4816,17 @@ class MainWindow(QMainWindow):
         lines.append(f"Version:     {result.version or '(unknown)'}")
         lines.append(f"Hostname:    {result.hostname or '(unknown)'}"
                      + (f".{result.domain}" if result.domain else ""))
+        posture = str(s.get("posture") or ("PASS" if result.ok and not result.warning_count else "FAIL"))
         lines.append(
-            f"Result:      {'PASS' if result.ok else 'FAIL'} "
+            f"Result:      {posture} "
             f"({result.error_count} errors, {result.warning_count} warnings, "
             f"{result.info_count} info)"
         )
+        assessment = str(s.get("assessment") or "").strip()
+        if assessment:
+            lines.append("")
+            lines.append("-- Attack surface --")
+            lines.append(assessment)
         lines.append("")
         lines.append("-- Inventory --")
         lines.append(
