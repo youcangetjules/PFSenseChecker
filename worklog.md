@@ -4,6 +4,7 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Load config dialog: load from device first and default; status connected is green and semi-bold; Config button green when loaded, blue while loading; login Tools buttons red / green / hazard-striped Check Config; Cancel renamed Cancel/Quit App (1.3.81).
 - Login panel: Help / Options / Forgot Credentials equal width, yellow / dark grey / blue with electric 1px borders; Login gets an electric-blue border, Cancel white with an 80% grey border (1.3.80).
 - Python Modules: Available column (system-set, green/red with reason), Loaded choices persist across logins (data/python_modules.json, requirements.txt allowlist), a note for every package. 15 listed packages are not imported anywhere (1.3.79).
 - Loaded configs list under the section menu (click to open in Config Check). Database page shows logged-in user@db and real SSL state (TLSv1.3 on localhost) next to Save login (1.3.78).

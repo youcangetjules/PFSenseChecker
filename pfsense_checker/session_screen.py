@@ -160,13 +160,24 @@ _CONFIG_BTN_NORMAL = (
     "QPushButton { padding: 2px 10px; }"
 )
 
+# Config attached: green.
 _CONFIG_BTN_LOADED = (
     "QPushButton {"
     " padding: 2px 10px; font-weight: bold;"
-    " background-color: rgba(21, 101, 192, 220);"
-    " border: 1px solid rgb(13, 71, 161); border-radius: 3px;"
+    " background-color: #2e7d32;"
+    " border: 1px solid #1b5e20; border-radius: 3px;"
     " color: white; }"
-    "QPushButton:hover { background-color: rgba(25, 118, 210, 240); }"
+    "QPushButton:hover { background-color: #388e3c; }"
+)
+
+# Pull / parse in progress: blue.
+_CONFIG_BTN_LOADING = (
+    "QPushButton {"
+    " padding: 2px 10px; font-weight: bold;"
+    " background-color: #1565c0;"
+    " border: 1px solid #0d47a1; border-radius: 3px;"
+    " color: white; }"
+    "QPushButton:disabled { background-color: #1565c0; color: white; }"
 )
 
 _DEVICE_SUBNET_TAB_STYLE_BASE = """
@@ -310,21 +321,6 @@ class _LoadConfigChooserDialog(QDialog):
         blurb.setWordWrap(True)
         root.addWidget(blurb)
 
-        self.radio_file = QRadioButton("Browse for a local file…")
-        self.radio_file.setChecked(True)
-        root.addWidget(self.radio_file)
-
-        file_row = QHBoxLayout()
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("pfSense .xml or MikroTik .rsc")
-        self.path_edit.setReadOnly(True)
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self._browse)
-        file_row.addWidget(self.path_edit, stretch=1)
-        file_row.addWidget(browse)
-        root.addLayout(file_row)
-        self._browse_btn = browse
-
         if self._mikrotik:
             device_label = "Load directly from device  (/export verbose)"
             device_tip = (
@@ -357,6 +353,7 @@ class _LoadConfigChooserDialog(QDialog):
                 "Set Kind to pfsense / opnsense / mikrotik to enable device pull."
             )
 
+        # Load from device first and default (when this kind supports it).
         self.radio_device = QRadioButton(device_label)
         self.radio_device.setEnabled(self._device_pull)
         self.radio_device.setToolTip(device_tip)
@@ -364,8 +361,27 @@ class _LoadConfigChooserDialog(QDialog):
 
         tip = QLabel(tip_text)
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #666;")
+        tip.setStyleSheet("color: #666; padding-left: 22px;")
         root.addWidget(tip)
+
+        self.radio_file = QRadioButton("Browse for a local file…")
+        root.addWidget(self.radio_file)
+
+        file_row = QHBoxLayout()
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("pfSense .xml or MikroTik .rsc")
+        self.path_edit.setReadOnly(True)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse)
+        file_row.addWidget(self.path_edit, stretch=1)
+        file_row.addWidget(browse)
+        root.addLayout(file_row)
+        self._browse_btn = browse
+
+        if self._device_pull:
+            self.radio_device.setChecked(True)
+        else:
+            self.radio_file.setChecked(True)
 
         self.radio_file.toggled.connect(self._sync_enabled)
         self.radio_device.toggled.connect(self._sync_enabled)
@@ -1551,7 +1567,21 @@ class SessionScreen(QWidget):
             return True
         return bool(dev.config_file and Path(dev.config_file).is_file())
 
-    def _set_config_button(self, row: int, loaded: bool) -> None:
+    def _set_config_button(self, row: int, loaded: bool, *, loading: bool = False) -> None:
+        if loading:
+            btn = QPushButton("Loading…")
+            btn.setStyleSheet(_CONFIG_BTN_LOADING)
+            btn.setEnabled(False)
+            btn.setToolTip("Loading the config…")
+            was = self._updating
+            self._updating = True
+            self.table.setCellWidget(row, COL_CONFIG, btn)
+            self._updating = was
+            # The MikroTik export and local parse run on this thread: paint now.
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.processEvents()
+            return
         btn = QPushButton("Config Loaded" if loaded else "Load Config")
         if loaded:
             btn.setStyleSheet(_CONFIG_BTN_LOADED)
@@ -1595,13 +1625,16 @@ class SessionScreen(QWidget):
         if not p.is_file():
             QMessageBox.warning(self, "Load Config", f"File not found:\n{path}")
             return
+        was_loaded = self._device_has_loaded_config(dev)
+        self._set_config_button(row, was_loaded, loading=True)
+        check_result = None
         if p.suffix.lower() == ".xml":
-            check_result = None
             try:
                 from pfsense_checker.checker import check_file
 
                 check_result = check_file(p)
                 if not check_result.valid_xml:
+                    self._set_config_button(row, was_loaded)
                     QMessageBox.warning(
                         self,
                         "Load Config",
@@ -1609,6 +1642,7 @@ class SessionScreen(QWidget):
                     )
                     return
             except Exception as exc:  # noqa: BLE001
+                self._set_config_button(row, was_loaded)
                 QMessageBox.warning(
                     self, "Load Config", f"Could not parse config:\n{exc}"
                 )
@@ -1663,6 +1697,7 @@ class SessionScreen(QWidget):
         self._config_pull_worker.finished_result.connect(
             self._on_config_pull_finished
         )
+        self._set_config_button(row, self._device_has_loaded_config(dev), loading=True)
         show_busy_while(
             self._config_pull_worker,
             message=f"Pulling config.xml from {host}…",
@@ -1684,6 +1719,7 @@ class SessionScreen(QWidget):
         ):
             retry = prompt_config_pull_retry(self, dev, result)
             if retry is None:
+                self._set_config_button(row, self._device_has_loaded_config(dev))
                 if getattr(self, "_config_pull_for_check", False):
                     self._config_pull_for_check = False
                 QMessageBox.warning(
@@ -1721,6 +1757,7 @@ class SessionScreen(QWidget):
             return
 
         if not result.ok:
+            self._set_config_button(row, self._device_has_loaded_config(dev))
             QMessageBox.warning(
                 self,
                 "Load Config",
@@ -1756,6 +1793,7 @@ class SessionScreen(QWidget):
 
     def _load_config_from_mikrotik(self, row: int, dev: Device) -> None:
         """Pull ``/export verbose`` over SSH and attach the cached .rsc."""
+        self._set_config_button(row, self._device_has_loaded_config(dev), loading=True)
         with busy_cursor():
             # Prefer password typed on the login form if present.
             typed_pw = ""
@@ -1767,6 +1805,7 @@ class SessionScreen(QWidget):
             )
 
         if not result.ok:
+            self._set_config_button(row, self._device_has_loaded_config(dev))
             QMessageBox.warning(
                 self,
                 "Load Config",
@@ -1928,6 +1967,10 @@ class SessionScreen(QWidget):
         text, color = status_label(status)
         item = QTableWidgetItem(f"● {text}")
         item.setForeground(QColor(color))
+        if status == "ok":
+            font = item.font()
+            font.setWeight(QFont.Weight.DemiBold)  # connected: green, semi-bold
+            item.setFont(font)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         if detail:
             item.setToolTip(detail)

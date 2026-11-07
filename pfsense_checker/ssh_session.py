@@ -812,7 +812,7 @@ def identify_kind_from_banner(banner: str) -> str:
 def status_label(status: str) -> tuple[str, str]:
     """(text, color) badge for an SshAccess status."""
     return {
-        "ok": ("connected", "#1565c0"),
+        "ok": ("connected", "#2e7d32"),
         "banner-only": ("reachable", "#f9a825"),
         "auth-fail": ("auth failed", "#c62828"),
         "unreachable": ("unreachable", "#c62828"),

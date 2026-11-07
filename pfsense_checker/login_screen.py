@@ -13,8 +13,8 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -128,6 +128,79 @@ def _sync_widths_to(reference: QPushButton, *others: QPushButton) -> None:
     for btn in (reference, *others):
         btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         btn.setFixedSize(width, _ACTION_BTN_H)
+
+
+# Tools row (no sign-in): red / green, and a hazard-striped Check Config.
+BEACON_BTN_STYLE = _tinted_btn_style("#c62828", "#ffffff", "#ff1744", "#e53935", "#b71c1c")
+COLLECTOR_BTN_STYLE = _tinted_btn_style("#2e7d32", "#ffffff", "#00e676", "#388e3c", "#1b5e20")
+TOOL_BTN_SIZE = (200, 38)
+
+
+class HazardButton(QPushButton):
+    """Yellow / black diagonal stripes, like an ejection-seat handle.
+
+    The label sits on a black plate so it stays readable over the stripes.
+    """
+
+    STRIPE = 11  # px, width of each stripe
+    YELLOW = "#ffd600"
+    YELLOW_HOVER = "#ffea00"
+    YELLOW_DOWN = "#ffc400"
+    BLACK = "#111111"
+    BORDER = "#ffea00"
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        font = self.font()
+        font.setBold(True)
+        self.setFont(font)
+
+    def paintEvent(self, _event) -> None:  # noqa: N802, ANN001
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        outline = QPainterPath()
+        outline.addRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 3, 3)
+
+        if self.isDown():
+            yellow = self.YELLOW_DOWN
+        elif self.underMouse():
+            yellow = self.YELLOW_HOVER
+        else:
+            yellow = self.YELLOW
+        p.setClipPath(outline)
+        p.fillRect(self.rect(), QColor(yellow))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(self.BLACK))
+        s = self.STRIPE
+        x = -h
+        while x < w + h:
+            p.drawPolygon(
+                QPolygonF(
+                    [QPointF(x, h), QPointF(x + s, h), QPointF(x + s + h, 0), QPointF(x + h, 0)]
+                )
+            )
+            x += 2 * s
+        p.setClipping(False)
+
+        fm = self.fontMetrics()
+        plate_w = fm.horizontalAdvance(self.text()) + 22
+        plate_h = fm.height() + 8
+        plate = QRectF((w - plate_w) / 2, (h - plate_h) / 2, plate_w, plate_h)
+        p.setBrush(QColor(self.BLACK))
+        p.setPen(QPen(QColor(yellow), 1))
+        p.drawRoundedRect(plate, 3, 3)
+        p.setPen(QColor(yellow))
+        p.drawText(plate, Qt.AlignmentFlag.AlignCenter, self.text())
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(self.BORDER), 1))
+        p.drawPath(outline)
+        if self.hasFocus():
+            p.setPen(QPen(QColor(self.BLACK), 1, Qt.PenStyle.DotLine))
+            p.drawRoundedRect(QRectF(2.5, 2.5, w - 5, h - 5), 2, 2)
+        p.end()
 
 
 def _inline_btn_style() -> str:
@@ -1028,7 +1101,8 @@ class LoginDialog(QDialog):
         self.submit.setStyleSheet(LOGIN_BTN_STYLE)
         self.submit.clicked.connect(self._on_submit)
         self._enter_button = self.submit
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton("Cancel/Quit App")
+        self.cancel_btn.setToolTip("Close NetCheck without signing in")
         self.cancel_btn.setStyleSheet(CANCEL_BTN_STYLE)
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self.reject)
@@ -1067,11 +1141,13 @@ class LoginDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
         self.btn_beacon = QPushButton("Beacon Creation")
+        self.btn_beacon.setStyleSheet(BEACON_BTN_STYLE)
         self.btn_collector = QPushButton("Start Collector")
-        self.btn_check = QPushButton("Check Config")
+        self.btn_collector.setStyleSheet(COLLECTOR_BTN_STYLE)
+        self.btn_check = HazardButton("Check Config")
         for b in (self.btn_beacon, self.btn_collector, self.btn_check):
-            b.setStyleSheet(_tool_btn_style())
             b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFixedSize(*TOOL_BTN_SIZE)
             btn_row.addWidget(b)
         btn_row.addStretch(1)
         tools_inner.addLayout(btn_row)

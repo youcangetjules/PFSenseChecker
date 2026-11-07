@@ -72,6 +72,24 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.81",
+        date="2026-11-07",
+        notes=(
+            "Load config: Load directly from device is on top and selected by "
+            "default; Browse for a local file is below. A kind that cannot be "
+            "pulled from (not pfSense / OPNsense / MikroTik) still defaults to "
+            "the local file.",
+            "Device status 'connected' is green and semi-bold.",
+            "Config button: green 'Config Loaded' when a config is attached, "
+            "blue 'Loading…' while it is pulled or parsed (back to its previous "
+            "state if the load fails).",
+            "Login screen Tools: Beacon Creation red, Start Collector green, "
+            "Check Config yellow / black diagonal stripes like an ejection-seat "
+            "handle (label on a black plate); all three the same size.",
+            "Login screen: Cancel is labelled Cancel/Quit App.",
+        ),
+    ),
+    Change(
         version="1.3.80",
         date="2026-11-07",
         notes=(
