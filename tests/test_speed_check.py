@@ -83,6 +83,7 @@ def test_home_sections_defined() -> None:
         "syslog",
         "log_pipeline",
         "wireshark",
+        "logs",
         "setup",
         "about",
     ]

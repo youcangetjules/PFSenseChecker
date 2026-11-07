@@ -22,6 +22,12 @@ _REPO_ROOT = _PKG_ROOT.parent
 _SOURCE_FILES: list[tuple[Path, str]] = [
     (_PKG_ROOT / "__init__.py", "pfsense_checker/__init__.py"),
     (_PKG_ROOT / "paths.py", "pfsense_checker/paths.py"),
+    # pfsense_checker/__init__ imports version (which reads the repo-root
+    # versions.py); lan_scan and subnet_health import winproc. Without these a
+    # built beacon could not start.
+    (_PKG_ROOT / "version.py", "pfsense_checker/version.py"),
+    (_REPO_ROOT / "versions.py", "versions.py"),
+    (_PKG_ROOT / "winproc.py", "pfsense_checker/winproc.py"),
     (_PKG_ROOT / "subnet_health.py", "pfsense_checker/subnet_health.py"),
     (_PKG_ROOT / "lan_scan.py", "pfsense_checker/lan_scan.py"),
     (_PKG_ROOT / "monitor" / "__init__.py", "pfsense_checker/monitor/__init__.py"),

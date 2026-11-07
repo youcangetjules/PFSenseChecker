@@ -347,6 +347,50 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         FROM users
         WHERE is_active IS TRUE
     """,
+    # Sign-in history (Logs → Login History). No passwords, ever.
+    """
+    CREATE TABLE IF NOT EXISTS login_sessions (
+        id              BIGSERIAL PRIMARY KEY,
+        username        TEXT NOT NULL,
+        outcome         TEXT NOT NULL DEFAULT 'success',
+        client_ip       TEXT NOT NULL DEFAULT '',
+        client_host     TEXT NOT NULL DEFAULT '',
+        started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ended_at        TIMESTAMPTZ,
+        end_reason      TEXT NOT NULL DEFAULT '',
+        app_version     TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS login_sessions_started_idx
+        ON login_sessions (started_at DESC)
+    """,
+    # Subnet Health device age: one row per device per subnet (device_scan).
+    # device_key is the MAC, or "ip:<address>" when no MAC was seen.
+    """
+    CREATE TABLE IF NOT EXISTS subnet_devices (
+        cidr            TEXT NOT NULL,
+        device_key      TEXT NOT NULL,
+        ip              TEXT NOT NULL DEFAULT '',
+        mac             TEXT NOT NULL DEFAULT '',
+        hostname        TEXT NOT NULL DEFAULT '',
+        vendor          TEXT NOT NULL DEFAULT '',
+        conn_type       TEXT NOT NULL DEFAULT '',
+        os_guess        TEXT NOT NULL DEFAULT '',
+        sources         TEXT NOT NULL DEFAULT '',
+        beacon_id       TEXT NOT NULL DEFAULT '',
+        answered        BOOLEAN NOT NULL DEFAULT FALSE,
+        first_seen      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen       TIMESTAMPTZ,
+        last_listed     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (cidr, device_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS subnet_devices_ip_idx
+        ON subnet_devices (cidr, ip)
+    """,
     # Seed empty live / experimental site slots (ignore if already present).
     """
     INSERT INTO topology_sites (mode, name, grid_size)
@@ -378,6 +422,8 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "connectivity_subnets",
     "ssh_host_credentials",
     "users",
+    "login_sessions",
+    "subnet_devices",
 )
 
 

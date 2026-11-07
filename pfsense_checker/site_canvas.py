@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QFontMetrics,
     QPainter,
     QPainterPath,
+    QPainterPathStroker,
     QPen,
 )
 from PySide6.QtWidgets import (
@@ -43,8 +44,8 @@ GROUP_GAP = 10.0  # gap every 8 copper ports
 CHASSIS_PAD = 12.0
 HEADER_H = 48.0
 
-# Non-switch (router/firewall) NIC tiles
-NIC_W = 92.0
+# Non-switch (router/firewall) NIC tiles — one horizontal row per device
+NIC_W = 72.0
 NIC_H = 22.0
 NIC_H_WITH_ADDR = 36.0
 NIC_GAP = 4.0
@@ -113,6 +114,70 @@ def _vendor_badge(kind: str, model: str) -> tuple[str, str, str] | None:
     return None
 
 
+# Port classes: fill / edge colours, and left-to-right group order.
+PORT_CLASS_STYLE: dict[str, tuple[str, str]] = {
+    "physical": ("#cfd8dc", "#455a64"),
+    "bridge": ("#e0f2f1", "#00897b"),
+    "vlan": ("#fff3e0", "#ef6c00"),
+    "virtual": ("#ede7f6", "#5e35b1"),  # tunnels, CAPsMAN interfaces
+    "wireless": ("#e8f5e9", "#2e7d32"),
+}
+_CLASS_ORDER = {"physical": 0, "bridge": 1, "vlan": 2, "wireless": 3, "virtual": 4}
+_VIRTUAL_TOKENS = ("openvpn", "ipsec", "wireguard", "wg", "gif", "gre", "ppp", "cap", "loopback", "tunnel")
+
+
+def _media_tokens(media: str) -> list[str]:
+    return [t.strip() for t in (media or "").split("\u00b7") if t.strip()]
+
+
+def port_class(comp) -> tuple[str, bool]:  # noqa: ANN001
+    """(class, disabled) from a component's media tags and name."""
+    tokens = [x.lower() for x in _media_tokens(getattr(comp, "media", ""))]
+    name = (comp.name or "").lower()
+    disabled = "disabled" in tokens
+    if "vlan" in tokens or any(x.startswith("tag ") for x in tokens) or (
+        "." in name and name.split(".")[-1].isdigit()
+    ):
+        return "vlan", disabled
+    if "bridge" in tokens or name.startswith("bridge"):
+        return "bridge", disabled
+    if "wlan" in tokens or name.startswith(("wlan", "wifi")):
+        return "wireless", disabled
+    if any(x in _VIRTUAL_TOKENS for x in tokens) or name.startswith(("ovpn", "ipsec", "wg", "gif", "gre")):
+        return "virtual", disabled
+    return "physical", disabled
+
+
+def port_display(device, comp) -> tuple[str, str]:  # noqa: ANN001
+    """(label, second line) for a port tile.
+
+    pfSense / OPNsense ports show their own interface names (descriptions);
+    the OPTn assignment and NIC go on the second line unless an address does.
+    """
+    name = comp.name or ""
+    address = (getattr(comp, "address", "") or "").split("/")[0]
+    kind = (getattr(device, "kind", "") or "").lower()
+    tokens = _media_tokens(getattr(comp, "media", ""))
+    if kind in ("pfsense", "opnsense") and tokens:
+        flags = {"vlan", "bridge", "disabled", "openvpn", "ipsec", "wireguard", "ppp", "gif", "gre"}
+        words = [x for x in tokens if x.lower() not in flags and not x.lower().startswith("tag ")]
+        if tokens[0].lower().startswith("tag ") and words:
+            descr, nic = words[-1], ""  # raw VLAN: "tag 630 · mce1 · descr"
+        else:
+            nic = words[0] if words else ""
+            descr = words[1] if len(words) > 1 else ""
+        if descr and descr.lower() != name.lower():
+            second = address or " · ".join(x for x in (name, nic) if x)
+            return descr, second
+    return name, address
+
+
+def _natural_key(text: str) -> list:
+    import re as _re
+
+    return [int(x) if x.isdigit() else x.lower() for x in _re.split(r"(\d+)", text or "")]
+
+
 def _is_sfp_name(name: str) -> bool:
     n = name.lower()
     return any(
@@ -133,6 +198,11 @@ class PortItem(QGraphicsObject):
         address: str = "",
         faceplate: bool = False,
         sfp: bool = False,
+        port_cls: str = "physical",
+        disabled: bool = False,
+        label: str = "",
+        second: str = "",
+        tall: bool = False,
     ) -> None:
         super().__init__()
         self.device_name = device_name
@@ -141,10 +211,14 @@ class PortItem(QGraphicsObject):
         self.address = (address or "").strip()
         self.faceplate = faceplate
         self.sfp = sfp
+        self.port_cls = port_cls
+        self.disabled = disabled
+        self.label = label or port_name
+        self.second = second
         self.w = SFP_W if (faceplate and sfp) else (RJ45_W if faceplate else NIC_W)
         if faceplate:
             self.h = SFP_H
-        elif self.address:
+        elif tall or self.second:
             self.h = NIC_H_WITH_ADDR
         else:
             self.h = NIC_H
@@ -156,6 +230,9 @@ class PortItem(QGraphicsObject):
         self.setZValue(3)
         kind = "SFP" if sfp else ("RJ45" if faceplate else "NIC")
         tip_bits = [f"{device_name} · {port_name} ({kind})"]
+        if self.label != port_name:
+            tip_bits.append(self.label)
+        tip_bits.append(f"{port_cls} port" + (" · disabled" if disabled else ""))
         if self.address:
             tip_bits.append(self.address)
         if media:
@@ -174,10 +251,15 @@ class PortItem(QGraphicsObject):
             edge = "#6a1b9a" if selected else "#7b1fa2"
             fill = QColor("#f3e5f5" if selected else "#ede7f6")
         else:
-            edge = "#1565c0" if selected else "#455a64"
-            fill = QColor("#e3f2fd" if selected else "#cfd8dc")
+            base_fill, base_edge = PORT_CLASS_STYLE.get(self.port_cls, PORT_CLASS_STYLE["physical"])
+            edge = "#1565c0" if selected else base_edge
+            fill = QColor("#e3f2fd" if selected else base_fill)
+        if self.disabled:
+            fill.setAlpha(110)
         pen = QPen(QColor(edge))
         pen.setWidth(2 if selected else 1)
+        if self.disabled:
+            pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
         r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
@@ -206,30 +288,33 @@ class PortItem(QGraphicsObject):
                 label,
             )
             return
-        # Router/firewall NIC tile: name + assigned IP when known.
-        if self.address:
+        # Router/firewall NIC tile: name (elided) + second line (IP or OPTn · NIC).
+        if self.disabled:
+            painter.setPen(QColor("#90a4ae"))
+        metrics = QFontMetrics(font)
+        name_txt = metrics.elidedText(self.label, Qt.TextElideMode.ElideRight, int(self.w - 4))
+        if self.h > NIC_H:
             painter.drawText(
                 QRectF(2, 1, self.w - 4, 14),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                label,
+                name_txt,
             )
-            font2 = QFont()
-            font2.setPointSize(6)
-            painter.setFont(font2)
-            painter.setPen(QColor("#1565c0"))
-            ip_label = self.address.split("/")[0]
-            if len(ip_label) > 15:
-                ip_label = ip_label[:14] + "…"
-            painter.drawText(
-                QRectF(2, 15, self.w - 4, 18),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                ip_label,
-            )
+            if self.second:
+                font2 = QFont()
+                font2.setPointSize(6)
+                painter.setFont(font2)
+                painter.setPen(QColor("#1565c0" if self.address else "#546e7a"))
+                sub = QFontMetrics(font2).elidedText(self.second, Qt.TextElideMode.ElideRight, int(self.w - 4))
+                painter.drawText(
+                    QRectF(2, 15, self.w - 4, 18),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                    sub,
+                )
         else:
             painter.drawText(
                 self.boundingRect().adjusted(2, 1, -2, -2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                label,
+                name_txt,
             )
 
     def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
@@ -507,42 +592,27 @@ class ChassisItem(QGraphicsObject):
             body_h = max(natural_h, self._user_h or 0.0)
             return body_w, body_h, placed
 
-        # Compact NIC grid for routers / firewalls — columns follow chassis width
-        n = len(comps) or 1
-        row_h = (
-            NIC_H_WITH_ADDR
-            if any(getattr(c, "address", "") for c in comps)
-            else NIC_H
+        # Routers / firewalls: one horizontal row, grouped physical → bridge →
+        # VLAN → wireless → tunnels, so every cable lands on a visible port.
+        ordered = sorted(
+            comps,
+            key=lambda c: (_CLASS_ORDER.get(port_class(c)[0], 9), _natural_key(c.name)),
         )
-        cell = NIC_W + NIC_GAP
-        target_w = self._user_w
-        if target_w is None:
-            cols = min(4, n)
-            natural_w = max(220.0, cols * cell + CHASSIS_PAD * 2)
-        else:
-            usable = max(cell, target_w - CHASSIS_PAD * 2)
-            cols = max(1, min(n, int((usable + NIC_GAP) // cell)))
-            natural_w = max(MIN_CHASSIS_W, cols * cell + CHASSIS_PAD * 2)
-        rows = max(1, (n + cols - 1) // cols)
-        natural_h = HEADER_H + rows * (row_h + NIC_GAP) + CHASSIS_PAD + 10
+        tall = any(port_display(self.device, c)[1] for c in ordered)
+        row_h = NIC_H_WITH_ADDR if tall else NIC_H
+        x = CHASSIS_PAD
+        prev_cls = None
+        for comp in ordered:
+            cls = port_class(comp)[0]
+            if prev_cls is not None and cls != prev_cls:
+                x += GROUP_GAP
+            placed.append((comp, x, HEADER_H, False))
+            x += NIC_W + NIC_GAP
+            prev_cls = cls
+        natural_w = max(MIN_CHASSIS_W, x - NIC_GAP + CHASSIS_PAD)
         body_w = max(natural_w, self._user_w or 0.0)
-        body_h = max(natural_h, self._user_h or 0.0)
-        # Recalc columns from final width so stretch adds more NIC columns
-        usable = max(cell, body_w - CHASSIS_PAD * 2)
-        cols = max(1, min(n, int((usable + NIC_GAP) // cell)))
-        rows = max(1, (n + cols - 1) // cols)
-        content_h = HEADER_H + rows * (row_h + NIC_GAP) + CHASSIS_PAD + 10
-        body_h = max(content_h, self._user_h or 0.0)
-        for i, comp in enumerate(comps):
-            r, c = i // cols, i % cols
-            placed.append(
-                (
-                    comp,
-                    CHASSIS_PAD + c * (NIC_W + NIC_GAP),
-                    HEADER_H + r * (row_h + NIC_GAP),
-                    False,
-                )
-            )
+        body_h = HEADER_H + row_h + CHASSIS_PAD + 10
+        self._row_tall = tall
         return body_w, body_h, placed
 
     def _content_size(self) -> tuple[float, float]:
@@ -558,6 +628,8 @@ class ChassisItem(QGraphicsObject):
         self.port_items.clear()
         _w, _h, placed = self._layout_metrics()
         for comp, x, y, is_sfp in placed:
+            cls, disabled = port_class(comp)
+            label, second = port_display(self.device, comp)
             item = PortItem(
                 self.device_name,
                 comp.name,
@@ -565,6 +637,11 @@ class ChassisItem(QGraphicsObject):
                 address=getattr(comp, "address", "") or "",
                 faceplate=self._faceplate,
                 sfp=is_sfp,
+                port_cls=cls,
+                disabled=disabled,
+                label=label,
+                second=second,
+                tall=getattr(self, "_row_tall", False),
             )
             item.setParentItem(self)
             item.setPos(x, y)
@@ -670,7 +747,7 @@ class ChassisItem(QGraphicsObject):
         )
         super().mouseReleaseEvent(event)
 
-    def port_anchor(self, port_name: str, toward: QPointF | None = None) -> QPointF:
+    def port_anchor(self, port_name: str, toward: QPointF | None = None, facing: str = "bottom") -> QPointF:
         item = self.port_items.get(port_name)
         if item is None:
             r = self.boundingRect()
@@ -678,11 +755,8 @@ class ChassisItem(QGraphicsObject):
             if toward is not None and toward.x() < center.x():
                 return self.mapToScene(QPointF(0, r.height() / 2))
             return self.mapToScene(QPointF(r.width(), r.height() / 2))
-        if self._faceplate:
-            # Cables leave from bottom of the jack (discrete line out)
-            return item.anchor_scene("bottom")
-        center = self.mapToScene(self.boundingRect().center())
-        facing = "left" if (toward is not None and toward.x() < center.x()) else "right"
+        # Cables leave from the bottom (or top, toward a device above) of the
+        # exact port, so which port a cable belongs to is obvious.
         return item.anchor_scene(facing)
 
 
@@ -698,10 +772,12 @@ class LinkItem(QGraphicsPathItem):
         b_port: str = "",
         color: str = "#546e7a",
         label: str = "",
+        lane: int = 0,
     ) -> None:
         super().__init__()
         self.a = a
         self.b = b
+        self.lane = lane
         self.a_port = a_port
         self.b_port = b_port
         self.color = color
@@ -716,31 +792,52 @@ class LinkItem(QGraphicsPathItem):
         b.moved.connect(lambda *_: self.rebuild())
         a.resized.connect(lambda *_: self.rebuild())
         b.resized.connect(lambda *_: self.rebuild())
+        self.setAcceptHoverEvents(True)
+        self.setToolTip(
+            f"{a.device.name}:{a_port or '?'} ↔ {b.device.name}:{b_port or '?'}"
+            + (f"\n{label}" if label else "")
+            + "\nRight-click to delete this cable"
+        )
         self.rebuild()
 
+    def shape(self) -> QPainterPath:  # noqa: D102
+        stroker = QPainterPathStroker()
+        stroker.setWidth(10)
+        return stroker.createStroke(self.path())
+
+    def hoverEnterEvent(self, event) -> None:  # noqa: ANN001, N802
+        pen = self.pen()
+        pen.setWidth(4)
+        self.setPen(pen)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:  # noqa: ANN001, N802
+        pen = self.pen()
+        pen.setWidth(2)
+        self.setPen(pen)
+        super().hoverLeaveEvent(event)
+
     def rebuild(self) -> None:
-        ac = self.a.mapToScene(self.a.boundingRect().center())
-        bc = self.b.mapToScene(self.b.boundingRect().center())
-        start = self.a.port_anchor(self.a_port, toward=bc)
-        end = self.b.port_anchor(self.b_port, toward=ac)
-        # Drop vertically from faceplate jacks, then run horizontally
-        if self.a._faceplate or self.b._faceplate:
-            drop = 28.0
-            s2 = QPointF(start.x(), start.y() + (drop if self.a._faceplate else 0))
-            e2 = QPointF(end.x(), end.y() + (drop if self.b._faceplate else 0))
-            mid_y = max(s2.y(), e2.y()) + 10
-            path = QPainterPath(start)
-            path.lineTo(s2)
-            path.lineTo(QPointF(s2.x(), mid_y))
-            path.lineTo(QPointF(e2.x(), mid_y))
-            path.lineTo(e2)
-            path.lineTo(end)
+        ar = self.a.sceneBoundingRect()
+        br = self.b.sceneBoundingRect()
+        gap_top, gap_bottom = None, None
+        if ar.bottom() + 12 < br.top():  # a above b: run in the gap between
+            a_face, b_face, gap_top, gap_bottom = "bottom", "top", ar.bottom(), br.top()
+        elif br.bottom() + 12 < ar.top():  # b above a
+            a_face, b_face, gap_top, gap_bottom = "top", "bottom", br.bottom(), ar.top()
+        else:  # side by side: corridor below both
+            a_face = b_face = "bottom"
+        start = self.a.port_anchor(self.a_port, facing=a_face)
+        end = self.b.port_anchor(self.b_port, facing=b_face)
+        if gap_top is not None:
+            room = max(4.0, gap_bottom - gap_top - 16)
+            mid_y = gap_top + 8 + (self.lane * 8) % room
         else:
-            mid_x = (start.x() + end.x()) / 2
-            path = QPainterPath(start)
-            path.lineTo(mid_x, start.y())
-            path.lineTo(mid_x, end.y())
-            path.lineTo(end)
+            mid_y = max(ar.bottom(), br.bottom()) + 16 + self.lane * 8
+        path = QPainterPath(start)
+        path.lineTo(QPointF(start.x(), mid_y))
+        path.lineTo(QPointF(end.x(), mid_y))
+        path.lineTo(end)
         self.setPath(path)
 
 
@@ -824,8 +921,44 @@ class SiteTopologyView(QGraphicsView):
                 cur = cur.parentItem()
         return None
 
+    def _link_item_at(self, scene_pos: QPointF) -> "LinkItem | None":
+        for item in self._scene.items(scene_pos):
+            if isinstance(item, LinkItem):
+                return item
+        return None
+
+    def delete_link(self, a_dev: str, a_port: str, b_dev: str, b_port: str) -> bool:
+        """Remove the cable between the two ports (either direction)."""
+        if self._site is None:
+            return False
+        before = len(self._site.links)
+        self._site.links = [
+            link for link in self._site.links
+            if not (
+                (link.a_device, link.a_port, link.b_device, link.b_port) == (a_dev, a_port, b_dev, b_port)
+                or (link.a_device, link.a_port, link.b_device, link.b_port) == (b_dev, b_port, a_dev, a_port)
+            )
+        ]
+        if len(self._site.links) == before:
+            return False
+        self.render_site(self._site)
+        self.links_changed.emit()
+        return True
+
     def contextMenuEvent(self, event) -> None:  # noqa: ANN001, N802
         sp = self.mapToScene(event.pos())
+        link_item = self._link_item_at(sp)
+        if link_item is not None and not self._locked:
+            a_dev, b_dev = link_item.a.device.name, link_item.b.device.name
+            menu = QMenu(self)
+            title = menu.addAction(f"{a_dev}:{link_item.a_port or '?'} ↔ {b_dev}:{link_item.b_port or '?'}")
+            title.setEnabled(False)
+            menu.addSeparator()
+            act_delete = menu.addAction("Delete cable")
+            if menu.exec(event.globalPos()) is act_delete:
+                self.delete_link(a_dev, link_item.a_port, b_dev, link_item.b_port)
+            event.accept()
+            return
         chassis = self._chassis_item_at(sp)
         if chassis is None:
             super().contextMenuEvent(event)
@@ -1059,7 +1192,7 @@ class SiteTopologyView(QGraphicsView):
             self._scene.addItem(ch)
             self._chassis[dev.name] = ch
 
-        for link in site.links:
+        for lane, link in enumerate(site.links):
             a = self._chassis.get(link.a_device)
             b = self._chassis.get(link.b_device)
             if a is None or b is None:
@@ -1080,13 +1213,16 @@ class SiteTopologyView(QGraphicsView):
                 b_port=link.b_port,
                 color=color,
                 label=" · ".join(bits),
+                lane=lane,
             )
             self._scene.addItem(item)
             self._links.append(item)
             if bits:
                 ac = a.mapToScene(a.boundingRect().center())
                 bc = b.mapToScene(b.boundingRect().center())
-                mid = QPointF((ac.x() + bc.x()) / 2, max(ac.y(), bc.y()) + 40)
+                below = max(a.mapToScene(QPointF(0, a.boundingRect().height())).y(),
+                            b.mapToScene(QPointF(0, b.boundingRect().height())).y())
+                mid = QPointF((ac.x() + bc.x()) / 2, below + 16 + lane * 8 - 12)
                 lt = self._scene.addText(" · ".join(bits))
                 lf = QFont()
                 lf.setPointSize(6)

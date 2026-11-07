@@ -4,6 +4,12 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Subnet Health device scan (`device_scan.py`): nmap first (ping sweep + ARP fallback; nmap not installed yet), router ARP / DHCP tables, loaded-config pools and static maps, beacons; connection types; problem list; device age in PostgreSQL `subnet_devices`. Old ping / speed checks kept on an Access & speed tab; settings rebuilt with the collector token in the keyring. Beacon bundles fixed (1.3.93, BUG-024, BUG-042).
+- First live scan of 222.10.50.0/24: 11 devices (guardian, four MikroTiks, a pfSense static mapping at .11, this PC, .64–.67 in guardian's DHCP pool), no problems. MikroTik tables were not read from the command line (no SSH password in that process); guardian was skipped (sshguard).
+- Topology chassis: one row, typed / shaded ports, pfSense ports by name, port-exact cables in lanes; drag a loaded config onto Config Check (1.3.92).
+- Logs → Login History (login_sessions table, heartbeat, failed attempts with unknown names withheld) (1.3.91).
+- Topology page unlocked: port-to-port cables by drag, Delete cable on right-click, Lock layout, edits shared with Login to Routers (1.3.90).
+- Python Modules: loaded but not required modules shaded light blue (1.3.89).
 - Inventory viewer step 1: `ssh_inventory` rebuilt for pfSense/FreeBSD and RouterOS over SSH (read-only), Ports / interfaces is now a table saved with the device (1.3.88, BUG-024). Not yet run against live devices: Connect in the app to collect. Next: RouterOS API (api-ssl), SNMP v3, feed into Will it work?.
 - Will it work? → Reachability for pfSense and MikroTik, cross-device default gateway; DHCP uses the same dead-VLAN-interface check (1.3.87).
 - Reachability findings: guardian opt3 (100.48.56.0/24, LB_MCN) and opt12 (VLAN 662) have no pass rule out (pfSense default block). CRS328-MASTER's bridge filters VLANs but is not tagged in VLAN 710, so its own VL710 address (222.20.20.5) and DHCP relay REL5 are dead. VLAN 662 subnet mismatch confirmed from both sides. Internal networks use public address space (100.48.x, 144.80.37.x, 213.26.72.x, 222.10.x, 222.20.20.x).

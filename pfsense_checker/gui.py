@@ -5118,12 +5118,24 @@ def run_app() -> int:
     t_build = _time.perf_counter()
     window = MainWindow()
     window.set_authenticated_user(user)
+    # Logs → Login History: this session, kept alive by a heartbeat.
+    from pfsense_checker.login_history import HEARTBEAT_SECONDS, SessionTracker
+
+    login_tracker = SessionTracker()
+    login_tracker.start(user.username)
+    window.login_tracker = login_tracker
+    window.home_screen.current_login_session_id = login_tracker.session_id
+    heartbeat_timer = QTimer(window)
+    heartbeat_timer.setInterval(HEARTBEAT_SECONDS * 1000)
+    heartbeat_timer.timeout.connect(login_tracker.beat)
+    heartbeat_timer.start()
     build_ms = (_time.perf_counter() - t_build) * 1000.0
     _boot_log.debug("Main window built in %.0f ms", build_ms)
     if not icon.isNull():
         window.setWindowIcon(icon)
 
     def _shutdown_secondary() -> None:
+        login_tracker.end("signed out (NetCheck closed)")
         close_companion()
         home = getattr(window, "home_screen", None)
         if home is not None:

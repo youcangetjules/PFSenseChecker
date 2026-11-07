@@ -301,6 +301,24 @@ def _begin_op_fill(dialog: QDialog, username: str, apply) -> None:
     )
 
 
+def _record_failed_sign_in(username: str, reason: str) -> None:
+    """Logs → Login History: a refused sign-in. Never blocks or raises.
+
+    The name is kept only when it is a real account, so a password typed into
+    the username box is not stored.
+    """
+    from pfsense_checker import login_history
+
+    try:
+        try:
+            known = auth.fetch_login_row(username) is not None
+        except auth.AuthError:
+            known = False
+        login_history.record_failed(username, known_user=known, reason=reason)
+    except Exception as exc:  # noqa: BLE001
+        app_log.get_logger("auth").debug("Could not record failed sign-in: %s", exc)
+
+
 def _onepassword_cli_hint() -> str:
     if onepassword.find_cli():
         return (
@@ -1383,6 +1401,7 @@ class LoginDialog(QDialog):
         except auth.AuthError as exc:
             self.status.setText(str(exc))
             app_log.get_logger("auth").warning("Login failed: %s", exc)
+            _record_failed_sign_in(user, str(exc))
             return
         except Exception as exc:  # noqa: BLE001
             self.status.setText(str(exc))

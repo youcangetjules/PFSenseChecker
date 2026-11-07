@@ -113,6 +113,7 @@ def _discover_access(cfg: dict) -> list[dict]:
                 "gateway": a.gateway,
                 "interface": a.interface,
                 "link_type": a.link_type,
+                "mac": a.mac,  # matches the beacon to a scanned device
             }
         )
     return rows

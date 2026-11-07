@@ -155,6 +155,8 @@ def test_needed_rows_are_shaded(monkeypatch) -> None:
                         optional_note="Optional. SSH client.", available=False),
         pm.ModuleStatus("scapy", "", ">=2.5", "2.6", True, False, "scapy", "scapy>=2.5",
                         optional_note="Optional. Packet crafting. Not used by NetCheck yet.", available=False),
+        pm.ModuleStatus("librouteros", "", ">=3.2", "3.4", True, True, "librouteros", "librouteros>=3.2",
+                        optional_note="Optional. RouterOS API. Not used by NetCheck yet.", available=True),
     ]
     monkeypatch.setattr(pm, "inspect_requirements", lambda path=None: rows)
     monkeypatch.setattr(pm, "load_at_start_names", lambda path=None: [])
@@ -167,3 +169,4 @@ def test_needed_rows_are_shaded(monkeypatch) -> None:
 
     assert t.item(2, 0).background().style() == Qt.BrushStyle.NoBrush  # not needed: no shading
     assert t.item(1, 5).background().color().name() == "#ffcdd2"  # Available keeps its colour
+    assert t.item(3, 0).background().color().name() == "#e3f2fd"  # loaded, not required: light blue

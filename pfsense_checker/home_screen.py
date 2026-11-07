@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -62,7 +63,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pfsense_checker import ai, app_log, auth, oui, python_modules, snmp, subnet_health, syslog_recv
+from pfsense_checker import (
+    ai,
+    app_log,
+    auth,
+    device_scan,
+    oui,
+    python_modules,
+    snmp,
+    subnet_health,
+    syslog_recv,
+)
 from pfsense_checker.branding import NAV_TREE_STYLE, render_logo_pixmap
 from pfsense_checker.db_admin_screen import DatabaseScreen
 from pfsense_checker.section_menu import SlidingSectionMenu
@@ -95,6 +106,7 @@ SECTIONS = (
     ("syslog", "Syslog"),
     ("log_pipeline", "Log Pipeline"),
     ("wireshark", "Wireshark"),
+    ("logs", "Logs"),
     ("setup", "Setup"),
     ("about", "About"),
 )
@@ -107,6 +119,8 @@ SETUP_SUBSECTIONS = (
     ("setup.mibs", "MIB Libraries"),
     ("setup.version", "Version"),
 )
+
+LOGS_SUBSECTIONS = (("logs.logins", "Login History"),)
 
 # Config Check: the open/pull page, then one entry per workspace tab
 # ("config.tab:<tab title>"), added once the workspace has been built.
@@ -122,6 +136,8 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "subnet_health": "Local + beacon subnets · ping/speed · Wired/WLAN",
     "config": "Open pfSense/MikroTik configs · findings workspace",
     "config.open": "Open a config file or folder · pull from a connected device",
+    "logs": "Audit records kept by NetCheck",
+    "logs.logins": "Who signed in · from which address · for how long · failed attempts",
     "security_holes": "Known weaknesses across loaded configs and seen devices",
     "pentesting": "Authorised testing of your own devices · scope before tests",
     "dns_leakage": "Where DNS queries really go · bypass and leak checks",
@@ -167,11 +183,112 @@ def loaded_config_devices(site: SiteTopology | None) -> list[tuple[str, str, str
     return out
 
 
+class LoadedConfigList(QListWidget):
+    """Loaded configs: click to open, or drag an entry onto Config Check."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QListWidget.DragDropMode.DragOnly)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+
+    def mimeData(self, items):  # noqa: ANN001, N802
+        from PySide6.QtCore import QMimeData, QUrl
+
+        paths = [str(i.data(Qt.ItemDataRole.UserRole)) for i in items if i.data(Qt.ItemDataRole.UserRole)]
+        data = QMimeData()
+        data.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        data.setText("\n".join(paths))
+        return data
+
+
+_SH_DEVICE_COLUMNS = (
+    "IP", "MAC", "Type", "Hostname", "Vendor", "Beacon", "Age", "First seen", "Last seen",
+    "Seen by", "OS / services",
+)
+_SH_TYPE_COLOURS = {
+    device_scan.CONN_ROUTER: "#e3f2fd",
+    device_scan.CONN_DHCP: "#e8f5e9",
+    device_scan.CONN_DHCP_INFERRED: "#f1f8e9",
+    device_scan.CONN_STATIC_DHCP: "#f3e5f5",
+    device_scan.CONN_STATIC: "#fff8e1",
+    device_scan.CONN_MACVLAN: "#e0f7fa",
+}
+_SH_SEVERITY = {
+    device_scan.SEV_FAIL: ("Fault", "#ffebee", "#c62828"),
+    device_scan.SEV_WARN: ("Warning", "#fff3e0", "#e65100"),
+    device_scan.SEV_INFO: ("Info", "#f5f5f5", "#546e7a"),
+}
+
+
+class _IpItem(QTableWidgetItem):
+    """Sorts IP addresses numerically."""
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        a = self.data(Qt.ItemDataRole.UserRole)
+        b = other.data(Qt.ItemDataRole.UserRole)
+        if isinstance(a, int) and isinstance(b, int):
+            return a < b
+        return super().__lt__(other)
+
+
+def _when(t: datetime | None) -> str:
+    return t.astimezone().strftime("%Y-%m-%d %H:%M") if t else "—"
+
+
+def fill_device_table(table: QTableWidget, devices: list) -> None:
+    import ipaddress
+
+    table.setSortingEnabled(False)
+    table.setRowCount(len(devices))
+    for r, d in enumerate(devices):
+        sources = ", ".join(s.replace("router-arp:", "ARP ").replace("lease:", "lease ") for s in d.sources)
+        values = [
+            d.ip, d.mac or "—", d.conn_type, d.hostname or d.known_name or "", d.vendor or "",
+            d.beacon_id or "", device_scan.age_text(d.first_seen) or "—", _when(d.first_seen),
+            _when(d.last_seen), sources, "; ".join(filter(None, [d.os_guess, *d.services])),
+        ]
+        for c, text in enumerate(values):
+            item = _IpItem(str(text)) if c == 0 else QTableWidgetItem(str(text))
+            if c == 0:
+                item.setData(Qt.ItemDataRole.UserRole, int(ipaddress.IPv4Address(d.ip)))
+            if c == 2:
+                item.setBackground(QColor(_SH_TYPE_COLOURS.get(d.conn_type, "#ffffff")))
+            if c == 5 and d.beacon_id:
+                item.setForeground(QColor("#1565c0"))
+            if not d.answered and c in (0, 1):
+                item.setForeground(QColor("#90a4ae"))
+                item.setToolTip("Only in a router table or the topology; did not answer this scan")
+            table.setItem(r, c, item)
+    table.setSortingEnabled(True)
+    table.sortItems(0, Qt.SortOrder.AscendingOrder)
+    table.resizeColumnsToContents()
+
+
+def fill_problem_table(table: QTableWidget, problems: list) -> None:
+    table.setSortingEnabled(False)
+    table.setRowCount(len(problems))
+    for r, p in enumerate(problems):
+        label, bg, fg = _SH_SEVERITY.get(p.severity, (p.severity, "#ffffff", "#000000"))
+        for c, text in enumerate([label, p.kind, p.subject, p.detail, p.fix]):
+            item = QTableWidgetItem(text)
+            item.setBackground(QColor(bg))
+            if c == 0:
+                item.setForeground(QColor(fg))
+                f = item.font()
+                f.setBold(True)
+                item.setFont(f)
+            table.setItem(r, c, item)
+    table.setSortingEnabled(True)
+    table.resizeColumnsToContents()
+
+
 def section_title(key: str) -> str:
+
     for k, label in SECTIONS:
         if k == key:
             return label
-    for k, label in (*SETUP_SUBSECTIONS, *CONFIG_SUBSECTIONS):
+    for k, label in (*SETUP_SUBSECTIONS, *CONFIG_SUBSECTIONS, *LOGS_SUBSECTIONS):
         if k == key:
             return label
     if key.startswith(CONFIG_TAB_PREFIX):
@@ -279,7 +396,7 @@ class HomeScreen(QWidget):
         loaded_title = QLabel("Loaded configs")
         loaded_title.setStyleSheet("font-weight: bold; color: #1a237e; padding: 6px 2px 2px 2px;")
         nav_col.addWidget(loaded_title)
-        self.loaded_configs = QListWidget()
+        self.loaded_configs = LoadedConfigList()
         self.loaded_configs.setFixedWidth(300)
         self.loaded_configs.setMaximumHeight(170)
         self.loaded_configs.setStyleSheet(
@@ -287,7 +404,9 @@ class HomeScreen(QWidget):
             "QListWidget::item { padding: 4px 8px; }"
             "QListWidget::item:hover { background: #e3eef8; }"
         )
-        self.loaded_configs.setToolTip("Click a device to open its config in Config Check")
+        self.loaded_configs.setToolTip(
+            "Click a device to open its config in Config Check, or drag it onto Config Check"
+        )
         self.loaded_configs.itemClicked.connect(self._open_loaded_config)
         nav_col.addWidget(self.loaded_configs)
         self._refresh_loaded_configs()
@@ -321,6 +440,7 @@ class HomeScreen(QWidget):
             "syslog": self._build_syslog,
             "log_pipeline": self._build_log_pipeline,
             "wireshark": self._build_wireshark,
+            "logs.logins": self._build_login_history,
             "security_holes": self._build_security_holes,
             "pentesting": self._build_pentesting,
             "dns_leakage": self._build_dns_leakage,
@@ -411,7 +531,7 @@ class HomeScreen(QWidget):
             detail = " · ".join(x for x in (kind, ip) if x)
             item = QListWidgetItem(f"{name}  —  {detail}" if detail else name)
             item.setData(Qt.ItemDataRole.UserRole, path)
-            item.setToolTip(f"{path}\nClick to open in Config Check")
+            item.setToolTip(f"{path}\nClick, or drag onto Config Check, to check it")
             if ignored:
                 item.setForeground(QColor("#9e9e9e"))
                 item.setToolTip(f"{path}\nIgnored on Login to Routers")
@@ -430,6 +550,8 @@ class HomeScreen(QWidget):
                 out.append((key, label, list(SETUP_SUBSECTIONS)))
             elif key == "config":
                 out.append((key, label, list(CONFIG_SUBSECTIONS)))
+            elif key == "logs":
+                out.append((key, label, list(LOGS_SUBSECTIONS)))
             else:
                 out.append((key, label, None))
         return out
@@ -555,13 +677,76 @@ class HomeScreen(QWidget):
         v.addWidget(title)
         v.addWidget(
             _section_card(
-                "Access, link type, connectivity & speed",
-                "This PC and each beacon report which subnets they can reach, "
-                "whether the path is Wired or WLAN, and periodic ping / download "
-                "samples. Beacon interval is set in the beacon config "
-                "(interval_sec); local interval is below.",
+                "Devices, clashes and connection types",
+                "nmap scans the subnet (aggressive -sV -O by default); router ARP / DHCP "
+                "tables and loaded configs fill the gaps; beacons mark the devices they run "
+                "on. Device age is kept in PostgreSQL.",
             )
         )
+
+        scan_bar = QHBoxLayout()
+        scan_bar.addWidget(QLabel("Subnet:"))
+        self.sh_subnet = QComboBox()
+        self.sh_subnet.setEditable(True)
+        self.sh_subnet.setMinimumWidth(230)
+        self.sh_subnet.setToolTip("Pick a subnet, or type one (CIDR)")
+        scan_bar.addWidget(self.sh_subnet)
+        self.sh_aggressive = QCheckBox("Aggressive (-sV -O)")
+        self.sh_aggressive.setChecked(True)
+        self.sh_aggressive.setToolTip("Service and OS detection. Untick for a quick host sweep (-sn).")
+        scan_bar.addWidget(self.sh_aggressive)
+        self.sh_firewalls = QCheckBox("Probe firewalls")
+        self.sh_firewalls.setChecked(False)
+        self.sh_firewalls.setToolTip(
+            "pfSense / OPNsense are skipped by default: repeated probes make sshguard "
+            "ban this PC. Tick to scan them and read their ARP / DHCP tables too."
+        )
+        scan_bar.addWidget(self.sh_firewalls)
+        self.sh_router_tables = QCheckBox("Read router ARP / DHCP")
+        self.sh_router_tables.setChecked(True)
+        self.sh_router_tables.setToolTip("Uses saved logins only; read-only print commands.")
+        scan_bar.addWidget(self.sh_router_tables)
+        self.btn_sh_scan = QPushButton("Scan subnet")
+        self.btn_sh_scan.setStyleSheet(_primary_btn())
+        self.btn_sh_scan.clicked.connect(self._subnet_scan_run)
+        scan_bar.addWidget(self.btn_sh_scan)
+        scan_bar.addStretch(1)
+        v.addLayout(scan_bar)
+        self.sh_scan_status = QLabel("")
+        self.sh_scan_status.setWordWrap(True)
+        self.sh_scan_status.setStyleSheet("color: #555;")
+        v.addWidget(self.sh_scan_status)
+        self._subnet_scan_worker = None
+        self._subnet_scan_result = None
+
+        tabs = QTabWidget()
+        self.sh_tabs = tabs
+        self.sh_devices = QTableWidget(0, len(_SH_DEVICE_COLUMNS))
+        self.sh_devices.setHorizontalHeaderLabels(list(_SH_DEVICE_COLUMNS))
+        self.sh_problems = QTableWidget(0, 5)
+        self.sh_problems.setHorizontalHeaderLabels(["Severity", "Problem", "Where", "Detail", "Fix"])
+        for table in (self.sh_devices, self.sh_problems):
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            table.horizontalHeader().setStretchLastSection(True)
+            table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.verticalHeader().setVisible(False)
+            table.setSortingEnabled(True)
+        tabs.addTab(self.sh_devices, "Devices")
+        tabs.addTab(self.sh_problems, "Problems")
+        access = QWidget()
+        av = QVBoxLayout(access)
+        av.setContentsMargins(0, 6, 0, 0)
+        tabs.addTab(access, "Access && speed")
+        v.addWidget(tabs, stretch=1)
+        page_v = v
+        v = av
+        access_tip = QLabel(
+            "This PC and each beacon report which subnets they can reach, whether the path is "
+            "Wired or WLAN, and periodic ping / download samples."
+        )
+        access_tip.setWordWrap(True)
+        v.addWidget(access_tip)
 
         settings = subnet_health.load_settings()
         box = QGroupBox("This PC — check schedule")
@@ -639,6 +824,7 @@ class HomeScreen(QWidget):
         tip.setWordWrap(True)
         tip.setStyleSheet("color: #555;")
         v.addWidget(tip)
+        v = page_v
 
         self.sh_auto.toggled.connect(self._subnet_health_apply_timer)
         self.sh_interval.valueChanged.connect(self._subnet_health_apply_timer)
@@ -655,6 +841,146 @@ class HomeScreen(QWidget):
             collector_url=self.sh_collector.text().strip(),
             collector_token=self.sh_token.text().strip(),
             auto_refresh=self.sh_auto.isChecked(),
+        )
+
+    # --- device scan ------------------------------------------------------ #
+    def _subnet_scan_choices(self) -> list[tuple[str, str, str]]:
+        """(cidr, gateway, where) from this PC's adapters, the site and beacons."""
+        import ipaddress
+
+        out: dict[str, tuple[str, str]] = {}
+        for row in getattr(self, "_sh_last_rows", []) or []:
+            if isinstance(row, subnet_health.SubnetAccess) and row.cidr:
+                where = "this PC" if row.source == "local" else row.source.replace("beacon:", "beacon ")
+                out.setdefault(row.cidr, (row.gateway, where))
+        site = getattr(self, "_live_site", None)
+        for dev in getattr(site, "devices", []) or []:
+            if getattr(dev, "ignored", False):
+                continue
+            for comp in getattr(dev, "components", []) or []:
+                addr = (getattr(comp, "address", "") or "").strip()
+                if "/" not in addr:
+                    continue
+                try:
+                    iface = ipaddress.IPv4Interface(addr)
+                except ValueError:
+                    continue
+                if iface.network.prefixlen < 16 or iface.network.prefixlen > 30:
+                    continue
+                gw = str(iface.ip) if (dev.kind or "").lower() in device_scan.ROUTER_KINDS else ""
+                cidr = str(iface.network)
+                prev = out.get(cidr)
+                if prev is None:
+                    out[cidr] = (gw, dev.name)
+                elif not prev[0] and gw:
+                    out[cidr] = (gw, prev[1])
+        return [(c, gw, where) for c, (gw, where) in sorted(out.items())]
+
+    def _subnet_scan_refresh_choices(self) -> None:
+        if not hasattr(self, "sh_subnet"):
+            return
+        current = self.sh_subnet.currentText().strip()
+        self.sh_subnet.blockSignals(True)
+        self.sh_subnet.clear()
+        for cidr, gw, where in self._subnet_scan_choices():
+            self.sh_subnet.addItem(f"{cidr}  ({where})", (cidr, gw))
+        if current:
+            idx = self.sh_subnet.findText(current)
+            if idx >= 0:
+                self.sh_subnet.setCurrentIndex(idx)
+            else:
+                self.sh_subnet.setEditText(current)
+        self.sh_subnet.blockSignals(False)
+        if not self.sh_scan_status.text():
+            self.sh_scan_status.setText(
+                "nmap found." if device_scan.nmap_path() else
+                "nmap is not installed: scans use a ping sweep + ARP. Install Nmap from nmap.org "
+                "for service / OS detection."
+            )
+
+    def _subnet_scan_target(self) -> tuple[str, str]:
+        import ipaddress
+
+        text = self.sh_subnet.currentText().split("(")[0].strip()
+        net = ipaddress.IPv4Network(text, strict=False)
+        for cidr, gw, _where in self._subnet_scan_choices():
+            if cidr == str(net):
+                return cidr, gw
+        return str(net), ""
+
+    def _subnet_scan_run(self) -> None:
+        if self._subnet_scan_worker is not None and self._subnet_scan_worker.isRunning():
+            return
+        try:
+            cidr, gateway = self._subnet_scan_target()
+        except ValueError:
+            self.sh_scan_status.setText("Enter a subnet in CIDR form, e.g. 192.168.1.0/24.")
+            self.sh_scan_status.setStyleSheet("color: #c62828;")
+            return
+        opts = device_scan.ScanOptions(
+            aggressive=self.sh_aggressive.isChecked(),
+            include_firewalls=self.sh_firewalls.isChecked(),
+            router_tables=self.sh_router_tables.isChecked(),
+        )
+        cfg = self._subnet_health_settings_from_ui()
+        site = getattr(self, "_live_site", None)
+
+        class _ScanWorker(QThread):
+            progress = Signal(str)
+            done = Signal(object)
+            failed = Signal(str)
+
+            def run(self) -> None:  # noqa: D102
+                try:
+                    beacons: list[dict] = []
+                    if cfg.collector_url:
+                        try:
+                            beacons = subnet_health.fetch_collector_beacons(
+                                cfg.collector_url, token=cfg.collector_token
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self.progress.emit(f"collector not reached ({exc}); no beacons this time")
+                    result = device_scan.scan(cidr, gateway=gateway, site=site, beacons=beacons,
+                                              options=opts, progress=self.progress.emit)
+                    self.done.emit(result)
+                except Exception as exc:  # noqa: BLE001
+                    self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+        worker = _ScanWorker()
+        self._subnet_scan_worker = worker
+        self.btn_sh_scan.setEnabled(False)
+        self.sh_scan_status.setStyleSheet("color: #1565c0;")
+        self.sh_scan_status.setText(f"Scanning {cidr}…")
+        worker.progress.connect(lambda m: self.sh_scan_status.setText(f"Scanning {cidr}: {m}…"))
+        worker.done.connect(self._subnet_scan_done)
+        worker.failed.connect(self._subnet_scan_failed)
+        worker.finished.connect(lambda: self.btn_sh_scan.setEnabled(True))
+        worker.start()
+
+    def _subnet_scan_failed(self, msg: str) -> None:
+        self.sh_scan_status.setText(f"Scan failed: {msg}")
+        self.sh_scan_status.setStyleSheet("color: #c62828;")
+        app_log.get_logger("subnet_health").error("Subnet scan failed: %s", msg)
+
+    def _subnet_scan_done(self, result: object) -> None:
+        if not isinstance(result, device_scan.ScanResult):
+            return
+        self._subnet_scan_result = result
+        fill_device_table(self.sh_devices, result.devices)
+        fill_problem_table(self.sh_problems, result.problems)
+        fails = sum(1 for p in result.problems if p.severity == device_scan.SEV_FAIL)
+        warns = sum(1 for p in result.problems if p.severity == device_scan.SEV_WARN)
+        self.sh_tabs.setTabText(0, f"Devices ({len(result.devices)})")
+        self.sh_tabs.setTabText(1, f"Problems ({len(result.problems)})" if result.problems else "Problems")
+        head = (f"{result.cidr} via {result.engine}: {len(result.devices)} device(s), "
+                f"{fails} fault(s), {warns} warning(s).")
+        self.sh_scan_status.setText("  ".join([head, *result.notes]))
+        self.sh_scan_status.setStyleSheet(
+            "color: #c62828;" if fails else ("color: #e65100;" if warns else "color: #2e7d32;")
+        )
+        app_log.get_logger("subnet_health").info(
+            "Subnet scan %s engine=%s devices=%s problems=%s",
+            result.cidr, result.engine, len(result.devices), len(result.problems),
         )
 
     def _subnet_health_save(self) -> None:
@@ -728,6 +1054,8 @@ class HomeScreen(QWidget):
     def _subnet_health_done(self, rows: object) -> None:
         if not isinstance(rows, list):
             return
+        self._sh_last_rows = list(rows)
+        self._subnet_scan_refresh_choices()
         self.sh_table.setRowCount(len(rows))
         local_n = 0
         beacon_n = 0
@@ -973,6 +1301,18 @@ class HomeScreen(QWidget):
         v.addWidget(self.session)
         return page
 
+    def _on_topology_edited(self) -> None:
+        """Cables / positions changed on the Topology page: share with the app."""
+        site = self._topology_site
+        if site is None:
+            return
+        if self._topology_mode == "live" and hasattr(self, "session"):
+            self.session.map_view.render_site(site)
+        self.site_changed.emit()
+
+    def _set_topology_locked(self, locked: bool) -> None:
+        self.topo_preview.set_locked(locked)
+
     def _on_session_site_changed(self) -> None:
         """Debounce map drags so topology preview is not rebuilt every pixel."""
         self._site_changed_timer.start()
@@ -1047,11 +1387,19 @@ class HomeScreen(QWidget):
         btn_logic = QPushButton("Open Logical Topology")
         btn_logic.clicked.connect(lambda: self.open_workspace.emit("Topology"))
         actions.addWidget(btn_logic)
+        self.topo_lock = QCheckBox("Lock layout")
+        self.topo_lock.setToolTip("Freeze the map: no moving chassis or drawing / deleting cables")
+        self.topo_lock.toggled.connect(self._set_topology_locked)
+        actions.addWidget(self.topo_lock)
         actions.addStretch(1)
         v.addLayout(actions)
 
         self.topo_preview = SiteTopologyView()
-        self.topo_preview.set_locked(True)
+        # Fully interactive: drag chassis, drag port → port to cable, right-click
+        # a cable to delete it. Lock layout freezes it.
+        self.topo_preview.set_locked(False)
+        self.topo_preview.links_changed.connect(self._on_topology_edited)
+        self.topo_preview.positions_changed.connect(self._on_topology_edited)
         self.topo_preview.set_ssh_password_provider(
             lambda: self.session.password.text()
         )
@@ -1302,16 +1650,22 @@ class HomeScreen(QWidget):
         return holder
 
     def _modules_shade_row(self, row: int, st) -> None:  # noqa: ANN001
-        """Needed + loaded and available: light green. Needed but not: light red."""
+        """Needed: green when loaded and available, red when not.
+        Not needed but loaded anyway: light blue. Not needed, not loaded: plain.
+        """
         if not python_modules.is_needed(st):
-            return
-        ok = bool(st.loaded and st.available)
-        colour = QColor("#e8f5e9" if ok else "#ffebee")
-        why = (
-            "Needed by NetCheck — loaded and available."
-            if ok
-            else "Needed by NetCheck — not loaded or not available: " + (st.available_reason or "")
-        )
+            if not st.loaded:
+                return
+            colour = QColor("#e3f2fd")
+            why = "Loaded, but NetCheck does not use it (not required)."
+        else:
+            ok = bool(st.loaded and st.available)
+            colour = QColor("#e8f5e9" if ok else "#ffebee")
+            why = (
+                "Needed by NetCheck — loaded and available."
+                if ok
+                else "Needed by NetCheck — not loaded or not available: " + (st.available_reason or "")
+            )
         for col in range(self.modules_table.columnCount()):
             if col == 5:
                 continue  # Available keeps its own green / red
@@ -1725,6 +2079,106 @@ class HomeScreen(QWidget):
         v.addWidget(QLabel("Stub Lua plugin (not loaded):"))
         v.addWidget(stub)
         return page
+
+    # ----------------------------------------------------------- Logs
+
+    current_login_session_id: int | None = None
+
+    def _build_login_history(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        title = QLabel("Login History")
+        tf = QFont()
+        tf.setPointSize(13)
+        tf.setBold(True)
+        title.setFont(tf)
+        v.addWidget(title)
+        blurb = QLabel(
+            "Every sign-in to NetCheck: who, from which computer and address, when, and for "
+            "how long. Refused attempts are listed too — the name only when it is a real "
+            "account. Kept in the netcheck database; no passwords are stored."
+        )
+        blurb.setWordWrap(True)
+        blurb.setStyleSheet("color: #555;")
+        v.addWidget(blurb)
+        row = QHBoxLayout()
+        btn = QPushButton("Refresh")
+        btn.clicked.connect(self._refresh_login_history)
+        row.addWidget(btn)
+        self.login_hist_failed = QCheckBox("Show failed attempts")
+        self.login_hist_failed.setChecked(True)
+        self.login_hist_failed.toggled.connect(self._refresh_login_history)
+        row.addWidget(self.login_hist_failed)
+        self.login_hist_summary = QLabel("")
+        self.login_hist_summary.setStyleSheet("color: #555;")
+        row.addWidget(self.login_hist_summary, stretch=1)
+        v.addLayout(row)
+        self.login_hist_table = QTableWidget(0, 8)
+        self.login_hist_table.setHorizontalHeaderLabels(
+            ["User", "Result", "IP address", "Computer", "Signed in", "Signed out", "Duration", "How it ended"]
+        )
+        self.login_hist_table.verticalHeader().setVisible(False)
+        self.login_hist_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.login_hist_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.login_hist_table.setAlternatingRowColors(True)
+        self.login_hist_table.horizontalHeader().setStretchLastSection(True)
+        for col, width in enumerate((120, 80, 120, 150, 150, 150, 90)):
+            self.login_hist_table.setColumnWidth(col, width)
+        v.addWidget(self.login_hist_table, stretch=1)
+        self._refresh_login_history()
+        return page
+
+    def _refresh_login_history(self, *_args) -> None:  # noqa: ANN002
+        from pfsense_checker import login_history as lh
+
+        table = getattr(self, "login_hist_table", None)
+        if table is None:
+            return
+        try:
+            records = lh.list_sessions()
+        except Exception as exc:  # noqa: BLE001
+            table.setRowCount(0)
+            self.login_hist_summary.setText(f"Login history unavailable: {exc}")
+            return
+        if not self.login_hist_failed.isChecked():
+            records = [r for r in records if r.outcome == lh.OUTCOME_SUCCESS]
+        now = datetime.now(timezone.utc)
+
+        def local(ts) -> str:  # noqa: ANN001
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+        table.setRowCount(len(records))
+        for r, rec in enumerate(records):
+            mine = rec.id == self.current_login_session_id
+            cells = [
+                rec.username,
+                "OK" if rec.outcome == lh.OUTCOME_SUCCESS else "Refused",
+                rec.client_ip,
+                rec.client_host,
+                local(rec.started_at),
+                local(rec.ended_at) if rec.ended_at else ("—" if rec.active(now) else local(rec.last_seen_at)),
+                lh.format_duration(rec.duration(now)),
+                ("this session · " if mine else "") + rec.how_it_ended(now),
+            ]
+            for c, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if rec.outcome != lh.OUTCOME_SUCCESS:
+                    item.setForeground(QColor("#c62828"))
+                elif rec.active(now):
+                    item.setForeground(QColor("#2e7d32"))
+                if mine:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                table.setItem(r, c, item)
+        ok = [x for x in records if x.outcome == lh.OUTCOME_SUCCESS]
+        failed = len(records) - len(ok)
+        active = sum(1 for x in ok if x.active(now))
+        self.login_hist_summary.setText(
+            f"{len(ok)} sign-in(s), {active} active now"
+            + (f", {failed} refused attempt(s)" if failed else "")
+            + (" (latest 500)" if len(records) >= 500 else "")
+        )
 
     def _security_page(self, title_text: str, cards: list[tuple[str, str]]) -> QWidget:
         page = QWidget()

@@ -72,6 +72,76 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.93",
+        date="2026-11-07",
+        notes=(
+            "Subnet Health: scan a subnet for devices. nmap is the main source "
+            "(aggressive -sV -O by default; a ping sweep + ARP when nmap is not "
+            "installed); router ARP / DHCP tables (saved logins) and loaded configs "
+            "fill the gaps. Firewalls are not probed unless ticked (sshguard).",
+            "Each device shows its connection type (Router / gateway, DHCP, Static "
+            "DHCP, Static, MACVLAN, or DHCP inferred when a pool's leases were not "
+            "read), vendor, beacon, and its age: first and last seen are kept in "
+            "PostgreSQL (subnet_devices).",
+            "Problems tab: IP clashes, gateway MAC changes, static addresses inside "
+            "a DHCP pool, one MAC on many IPs, wrong subnet, incomplete ARP, stale "
+            "leases, nearly full pools, duplicate hostnames, random MACs, beacons "
+            "offline or not found by the scan.",
+            "Subnet Health settings, gateway ping and speed sample, and collector "
+            "polling are back (lost in BUG-024); the collector token is kept in "
+            "the Windows credential store.",
+            "Beacons report their MAC, so Subnet Health can mark the device they "
+            "run on. Built beacon bundles start again (BUG-042).",
+        ),
+    ),
+    Change(
+        version="1.3.92",
+        date="2026-11-07",
+        notes=(
+            "Topology: routers and firewalls are one horizontal row of narrower "
+            "(72 px) ports, grouped physical → bridge → VLAN → wireless → "
+            "tunnels. VLANs are amber, bridges teal, tunnels / CAP violet, "
+            "wireless green; disabled ports are faded and dashed.",
+            "pfSense / OPNsense ports show their own interface names; the second "
+            "line is the address, or OPTn · NIC.",
+            "Cables leave from the exact port (bottom, or top toward a device "
+            "above), run in their own lane in the gap between devices, and no "
+            "longer cross other chassis.",
+            "Drag an entry from Loaded configs onto Config Check to check it.",
+        ),
+    ),
+    Change(
+        version="1.3.91",
+        date="2026-11-07",
+        notes=(
+            "Main menu: Logs, first entry Login History — who signed in, from "
+            "which IP address and computer, when, for how long and how the "
+            "session ended (signed out, or no heartbeat after a crash). Refused "
+            "sign-ins are listed in red; the name is kept only for real "
+            "accounts. Stored in PostgreSQL (login_sessions); no passwords.",
+        ),
+    ),
+    Change(
+        version="1.3.90",
+        date="2026-11-07",
+        notes=(
+            "Topology page is fully interactive (it was a locked preview): drag "
+            "chassis, drag from a port to a port on another device to draw a "
+            "cable, right-click a cable → Delete cable. Cables highlight on "
+            "hover and are easy to hit. Lock layout freezes the map. Edits reach "
+            "Login to Routers' map and the rest of the app; Save Topology keeps "
+            "them.",
+        ),
+    ),
+    Change(
+        version="1.3.89",
+        date="2026-11-07",
+        notes=(
+            "Python Modules: a module that is loaded but not required by "
+            "NetCheck is shaded light blue.",
+        ),
+    ),
+    Change(
         version="1.3.88",
         date="2026-11-07",
         notes=(
