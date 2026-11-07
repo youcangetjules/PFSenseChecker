@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
 from pfsense_checker import ai, app_log, auth, oui, python_modules, snmp, subnet_health, syslog_recv
 from pfsense_checker.branding import NAV_TREE_STYLE, render_logo_pixmap
 from pfsense_checker.db_admin_screen import DatabaseScreen
+from pfsense_checker.section_menu import SlidingSectionMenu
 from pfsense_checker.session_screen import SessionScreen
 from pfsense_checker.site_canvas import SiteTopologyView
 from pfsense_checker.speed_check import SpeedCheckWorker, SpeedSample
@@ -103,6 +104,12 @@ SETUP_SUBSECTIONS = (
     ("setup.version", "Version"),
 )
 
+# Config Check: the open/pull page, then one entry per workspace tab
+# ("config.tab:<tab title>"), added once the workspace has been built.
+CONFIG_OPEN_KEY = "config.open"
+CONFIG_TAB_PREFIX = "config.tab:"
+CONFIG_SUBSECTIONS = ((CONFIG_OPEN_KEY, "Open / Pull config"),)
+
 # Short capability blurbs for the status-bar (user | module — capabilities).
 SECTION_CAPABILITIES: dict[str, str] = {
     "login": "SSH login · LAN search · topology map · save connectivity",
@@ -110,6 +117,7 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "beaconing": "Live monitor · beacon creator · collector health",
     "subnet_health": "Local + beacon subnets · ping/speed · Wired/WLAN",
     "config": "Open pfSense/MikroTik configs · findings workspace",
+    "config.open": "Open a config file or folder · pull from a connected device",
     "speed": "Ping & download checks from chosen source",
     "topology": "Live/experimental site map · load/save · builder",
     "database": "PostgreSQL browse · SQL · schema · NetCheck tables",
@@ -137,9 +145,11 @@ def section_title(key: str) -> str:
     for k, label in SECTIONS:
         if k == key:
             return label
-    for k, label in SETUP_SUBSECTIONS:
+    for k, label in (*SETUP_SUBSECTIONS, *CONFIG_SUBSECTIONS):
         if k == key:
             return label
+    if key.startswith(CONFIG_TAB_PREFIX):
+        return key[len(CONFIG_TAB_PREFIX):]
     return key.replace(".", " / ").title()
 
 
@@ -186,6 +196,7 @@ class HomeScreen(QWidget):
     section_changed = Signal(str, str, str)  # key, title, capabilities
     site_changed = Signal()  # login panel mutated the live site
     topology_mode_requested = Signal(str)  # "live" | "experimental"
+    config_menu_opened = Signal()  # Config Check submenu shown: build its tabs
 
     def __init__(self) -> None:
         super().__init__()
@@ -230,24 +241,11 @@ class HomeScreen(QWidget):
         hint.setStyleSheet("color: #666; margin-bottom: 6px;")
         nav_col.addWidget(hint)
 
-        self.nav = QTreeWidget()
-        self.nav.setHeaderHidden(True)
-        self.nav.setFixedWidth(200)
-        self.nav.setIndentation(12)
-        self.nav.setRootIsDecorated(True)
-        self.nav.setStyleSheet(NAV_TREE_STYLE)
-        for key, label in SECTIONS:
-            item = QTreeWidgetItem([label])
-            item.setData(0, Qt.ItemDataRole.UserRole, key)
-            self.nav.addTopLevelItem(item)
-            if key == "setup":
-                for sub_key, sub_label in SETUP_SUBSECTIONS:
-                    child = QTreeWidgetItem([sub_label])
-                    child.setData(0, Qt.ItemDataRole.UserRole, sub_key)
-                    item.addChild(child)
-                item.setExpanded(True)
-        self.nav.currentItemChanged.connect(self._on_nav_item)
-        self.nav.itemClicked.connect(self._on_nav_clicked)
+        # Main sections; Config Check and Setup slide open a submenu.
+        self.nav = SlidingSectionMenu()
+        self.nav.set_sections(self._menu_sections())
+        self.nav.section_selected.connect(self._on_menu_selected)
+        self.nav.parent_opened.connect(self._on_menu_parent_opened)
         nav_col.addWidget(self.nav, stretch=1)
 
         btn_workspace = QPushButton("Full workspace…")
@@ -258,12 +256,14 @@ class HomeScreen(QWidget):
 
         # --- content stack (pages built lazily on first visit) ---
         self.stack = QStackedWidget()
-        self._page_index: dict[str, int] = {}
+        # Pages by key. Kept as widgets: stack indexes shift when the
+        # startup placeholder is removed.
+        self._pages: dict[str, QWidget] = {}
         self._page_builders = {
             "login": self._build_login,
             "beaconing": self._build_beaconing,
             "subnet_health": self._build_subnet_health,
-            "config": self._build_config,
+            "config.open": self._build_config,
             "speed": self._build_speed,
             "topology": self._build_topology,
             "database": self._build_database,
@@ -295,12 +295,11 @@ class HomeScreen(QWidget):
 
         root.addWidget(self.stack, stretch=1)
 
-        if self.nav.topLevelItemCount():
-            self.nav.setCurrentItem(self.nav.topLevelItem(0))
+        self.nav.select("login", animate=False)
 
     def _deferred_ensure_login_page(self) -> None:
         """Build the Login page after the first event-loop turn (faster hub paint)."""
-        if "login" in self._page_index:
+        if "login" in self._pages:
             return
         idx = self._ensure_page("login")
         placeholder = getattr(self, "_login_placeholder", None)
@@ -310,19 +309,20 @@ class HomeScreen(QWidget):
                 self.stack.removeWidget(placeholder)
                 placeholder.deleteLater()
             self._login_placeholder = None
-        if idx is not None:
-            self.stack.setCurrentIndex(idx)
+        # Removing the placeholder shifted the indexes: select by widget.
+        if idx is not None and self.nav.current_key() == "login":
+            self.stack.setCurrentWidget(self._pages["login"])
 
     def _ensure_page(self, key: str) -> int | None:
         """Build and cache a section page on first use; return stack index."""
-        if key in self._page_index:
-            return self._page_index[key]
+        if key in self._pages:
+            return self.stack.indexOf(self._pages[key])
         builder = self._page_builders.get(key)
         if builder is None:
             return None
         widget = builder()
         idx = self.stack.addWidget(widget)
-        self._page_index[key] = idx
+        self._pages[key] = widget
         # Apply any site already loaded before this page existed.
         if key == "login" and self._live_site is not None:
             self.session.set_site(self._live_site)
@@ -348,59 +348,54 @@ class HomeScreen(QWidget):
             self._refresh_console_status()
         return idx
 
-    def _find_nav_item(self, key: str) -> QTreeWidgetItem | None:
-        def walk(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
-            if item.data(0, Qt.ItemDataRole.UserRole) == key:
-                return item
-            for i in range(item.childCount()):
-                found = walk(item.child(i))
-                if found is not None:
-                    return found
-            return None
+    def _menu_sections(self) -> list[tuple[str, str, list[tuple[str, str]] | None]]:
+        out: list[tuple[str, str, list[tuple[str, str]] | None]] = []
+        for key, label in SECTIONS:
+            if key == "setup":
+                out.append((key, label, list(SETUP_SUBSECTIONS)))
+            elif key == "config":
+                out.append((key, label, list(CONFIG_SUBSECTIONS)))
+            else:
+                out.append((key, label, None))
+        return out
 
-        for i in range(self.nav.topLevelItemCount()):
-            found = walk(self.nav.topLevelItem(i))
-            if found is not None:
-                return found
-        return None
+    def set_config_tabs(self, titles: list[str]) -> None:
+        """Config Check submenu: Open / Pull config, then each workspace tab."""
+        self.nav.set_children(
+            "config",
+            [*CONFIG_SUBSECTIONS, *((CONFIG_TAB_PREFIX + t, t) for t in titles)],
+        )
 
-    def _default_page_key(self, key: str, item: QTreeWidgetItem | None) -> str:
-        """First page shown for a nav node (Setup → first subsection, etc.)."""
-        if key == "setup":
-            return SETUP_SUBSECTIONS[0][0]
-        if (
-            item is not None
-            and item.childCount() > 0
-            and key not in self._page_builders
-        ):
-            child_key = item.child(0).data(0, Qt.ItemDataRole.UserRole)
-            return str(child_key) if child_key else key
-        return key
+    def attach_workspace(self, widget: QWidget) -> None:
+        """Host the Config Check workspace (path bar + tabs) as a page."""
+        if "config.workspace" in self._pages:
+            return
+        self.stack.addWidget(widget)
+        self._pages["config.workspace"] = widget
 
-    def _resolve_nav_target(
-        self, item: QTreeWidgetItem
-    ) -> tuple[QTreeWidgetItem, str]:
-        """Map a clicked nav row to the leaf item + page key to display."""
-        key = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
-        if key == "setup" and item.childCount() > 0:
-            item.setExpanded(True)
-            item = item.child(0)
-            key = str(item.data(0, Qt.ItemDataRole.UserRole) or "")
-        else:
-            page_key = self._default_page_key(key, item)
-            if page_key != key:
-                found = self._find_nav_item(page_key)
-                if found is not None:
-                    parent = found.parent()
-                    if parent is not None:
-                        parent.setExpanded(True)
-                    item = found
-                    key = page_key
-            elif item.parent() is not None:
-                item.parent().setExpanded(True)
-        return item, key
+    def show_workspace_page(self, tab_title: str = "") -> None:
+        """Show the hosted workspace and mark its tab in the Config submenu."""
+        page = self._pages.get("config.workspace")
+        if page is None:
+            return
+        self.stack.setCurrentWidget(page)
+        if tab_title:
+            self.nav.select(CONFIG_TAB_PREFIX + tab_title)
 
-    def _show_page(self, key: str, nav_item: QTreeWidgetItem | None) -> None:
+    def current_section_key(self) -> str:
+        return self.nav.current_key()
+
+    def _on_menu_parent_opened(self, key: str) -> None:
+        if key == "config":
+            self.config_menu_opened.emit()
+
+    def _on_menu_selected(self, key: str) -> None:
+        if key.startswith(CONFIG_TAB_PREFIX):
+            self.open_workspace.emit(key[len(CONFIG_TAB_PREFIX):])
+            return
+        self._show_page(key)
+
+    def _show_page(self, key: str) -> None:
         app_log.get_logger("nav").debug("Home page: %s", key)
         idx = self._ensure_page(key)
         if idx is not None:
@@ -415,46 +410,21 @@ class HomeScreen(QWidget):
         elif key == "console":
             self._refresh_console_status()
         if key:
-            title = (
-                nav_item.text(0) if nav_item is not None else section_title(str(key))
-            ) or section_title(str(key))
-            self.section_changed.emit(
-                str(key), title, section_capabilities(str(key))
-            )
-
-    def _activate_nav_item(self, item: QTreeWidgetItem | None) -> None:
-        if item is None:
-            return
-        target_item, page_key = self._resolve_nav_target(item)
-        if self.nav.currentItem() is not target_item:
-            self.nav.blockSignals(True)
-            self.nav.setCurrentItem(target_item)
-            self.nav.blockSignals(False)
-        self._show_page(page_key, target_item)
-
-    def _on_nav_item(
-        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
-    ) -> None:
-        self._activate_nav_item(current)
-
-    def _on_nav_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        """Always navigate — even re-clicking a section or its parent header."""
-        self._activate_nav_item(item)
+            title = self.nav.label(key) or section_title(key)
+            self.section_changed.emit(key, title, section_capabilities(key))
 
     def show_section(self, key: str) -> None:
-        """Select a section by key (e.g. 'login', 'topology', 'setup.oui')."""
-        page_key = self._default_page_key(key, self._find_nav_item(key))
-        found = self._find_nav_item(page_key)
-        if found is not None:
-            parent = found.parent()
-            if parent is not None:
-                parent.setExpanded(True)
-            self.nav.blockSignals(True)
-            self.nav.setCurrentItem(found)
-            self.nav.blockSignals(False)
-            self._show_page(page_key, found)
-            return
-        self._show_page(page_key, None)
+        """Select a section by key (e.g. 'login', 'config', 'setup.oui')."""
+        page_key = key
+        if self.nav.has_children(key):
+            page_key = self.nav.first_child(key)
+            if key == "config":
+                self.config_menu_opened.emit()
+        self.nav.select(page_key)
+        if page_key.startswith(CONFIG_TAB_PREFIX):
+            self.open_workspace.emit(page_key[len(CONFIG_TAB_PREFIX):])
+        else:
+            self._show_page(page_key)
 
     # ----------------------------------------------------------- sections
 

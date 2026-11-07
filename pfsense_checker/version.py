@@ -72,6 +72,56 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.74",
+        date="2026-11-07",
+        notes=(
+            "Right-click a subnet on Login to Routers: Scan this subnet (look "
+            "for network devices now), Alter this subnet (network address and "
+            "prefix / pool size, normalised as you type, duplicates refused), "
+            "Remove this subnet.",
+            "Show live subnets works again, and Local adapter shows this PC's "
+            "NIC (type, speed, duplex, MTU) or 'reached by routing'. "
+            "subnet_health.py had been committed empty; adapter discovery, the "
+            "adapter description and beacon subnet rows are rebuilt.",
+            "Hyper-V vEthernet adapters are classed as virtual, not wired.",
+        ),
+    ),
+    Change(
+        version="1.3.73",
+        date="2026-11-07",
+        notes=(
+            "One section menu, 300 px wide. Picking Config Check or Setup "
+            "slides the main list into a greyed strip on the left (20 %) and "
+            "shows that section's submenu in the rest; picking any other "
+            "section slides it back. The strip stays clickable.",
+            "Config Check is a child of the main menu: Open / Pull config, then "
+            "Dashboard, Topology, Findings and every other workspace tab. The "
+            "workspace no longer has its own menu or a separate Home… page.",
+        ),
+    ),
+    Change(
+        version="1.3.72",
+        date="2026-11-07",
+        notes=(
+            "Login to Routers → Subnets has two columns: Seen (routers, "
+            "switches, gateways and firewalls found on that subnet) and "
+            "Connected (session devices with SSH up). Hover Seen for each "
+            "device and why it was identified.",
+            "Listed subnets are swept in the background when the site loads "
+            "or a subnet is added; Rescan subnets repeats it. Ping + ARP, then "
+            "TCP connects to 22, 23, 80, 443, 830, 8291 and 8728 only, the SSH "
+            "banner and the web GUI title. No logins. Subnets larger than /22 "
+            "show 'too large' instead of being swept.",
+            "Identification: RouterOS (ROSSSH banner, Winbox/API ports, "
+            "RouterOS title), pfSense / OPNsense (GUI title, one same-host "
+            "redirect followed), switches (SwOS / switch titles), this PC's "
+            "default gateway, and a local MAC vendor table. MACs are not sent "
+            "to the OUI web service for this.",
+            "Found devices: the Vendor column shows what discovery identified.",
+            "Subnet Devices buttons are disabled while a scan runs (they never were).",
+        ),
+    ),
+    Change(
         version="1.3.71",
         date="2026-11-07",
         notes=(

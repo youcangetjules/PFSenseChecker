@@ -36,3 +36,12 @@ def _isolate_app_log(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_login_throttle(monkeypatch):
     monkeypatch.setattr(auth, "LOGIN_THROTTLE", auth.LoginThrottle())
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_adapters(monkeypatch):
+    # discover_local_subnets caches for 30 s; a test's fake adapters must
+    # not leak into the next test.
+    from pfsense_checker import subnet_health
+
+    monkeypatch.setattr(subnet_health, "_cache", None)

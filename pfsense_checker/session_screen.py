@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -28,6 +30,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -44,7 +47,7 @@ from pfsense_checker.lan_scan import (
     scan_subnet,
 )
 from pfsense_checker.busy import busy_cursor, show_busy_while
-from pfsense_checker import app_log, oui
+from pfsense_checker import app_log, net_discovery, oui
 from pfsense_checker.site_canvas import SiteTopologyView
 from pfsense_checker.ssh_session import (
     export_mikrotik_verbose_ssh,
@@ -422,6 +425,76 @@ class _LoadConfigChooserDialog(QDialog):
         self.accept()
 
 
+def subnet_from_parts(address: str, prefix: int) -> str:
+    """Normalise *address*/*prefix* to the network CIDR (raises ValueError)."""
+    net = ipaddress.ip_network(f"{(address or '').strip()}/{int(prefix)}", strict=False)
+    if net.version != 4:
+        raise ValueError("IPv4 only")
+    return str(net)
+
+
+def subnet_usable_hosts(cidr: str) -> int:
+    net = ipaddress.ip_network(cidr, strict=False)
+    return net.num_addresses if net.prefixlen >= 31 else net.num_addresses - 2
+
+
+class _AlterSubnetDialog(QDialog):
+    """Change a subnet's network address and prefix length (pool size)."""
+
+    def __init__(self, cidr: str, taken: list[str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Alter subnet")
+        self.setModal(True)
+        self._taken = {c for c in taken if c != cidr}
+        net = ipaddress.ip_network(cidr, strict=False)
+        form = QFormLayout(self)
+        self.address = QLineEdit(str(net.network_address))
+        self.address.setPlaceholderText("e.g. 192.168.1.0")
+        form.addRow("Network address:", self.address)
+        self.prefix = QSpinBox()
+        self.prefix.setRange(8, 32)
+        self.prefix.setPrefix("/")
+        self.prefix.setValue(net.prefixlen)
+        form.addRow("Prefix (pool size):", self.prefix)
+        self.result_label = QLabel("")
+        self.result_label.setWordWrap(True)
+        form.addRow("", self.result_label)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        form.addRow(self.buttons)
+        self.address.textChanged.connect(self._update)
+        self.prefix.valueChanged.connect(self._update)
+        self.new_cidr = ""
+        self._update()
+
+    def _update(self) -> None:
+        ok_btn = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        try:
+            cidr = subnet_from_parts(self.address.text(), self.prefix.value())
+        except ValueError:
+            self.new_cidr = ""
+            self.result_label.setText("Not a valid IPv4 network.")
+            self.result_label.setStyleSheet("color: #c62828;")
+            ok_btn.setEnabled(False)
+            return
+        self.new_cidr = cidr
+        if cidr in self._taken:
+            self.result_label.setText(f"{cidr} is already in the list.")
+            self.result_label.setStyleSheet("color: #c62828;")
+            ok_btn.setEnabled(False)
+            return
+        hosts = subnet_usable_hosts(cidr)
+        note = ""
+        if hosts > net_discovery.MAX_SWEEP_HOSTS:
+            note = " — larger than /22, so it will not be swept for devices"
+        self.result_label.setText(f"→ {cidr} · {hosts} usable addresses{note}")
+        self.result_label.setStyleSheet("color: #555;")
+        ok_btn.setEnabled(True)
+
+
 class _ConfigPullWorker(QThread):
     """Pull pfSense/OPNsense config.xml off the UI thread."""
 
@@ -487,6 +560,38 @@ class _ScanWorker(QThread):
             self.finished_ok.emit(hosts)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
+
+
+class _DiscoveryWorker(QThread):
+    """Sweep the listed subnets one at a time for network devices."""
+
+    subnet_started = Signal(str)
+    subnet_done = Signal(str, list)  # cidr, list[SeenDevice]
+    subnet_failed = Signal(str, str, bool)  # cidr, message, too_large
+
+    def __init__(self, cidrs: list[str]) -> None:
+        super().__init__()
+        self._cidrs = list(cidrs)
+
+    def run(self) -> None:  # noqa: D102
+        gateways = net_discovery.default_gateways()
+        for cidr in self._cidrs:
+            if self.isInterruptionRequested():
+                return
+            self.subnet_started.emit(cidr)
+            try:
+                seen = net_discovery.discover(
+                    cidr,
+                    gateways=gateways,
+                    should_stop=self.isInterruptionRequested,
+                )
+            except net_discovery.SweepTooLarge as exc:
+                self.subnet_failed.emit(cidr, str(exc), True)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                self.subnet_failed.emit(cidr, str(exc), False)
+                continue
+            self.subnet_done.emit(cidr, seen)
 
 
 class _InventoryWorker(QThread):
@@ -556,6 +661,12 @@ class SessionScreen(QWidget):
         self._updating = False
         self._syncing_selection = False
         self._found_hosts: list[LanHost] = []
+        # Subnets panel "Seen": network devices found per listed subnet.
+        self._seen: dict[str, list] = {}
+        self._seen_state: dict[str, str] = {}
+        self._seen_error: dict[str, str] = {}
+        self._discovery_worker: _DiscoveryWorker | None = None
+        self._discovery_queue: list[str] = []
         self._connected_name: str | None = None
         self._config_pull_for_check = False
         self._splitters_restored = False
@@ -601,14 +712,15 @@ class SessionScreen(QWidget):
         # ---------- A) Subnets ----------
         subnet_box = QGroupBox("Subnets")
         sn = QVBoxLayout(subnet_box)
-        self.subnet_table = QTableWidget(0, 2)
-        self.subnet_table.setHorizontalHeaderLabels(["Subnet", ""])
+        self.subnet_table = QTableWidget(0, 4)
+        self.subnet_table.setHorizontalHeaderLabels(["Subnet", "Seen", "Connected", ""])
         self.subnet_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
-        self.subnet_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
+        for col in (1, 2, 3):
+            self.subnet_table.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeMode.ResizeToContents
+            )
         self.subnet_table.horizontalHeader().setVisible(False)
         self.subnet_table.verticalHeader().setVisible(False)
         self.subnet_table.setSelectionBehavior(
@@ -624,6 +736,8 @@ class SessionScreen(QWidget):
             "Search for devices. Click Devices to list hosts on that subnet "
             "in the Devices panel below."
         )
+        self.subnet_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.subnet_table.customContextMenuRequested.connect(self._subnet_context_menu)
         sn.addWidget(self.subnet_table)
         subnet_row = QHBoxLayout()
         self.subnet_edit = QLineEdit()
@@ -634,7 +748,7 @@ class SessionScreen(QWidget):
         btn_subnet_add.clicked.connect(self._add_subnet)
         subnet_row.addWidget(btn_subnet_add)
         btn_subnet_del = QPushButton("Remove")
-        btn_subnet_del.clicked.connect(self._remove_subnet)
+        btn_subnet_del.clicked.connect(lambda: self._remove_subnet())
         subnet_row.addWidget(btn_subnet_del)
         btn_subnet_import = QPushButton("From pfSense config…")
         btn_subnet_import.setToolTip(
@@ -650,6 +764,15 @@ class SessionScreen(QWidget):
         )
         btn_live_subnets.clicked.connect(self._show_live_subnets)
         subnet_row.addWidget(btn_live_subnets)
+        self.btn_rescan = QPushButton("Rescan subnets")
+        self.btn_rescan.setToolTip(
+            "Look for routers, switches, gateways and firewalls (pfSense, "
+            "OPNsense) on every listed subnet: ping + ARP, then TCP connects "
+            "to 22, 23, 80, 443, 830, 8291 and 8728 only, the SSH banner and "
+            "the web GUI title. No logins. Subnets larger than /22 are skipped."
+        )
+        self.btn_rescan.clicked.connect(lambda: self._start_discovery(rescan=True))
+        subnet_row.addWidget(self.btn_rescan)
         sn.addLayout(subnet_row)
 
         # ---------- B) Devices (find + session list) ----------
@@ -1334,6 +1457,7 @@ class SessionScreen(QWidget):
         self._rebuild_device_subnet_tabs()
         self._emit_summary()
         self._on_device_selection_changed()
+        self._start_discovery()
 
     def _set_kind_combo(self, row: int, kind: str) -> None:
         """Kind column: dropdown of known kinds; current value is NetCheck's guess."""
@@ -2159,28 +2283,8 @@ class SessionScreen(QWidget):
                 Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
             )
             self.subnet_table.setItem(row, 0, item)
-
-            connected = self._connected_devices_in_subnet(cidr)
-            n = len(connected)
-            status = QLabel()
-            if n == 0:
-                status.setText("none connected")
-                status.setStyleSheet("color: #78909c; padding-right: 6px;")
-            elif n == 1:
-                status.setText("1 connected")
-                status.setStyleSheet(
-                    "color: #2e7d32; font-weight: 600; padding-right: 6px;"
-                )
-            else:
-                status.setText(f"{n} connected")
-                status.setStyleSheet(
-                    "color: #2e7d32; font-weight: 600; padding-right: 6px;"
-                )
-            names = ", ".join(d.name for d in connected) if connected else ""
-            status.setToolTip(
-                f"SSH-connected session devices on {cidr}"
-                + (f":\n{names}" if names else " — none yet")
-            )
+            self.subnet_table.setCellWidget(row, 1, QLabel())
+            self.subnet_table.setCellWidget(row, 2, QLabel())
 
             btn = QPushButton("Devices")
             btn.setToolTip(
@@ -2189,15 +2293,12 @@ class SessionScreen(QWidget):
             btn.clicked.connect(
                 lambda _checked=False, c=cidr: self._show_devices_on_subnet(c)
             )
-
             holder = QWidget()
             hl = QHBoxLayout(holder)
             hl.setContentsMargins(4, 0, 4, 0)
-            hl.setSpacing(4)
-            hl.addWidget(status)
             hl.addWidget(btn)
-            hl.addStretch(1)
-            self.subnet_table.setCellWidget(row, 1, holder)
+            self.subnet_table.setCellWidget(row, 3, holder)
+        self._refresh_subnet_connected_labels()
 
     def _connected_devices_in_subnet(self, cidr: str) -> list[Device]:
         """Session devices with SSH status ok whose host/IP falls in *cidr*."""
@@ -2255,11 +2356,60 @@ class SessionScreen(QWidget):
         self._store_subnets([str(net)])
         self.subnet_edit.clear()
 
-    def _remove_subnet(self) -> None:
-        subnet = self._selected_subnet()
+    def _subnet_context_menu(self, pos) -> None:  # noqa: ANN001
+        row = self.subnet_table.indexAt(pos).row()
+        item = self.subnet_table.item(row, 0) if row >= 0 else None
+        if item is None:
+            return
+        cidr = item.text()
+        self.subnet_table.selectRow(row)
+        menu = QMenu(self)
+        act_scan = menu.addAction("Scan this subnet")
+        act_scan.setToolTip("Look for routers, switches, gateways and firewalls")
+        act_alter = menu.addAction("Alter this subnet…")
+        act_remove = menu.addAction("Remove this subnet")
+        busy = self._discovery_worker is not None and self._discovery_worker.isRunning()
+        if busy:
+            act_scan.setText("Scan this subnet (queued after the current sweep)")
+        chosen = menu.exec(self.subnet_table.viewport().mapToGlobal(pos))
+        if chosen is act_scan:
+            self._start_discovery([cidr], rescan=True)
+        elif chosen is act_alter:
+            self._alter_subnet(cidr)
+        elif chosen is act_remove:
+            self._remove_subnet(cidr)
+
+    def _alter_subnet(self, cidr: str) -> None:
+        if self._site is None or cidr not in self._site.subnets:
+            return
+        dlg = _AlterSubnetDialog(cidr, list(self._site.subnets), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.new_cidr:
+            return
+        self._replace_subnet(cidr, dlg.new_cidr)
+
+    def _replace_subnet(self, old: str, new: str) -> None:
+        """Swap *old* for *new* in place, then sweep the new one."""
+        if self._site is None or old not in self._site.subnets or old == new:
+            return
+        if new in self._site.subnets:
+            return
+        idx = self._site.subnets.index(old)
+        self._site.subnets[idx] = new
+        for cache in (self._seen, self._seen_state, self._seen_error):
+            cache.pop(old, None)
+        app_log.get_logger("subnets").info("Subnet altered: %s → %s", old, new)
+        self._refresh_subnet_list()
+        self._rebuild_device_subnet_tabs()
+        self.site_changed.emit()
+        self._start_discovery([new])
+
+    def _remove_subnet(self, subnet: str = "") -> None:
+        subnet = subnet or self._selected_subnet()
         if not subnet or self._site is None:
             return
         self._site.subnets = [s for s in self._site.subnets if s != subnet]
+        for cache in (self._seen, self._seen_state, self._seen_error):
+            cache.pop(subnet, None)
         self._refresh_subnet_list()
         self.site_changed.emit()
 
@@ -2274,6 +2424,7 @@ class SessionScreen(QWidget):
         if added:
             self._refresh_subnet_list()
             self.site_changed.emit()
+            self._start_discovery()
         return added
 
     def _pfsense_config_path(self) -> str:
@@ -2418,7 +2569,13 @@ class SessionScreen(QWidget):
             )
             self.found_table.setItem(row, 0, ip_item)
             self.found_table.setItem(row, 1, QTableWidgetItem(host.mac or ""))
-            self.found_table.setItem(row, 2, QTableWidgetItem(""))
+            seen = self._seen_device(host.ip)
+            vendor_item = QTableWidgetItem(
+                f"{seen.vendor} {seen.role}".strip() if seen else ""
+            )
+            if seen and seen.evidence:
+                vendor_item.setToolTip("\n".join(seen.evidence))
+            self.found_table.setItem(row, 2, vendor_item)
             self.found_table.setItem(
                 row, 3, self._port_cell(host.ssh_open, 22, "SSH")
             )
@@ -2473,6 +2630,8 @@ class SessionScreen(QWidget):
                 vendor = oui.lookup_vendor(host.mac, timeout=5)
             except (RuntimeError, ValueError):
                 vendor = ""
+            if not vendor:
+                continue
             item = self.found_table.item(row, 2)
             if item is not None:
                 item.setText(vendor)
@@ -2605,7 +2764,8 @@ class SessionScreen(QWidget):
 
     def _set_subnet_device_buttons_enabled(self, enabled: bool) -> None:
         for row in range(self.subnet_table.rowCount()):
-            btn = self.subnet_table.cellWidget(row, 1)
+            holder = self.subnet_table.cellWidget(row, 3)
+            btn = holder.findChild(QPushButton) if holder is not None else None
             if isinstance(btn, QPushButton):
                 btn.setEnabled(enabled)
 
@@ -3149,35 +3309,101 @@ class SessionScreen(QWidget):
             self._refresh_subnet_list()
 
     def _refresh_subnet_connected_labels(self) -> None:
-        """Update only the connected-count labels (keep subnet selection)."""
+        """Update the Seen and Connected labels in place (keeps selection)."""
         if self._site is None:
             return
         for row, cidr in enumerate(self._site.subnets):
             if row >= self.subnet_table.rowCount():
                 break
-            holder = self.subnet_table.cellWidget(row, 1)
-            if holder is None:
-                continue
-            label = holder.findChild(QLabel)
-            if label is None:
-                continue
-            connected = self._connected_devices_in_subnet(cidr)
-            n = len(connected)
-            if n == 0:
-                label.setText("none connected")
-                label.setStyleSheet("color: #78909c; padding-right: 6px;")
-            elif n == 1:
-                label.setText("1 connected")
-                label.setStyleSheet(
-                    "color: #2e7d32; font-weight: 600; padding-right: 6px;"
+            seen_label = self.subnet_table.cellWidget(row, 1)
+            if isinstance(seen_label, QLabel):
+                text, color, tip = net_discovery.seen_summary(
+                    self._seen_state.get(cidr, "pending"),
+                    self._seen.get(cidr, []),
+                    self._seen_error.get(cidr, ""),
                 )
-            else:
-                label.setText(f"{n} connected")
-                label.setStyleSheet(
-                    "color: #2e7d32; font-weight: 600; padding-right: 6px;"
+                weight = "600" if color == net_discovery.SEEN_COLOR else "normal"
+                seen_label.setText(text)
+                seen_label.setStyleSheet(
+                    f"color: {color}; font-weight: {weight}; padding: 0 8px;"
                 )
-            names = ", ".join(d.name for d in connected) if connected else ""
-            label.setToolTip(
-                f"SSH-connected session devices on {cidr}"
-                + (f":\n{names}" if names else " — none yet")
-            )
+                seen_label.setToolTip(tip)
+            conn_label = self.subnet_table.cellWidget(row, 2)
+            if isinstance(conn_label, QLabel):
+                names = [d.name for d in self._connected_devices_in_subnet(cidr)]
+                text, color = net_discovery.connected_summary(names)
+                weight = "600" if names else "normal"
+                conn_label.setText(text)
+                conn_label.setStyleSheet(
+                    f"color: {color}; font-weight: {weight}; padding: 0 8px;"
+                )
+                conn_label.setToolTip(
+                    f"SSH-connected session devices on {cidr}"
+                    + (":\n" + "\n".join(names) if names else " — none yet")
+                )
+
+    # ------------------------------------------------- network discovery
+
+    def _start_discovery(
+        self, cidrs: list[str] | None = None, *, rescan: bool = False
+    ) -> None:
+        """Sweep listed subnets for routers, switches, gateways, firewalls."""
+        if self._site is None:
+            return
+        wanted = list(cidrs) if cidrs is not None else list(self._site.subnets)
+        if not rescan:
+            wanted = [c for c in wanted if c not in self._seen_state]
+        for cidr in wanted:
+            if cidr not in self._discovery_queue:
+                self._discovery_queue.append(cidr)
+                self._seen_state[cidr] = "pending"
+        self._refresh_subnet_connected_labels()
+        self._run_discovery_queue()
+
+    def _run_discovery_queue(self) -> None:
+        worker = self._discovery_worker
+        if worker is not None and worker.isRunning():
+            return  # the finished handler starts the rest
+        if not self._discovery_queue:
+            self.btn_rescan.setEnabled(True)
+            return
+        batch, self._discovery_queue = self._discovery_queue, []
+        self.btn_rescan.setEnabled(False)
+        worker = _DiscoveryWorker(batch)
+        worker.subnet_started.connect(self._on_discovery_started)
+        worker.subnet_done.connect(self._on_discovery_done)
+        worker.subnet_failed.connect(self._on_discovery_failed)
+        worker.finished.connect(self._on_discovery_finished)
+        self._discovery_worker = worker
+        worker.start()
+
+    def _on_discovery_started(self, cidr: str) -> None:
+        self._seen_state[cidr] = "scanning"
+        self._refresh_subnet_connected_labels()
+
+    def _on_discovery_done(self, cidr: str, seen: list) -> None:
+        self._seen[cidr] = list(seen)
+        self._seen_state[cidr] = "done"
+        self._seen_error.pop(cidr, None)
+        self._refresh_subnet_connected_labels()
+
+    def _on_discovery_failed(self, cidr: str, message: str, too_large: bool) -> None:
+        self._seen_state[cidr] = "too_large" if too_large else "error"
+        self._seen_error[cidr] = message
+        self._seen.pop(cidr, None)
+        app_log.get_logger("discovery").warning("Discovery %s: %s", cidr, message)
+        self._refresh_subnet_connected_labels()
+
+    def _on_discovery_finished(self) -> None:
+        worker = self._discovery_worker
+        self._discovery_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self._run_discovery_queue()
+
+    def _seen_device(self, ip: str):  # noqa: ANN202
+        for devices in self._seen.values():
+            for dev in devices:
+                if dev.ip == ip:
+                    return dev
+        return None

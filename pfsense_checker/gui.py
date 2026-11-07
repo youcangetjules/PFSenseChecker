@@ -567,56 +567,16 @@ class MainWindow(QMainWindow):
         self.home_screen.section_changed.connect(self._on_home_section_changed)
         self.home_screen.site_changed.connect(self._on_live_site_changed)
         self.home_screen.topology_mode_requested.connect(self._set_topology_mode)
+        self.home_screen.config_menu_opened.connect(self._ensure_workspace)
         self._stack.addWidget(self.home_screen)
 
-        # Page 1: analysis workspace (left section nav, same chrome as Home)
+        # Config Check workspace (path bar, summary, tabs). It lives inside
+        # Home as a page; Home's sliding menu lists its tabs under Config Check.
         central = QWidget()
-        self._stack.addWidget(central)
-        body = QHBoxLayout(central)
-        body.setContentsMargins(8, 8, 8, 8)
-        body.setSpacing(10)
+        self.home_screen.attach_workspace(central)
 
-        nav_col = QVBoxLayout()
-        logo_pix = render_logo_pixmap(width=160)
-        if logo_pix is not None:
-            brand = QLabel()
-            brand.setPixmap(logo_pix)
-            brand.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            )
-            brand.setToolTip("NetCheck")
-        else:
-            brand = QLabel("NetCheck")
-            bf = QFont()
-            bf.setPointSize(16)
-            bf.setBold(True)
-            brand.setFont(bf)
-        nav_col.addWidget(brand)
-        scope = QLabel("OPNsense/pfSense Config Checker")
-        scope.setWordWrap(True)
-        scope.setFixedWidth(200)
-        scope.setStyleSheet("font-weight: bold; color: #1a237e; padding-bottom: 2px;")
-        nav_col.addWidget(scope)
-        hint = QLabel("Choose a section")
-        hint.setStyleSheet("color: #666; margin-bottom: 6px;")
-        nav_col.addWidget(hint)
-
-        self.workspace_nav = QTreeWidget()
-        self.workspace_nav.setHeaderHidden(True)
-        self.workspace_nav.setFixedWidth(200)
-        self.workspace_nav.setIndentation(12)
-        self.workspace_nav.setRootIsDecorated(False)
-        self.workspace_nav.setStyleSheet(NAV_TREE_STYLE)
-        self.workspace_nav.currentItemChanged.connect(self._on_workspace_nav_item)
-        nav_col.addWidget(self.workspace_nav, stretch=1)
-
-        btn_home = QPushButton("Home…")
-        btn_home.setToolTip("Back to the home hub")
-        btn_home.clicked.connect(self.show_home_screen)
-        nav_col.addWidget(btn_home)
-        body.addLayout(nav_col)
-
-        main_col = QVBoxLayout()
+        main_col = QVBoxLayout(central)
+        main_col.setContentsMargins(0, 0, 0, 0)
         path_row = QHBoxLayout()
         self.path_label = QLabel(
             "Drop a pfSense config.xml or MikroTik .rsc here, or Open a file"
@@ -638,7 +598,6 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
         self.tabs.setStyleSheet("QTabWidget::pane { border: 0; }")
         main_col.addWidget(self.tabs, stretch=1)
-        body.addLayout(main_col, stretch=1)
 
         # Workspace tabs are built on first open — keeps Home launch snappy.
         self._workspace_built = False
@@ -648,33 +607,12 @@ class MainWindow(QMainWindow):
         self._sync_home_sites()
 
     def _sync_workspace_nav(self) -> None:
-        """Rebuild the left section list from workspace tab titles."""
-        nav = getattr(self, "workspace_nav", None)
-        if nav is None or not hasattr(self, "tabs"):
+        """List the workspace tabs under Config Check in Home's menu."""
+        if not hasattr(self, "tabs"):
             return
-        nav.blockSignals(True)
-        nav.clear()
-        current = self.tabs.currentIndex()
-        for i in range(self.tabs.count()):
-            item = QTreeWidgetItem([self.tabs.tabText(i)])
-            item.setData(0, Qt.ItemDataRole.UserRole, i)
-            nav.addTopLevelItem(item)
-        if 0 <= current < nav.topLevelItemCount():
-            nav.setCurrentItem(nav.topLevelItem(current))
-        nav.blockSignals(False)
-
-    def _on_workspace_nav_item(
-        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
-    ) -> None:
-        if current is None or not hasattr(self, "tabs"):
-            return
-        idx = current.data(0, Qt.ItemDataRole.UserRole)
-        try:
-            index = int(idx)
-        except (TypeError, ValueError):
-            return
-        if 0 <= index < self.tabs.count() and index != self.tabs.currentIndex():
-            self.tabs.setCurrentIndex(index)
+        self.home_screen.set_config_tabs(
+            [self.tabs.tabText(i) for i in range(self.tabs.count())]
+        )
 
     def _ensure_workspace(self) -> None:
         """Lazily construct the full analysis tab set."""
@@ -776,9 +714,15 @@ class MainWindow(QMainWindow):
     def _enter_workspace(self, tab_name: str = "") -> None:
         app_log.get_logger("nav").debug("Workspace tab: %s", tab_name or "(current)")
         self._ensure_workspace()
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(0)
         if tab_name:
             self._goto_tab(tab_name)
+        current = (
+            self.tabs.tabText(self.tabs.currentIndex())
+            if hasattr(self, "tabs") and self.tabs.count()
+            else ""
+        )
+        self.home_screen.show_workspace_page(current)
         title = tab_name or (
             self.tabs.tabText(self.tabs.currentIndex())
             if hasattr(self, "tabs") and self.tabs.count()
@@ -787,7 +731,7 @@ class MainWindow(QMainWindow):
         self._context_module = f"Workspace · {title}"
         self._context_capabilities = (
             "Dashboard · findings · topology · monitor · AI · report — "
-            "Home… returns to sections"
+            "pick another section on the left to leave"
         )
         self._refresh_context_status()
         if hasattr(self, "tabs"):
@@ -800,23 +744,16 @@ class MainWindow(QMainWindow):
     def show_home_screen(self) -> None:
         self._sync_home_sites()
         self._stack.setCurrentIndex(0)
-        # Re-emit current home section into the status context.
-        item = self.home_screen.nav.currentItem()
-        if item is not None:
-            key = item.data(0, Qt.ItemDataRole.UserRole)
-            if key:
-                from pfsense_checker.home_screen import (
-                    section_capabilities,
-                    section_title,
-                )
+        key = self.home_screen.current_section_key()
+        if not key or key.startswith("config.tab:"):
+            # Home leaves the Config Check workspace for the landing section.
+            self.home_screen.show_section("login")
+            return
+        from pfsense_checker.home_screen import section_capabilities
 
-                self._on_home_section_changed(
-                    str(key),
-                    item.text(0) or section_title(str(key)),
-                    section_capabilities(str(key)),
-                )
-        else:
-            self._refresh_context_status()
+        self._on_home_section_changed(
+            key, self.home_screen.nav.label(key), section_capabilities(key)
+        )
 
     def _on_workspace_tab_changed(self, index: int) -> None:
         if not hasattr(self, "tabs") or index < 0:
@@ -825,17 +762,8 @@ class MainWindow(QMainWindow):
         self._context_module = f"Workspace · {title}"
         self._context_capabilities = "Analysis workspace tab"
         self._refresh_context_status()
-        nav = getattr(self, "workspace_nav", None)
-        if nav is None:
-            return
-        if nav.currentItem() is not None:
-            cur = nav.currentItem().data(0, Qt.ItemDataRole.UserRole)
-            if cur == index:
-                return
-        if 0 <= index < nav.topLevelItemCount():
-            nav.blockSignals(True)
-            nav.setCurrentItem(nav.topLevelItem(index))
-            nav.blockSignals(False)
+        if self.home_screen.current_section_key().startswith("config.tab:"):
+            self.home_screen.nav.select("config.tab:" + title)
 
     def _on_home_section_changed(self, key: str, title: str, capabilities: str) -> None:
         self._context_module = title or key
