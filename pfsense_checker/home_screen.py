@@ -1937,6 +1937,7 @@ class HomeScreen(QWidget):
         baseline = list(getattr(self, "_modules_baseline", []))
         to_install: list[str] = []
         to_import: list[str] = []
+        to_unload: list[str] = []  # unticked Loaded: applied at the next login
         notes: list[str] = []
         for i, st in enumerate(rows):
             want_inst, want_load = current[i]
@@ -1951,16 +1952,20 @@ class HomeScreen(QWidget):
                 )
             if want_load and not was_load:
                 to_import.append(st.import_name)
-            elif (not want_load) and was_load:
-                notes.append(
-                    f"Cannot unload {st.import_name} from a running process "
-                    "(use Persist Changes to stop loading it after sign-in)."
-                )
+            elif (not want_load) and was_load and st.import_name:
+                to_unload.append(st.import_name)
 
-        if not to_install and not to_import and not notes:
+        if not to_install and not to_import and not to_unload and not notes:
             QMessageBox.information(self, "Save/Commit", "Nothing to apply.")
             return
 
+        next_login = (
+            f"Stop loading: {', '.join(to_unload)}\n"
+            "These changes will be updated at your next login "
+            "(they stay loaded until then).\n"
+            if to_unload
+            else ""
+        )
         confirm = QMessageBox.question(
             self,
             "Save/Commit",
@@ -1969,6 +1974,7 @@ class HomeScreen(QWidget):
                 f"Install: {', '.join(to_install)}\n" if to_install else ""
             )
             + (f"Import: {', '.join(to_import)}\n" if to_import else "")
+            + next_login
             + ("\n".join(notes[:5]) if notes else ""),
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -1993,6 +1999,20 @@ class HomeScreen(QWidget):
                 results.append(f"Load failed {mod}: {exc}")
         if to_import:
             results.append("Use Persist Changes to load these again after each sign-in.")
+        if to_unload:
+            try:
+                for mod in to_unload:
+                    python_modules.set_load_at_start(mod, False)
+                results.append(
+                    f"{', '.join(to_unload)}: will not be loaded at your next login. "
+                    "These changes will be updated at your next login; they stay "
+                    "loaded until then."
+                )
+                app_log.get_logger("modules").info(
+                    "Stop loading at next login: %s", ", ".join(to_unload)
+                )
+            except OSError as exc:
+                results.append(f"Could not save the next-login change: {exc}")
 
         results.extend(notes)
         self._modules_refresh()

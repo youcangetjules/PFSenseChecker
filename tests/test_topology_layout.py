@@ -59,10 +59,11 @@ def test_router_is_one_row_grouped_by_type() -> None:
     order = sorted(items.values(), key=lambda i: i.pos().x())
     classes = [i.port_cls for i in order]
     assert classes == sorted(classes, key=lambda c: sc._CLASS_ORDER[c])  # grouped physical → … → virtual
-    assert items["OPT18"].label == "1_IV2_VL630_MCE1_LAN"
+    # VLAN interfaces and bridges are not ports: they colour / wrap the ports instead.
+    assert "OPT18" not in items and "mce1.630" not in items and "OPT22" not in items
     assert items["OPT4"].disabled
     assert all(i.w == sc.NIC_W == 72.0 for i in order)
-    assert ch.boundingRect().width() > ch.boundingRect().height() * 3  # horizontally stretched
+    assert ch.boundingRect().width() > ch.boundingRect().height()  # one horizontal row (3 real ports left)
 
 
 def test_cable_enters_lower_device_from_the_top() -> None:

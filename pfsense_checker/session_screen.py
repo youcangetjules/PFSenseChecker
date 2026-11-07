@@ -1051,6 +1051,8 @@ class SessionScreen(QWidget):
         self.map_view.positions_changed.connect(self.site_changed.emit)
         self.map_view.links_changed.connect(self.site_changed.emit)
         self.map_view.device_changed.connect(self._on_map_device_changed)
+        # Picking a device on the map selects it in the Devices list.
+        self.map_view.device_selected.connect(self._on_map_device_selected)
         self.right_split.addWidget(self.map_view)
 
         detail_box = QGroupBox("Device details")
@@ -1936,6 +1938,18 @@ class SessionScreen(QWidget):
             self.site_changed.emit()
         return self._site
 
+    def _on_map_device_selected(self, name: str) -> None:
+        """A chassis was picked on the map: select its row in the Devices list."""
+        row = self._row_for_device_name(name)
+        if row is None:
+            return  # e.g. ignored devices hidden from the list
+        if self._exactly_one_selected_row() == row:
+            return
+        self.table.selectRow(row)
+        item = self.table.item(row, COL_DEVICE)
+        if item is not None:
+            self.table.scrollToItem(item)
+
     def _row_for_device_name(self, name: str) -> int | None:
         for row in range(self.table.rowCount()):
             item = self.table.item(row, COL_DEVICE)
@@ -2389,6 +2403,8 @@ class SessionScreen(QWidget):
             dev = self._device_for_row(row)
             self._focus_subnet_tab_for_device(dev)
             self._apply_saved_credentials_to_login(dev)
+            if dev is not None and self.map_view.selected_device() != dev.name:
+                self.map_view.select_device(dev.name)  # and the map follows the list
         else:
             self._apply_saved_credentials_to_login(None)
         self._refresh_device_details(dev if row is not None else None)

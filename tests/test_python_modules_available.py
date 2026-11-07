@@ -170,3 +170,32 @@ def test_needed_rows_are_shaded(monkeypatch) -> None:
     assert t.item(2, 0).background().style() == Qt.BrushStyle.NoBrush  # not needed: no shading
     assert t.item(1, 5).background().color().name() == "#ffcdd2"  # Available keeps its colour
     assert t.item(3, 0).background().color().name() == "#e3f2fd"  # loaded, not required: light blue
+
+
+def test_unticking_loaded_applies_at_next_login(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from pfsense_checker.home_screen import HomeScreen
+
+    QApplication.instance() or QApplication([])
+    saved = tmp_path / "python_modules.json"
+    monkeypatch.setattr(pm, "LOAD_AT_START_PATH", saved)
+    pm.save_load_at_start(["requests", "graphviz"], saved)
+    rows = [
+        pm.ModuleStatus("requests", "", ">=2.31.0", "2.32.0", True, True, "requests", "requests>=2.31.0"),
+        pm.ModuleStatus("graphviz", "", ">=0.20.0", "0.21", True, True, "graphviz", "graphviz>=0.20.0"),
+    ]
+    monkeypatch.setattr(pm, "inspect_requirements", lambda path=None: rows)
+    asked: list[str] = []
+    told: list[str] = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda _p, _t, text, *a, **k: asked.append(text) or QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, _t, text, *a, **k: told.append(text))
+    home = HomeScreen()
+    home._ensure_page("modules")
+    home._modules_cell_checkbox(home.modules_table.cellWidget(0, 4)).setChecked(False)  # untick requests
+    home._modules_save_commit()
+    assert "updated at your next login" in asked[0] and "requests" in asked[0]
+    assert "Cannot unload" not in asked[0]
+    assert pm.load_at_start_names(saved) == ["graphviz"]  # requests dropped for next login
+    assert "next login" in told[-1]

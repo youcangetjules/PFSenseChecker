@@ -1645,7 +1645,7 @@ class MainWindow(QMainWindow):
         btn_arrange.clicked.connect(self._site_arrange)
         map_row.addWidget(btn_arrange)
         map_row.addStretch(1)
-        map_row.addWidget(QLabel("Ctrl+wheel zoom · drag chassis · stretch corner grip"))
+        map_row.addWidget(QLabel("Zoom: slider (bottom right) or Ctrl+wheel · drag chassis · stretch corner grip"))
         v.addLayout(map_row)
 
         self.site_view = SiteTopologyView()

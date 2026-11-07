@@ -6,7 +6,11 @@ cables can land on individual ports (CRS326/CRS328, Netgear, etc.).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
+import math
+import time
+from html import escape as html_escape
+
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -18,14 +22,20 @@ from PySide6.QtGui import (
     QPixmap,
     QPainterPathStroker,
     QPen,
+    QTransform,
 )
 from PySide6.QtWidgets import (
+    QFrame,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
+    QHBoxLayout,
+    QLabel,
     QMenu,
+    QSlider,
+    QToolButton,
     QWidget,
 )
 
@@ -33,7 +43,7 @@ HANDLE_SIZE = 12.0
 MIN_CHASSIS_W = 160.0
 MIN_CHASSIS_H = 80.0
 
-from pfsense_checker import device_identity
+from pfsense_checker import device_identity, port_vlans
 from pfsense_checker.topology_site import Link, PortComponent
 from pfsense_checker.viz import DEVICE_KIND_COLORS, LINK_KIND_COLORS
 
@@ -55,6 +65,19 @@ NIC_GAP = 4.0
 CABLE_CORRIDOR_H = 40.0  # space below port grid for link dog-legs
 # Vendor logo fills the chassis title bar (less this inset), aspect kept,
 # never wider than this share of the box.
+# Chassis border; a selected chassis is 1px thicker and pulses slightly.
+BORDER = 2.0
+SELECTED_BORDER = BORDER + 1.0
+PULSE_WIDTH = 0.8  # extra width at the top of a pulse
+PULSE_FADE = 90  # alpha dip at the bottom of a pulse
+PULSE_PERIOD_S = 1.6
+PULSE_FRAME_MS = 50
+# Bridges are drawn around their member ports (they are not ports themselves).
+BRIDGE_PAD = 3.0
+BRIDGE_EDGE = "#00838f"
+BRIDGE_FILL = "#1400838f"  # ARGB: faint teal wash
+# Port labels sit on a white chip so they read over any VLAN colour.
+LABEL_CHIP = QColor(255, 255, 255, 228)
 LOGO_INSET = 4.0
 LOGO_MAX_SHARE = 0.4
 LOGO_SUPERSAMPLE = 2  # rendered at 2x so it stays sharp when zoomed
@@ -365,6 +388,69 @@ def _is_sfp_name(name: str) -> bool:
     ) or n.startswith("s") and n[1:].isdigit() and int(n[1:]) <= 8 and "slot" not in n
 
 
+def _vlan_label(vid: str, names: dict[str, str]) -> str:
+    name = names.get(vid, "")
+    return f"{vid} ({name})" if name and name != vid else vid
+
+
+def port_vlan_tip(vlans: "port_vlans.PortVlans | None", names: dict[str, str]) -> list[str]:
+    """Hover lines for a port's VLANs: access / trunk, each VLAN named, faults."""
+    if vlans is None or not vlans.vlans:
+        return []
+    out = []
+    if vlans.is_trunk:
+        out.append("Trunk — tagged VLANs: " + ", ".join(_vlan_label(v, names) for v in vlans.tagged))
+        if vlans.untagged:
+            out.append("Untagged (native) VLAN: " + ", ".join(_vlan_label(v, names) for v in vlans.untagged))
+    else:
+        out.append("Access port — VLAN " + ", ".join(_vlan_label(v, names) for v in vlans.untagged))
+    out += [f"Check: {n}" for n in vlans.notes]
+    return out
+
+
+class VlanLegend(QFrame):
+    """VLAN colours at the top of the canvas, plus how trunks and bridges look."""
+
+    def __init__(self, view: "SiteTopologyView") -> None:
+        super().__init__(view)
+        self.setObjectName("vlanLegend")
+        self.setStyleSheet(
+            "#vlanLegend { background: rgba(255, 255, 255, 230); border: 1px solid #b0bec5;"
+            " border-radius: 6px; }"
+        )
+        row = QHBoxLayout(self)
+        row.setContentsMargins(8, 4, 8, 4)
+        self.label = QLabel()
+        self.label.setTextFormat(Qt.TextFormat.RichText)
+        self.label.setWordWrap(True)
+        row.addWidget(self.label)
+        self.hide()
+
+    def set_vlans(self, vlans: dict[str, str], palette: dict[str, str] | None = None) -> None:
+        """*vlans*: VLAN id → name for every VLAN on the canvas's ports."""
+        if not vlans:
+            self.hide()
+            return
+
+        def swatch(color: str) -> str:
+            return (f"<span style='background:{color}; color:{color};'>&nbsp;&nbsp;&nbsp;&nbsp;</span>")
+
+        chips = [
+            f"{swatch(port_vlans.vlan_color(v, palette))}&nbsp;<b>{v}</b>"
+            + (f"&nbsp;{html_escape(n)}" if n and n != v else "")
+            for v, n in sorted(vlans.items(), key=lambda kv: port_vlans._vid_key(kv[0]))  # noqa: SLF001
+        ]
+        trunk = "".join(
+            f"<span style='background:{port_vlans.vlan_color(v, palette)};'>&nbsp;</span>"
+            for v in sorted(vlans, key=port_vlans._vid_key)[:6]  # noqa: SLF001
+        )
+        chips.append(f"{trunk}&nbsp;trunk (VLANs it carries)")
+        chips.append(f"<span style='color:{BRIDGE_EDGE};'><b>┆ ┆</b></span>&nbsp;bridge (around its ports)")
+        self.label.setText("<span style='color:#37474f;'><b>VLANs</b>&nbsp;&nbsp;"
+                           + "&nbsp;&nbsp;&nbsp; ".join(chips) + "</span>")
+        self.show()
+
+
 class PortItem(QGraphicsObject):
     """NIC / switch-port component owned by a chassis."""
 
@@ -383,10 +469,18 @@ class PortItem(QGraphicsObject):
         second: str = "",
         tall: bool = False,
         width: float | None = None,
+        vlans: "port_vlans.PortVlans | None" = None,
+        vlan_names: dict[str, str] | None = None,
+        bridge: str = "",
+        palette: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
         self.device_name = device_name
         self.port_name = port_name
+        self.vlans = vlans
+        self.bridge = bridge
+        # Access port: its VLAN's colour. Trunk: the colours of every VLAN it carries.
+        self.vlan_colors = [port_vlans.vlan_color(v, palette) for v in vlans.vlans] if vlans else []
         self.media = media
         self.address = (address or "").strip()
         self.faceplate = faceplate
@@ -415,11 +509,13 @@ class PortItem(QGraphicsObject):
         if self.label != port_name:
             tip_bits.append(self.label)
         tip_bits.append(f"{port_cls} port" + (" · disabled" if disabled else ""))
+        tip_bits += port_vlan_tip(vlans, vlan_names or {})
+        if bridge:
+            tip_bits.append(f"In bridge {bridge}")
         if self.address:
             tip_bits.append(self.address)
         if media:
             tip_bits.append(media)
-        tip_bits.append("component of chassis")
         tip_bits.append("drag onto another device's port to link")
         self.setToolTip("\n".join(tip_bits))
 
@@ -442,9 +538,25 @@ class PortItem(QGraphicsObject):
         pen.setWidth(2 if selected else 1)
         if self.disabled:
             pen.setStyle(Qt.PenStyle.DashLine)
+        r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
+        if self.vlan_colors:
+            # VLAN colour fill: one colour (access) or a stripe per VLAN (trunk).
+            shape = QPainterPath()
+            shape.addRoundedRect(r, 2, 2)
+            painter.save()
+            painter.setClipPath(shape)
+            painter.setPen(Qt.PenStyle.NoPen)
+            n = len(self.vlan_colors)
+            for i, col in enumerate(self.vlan_colors):
+                c = QColor(col)
+                if self.disabled:
+                    c.setAlpha(110)
+                painter.setBrush(QBrush(c))
+                painter.drawRect(QRectF(r.left() + r.width() * i / n, r.top(), r.width() / n + 0.6, r.height()))
+            painter.restore()
+            fill = QColor(0, 0, 0, 0)
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
-        r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
         painter.drawRoundedRect(r, 2, 2)
 
         # Discrete "jack" line for faceplate RJ45
@@ -471,7 +583,7 @@ class PortItem(QGraphicsObject):
                 label = label[-4:] if self.w < 30 else metrics.elidedText(
                     label, Qt.TextElideMode.ElideMiddle, int(self.w - 2)
                 )
-            painter.drawText(
+            self._text(painter, 
                 self.boundingRect().adjusted(1, 1, -1, -2),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
                 label,
@@ -483,28 +595,41 @@ class PortItem(QGraphicsObject):
         metrics = QFontMetrics(font)
         name_txt = metrics.elidedText(self.label, Qt.TextElideMode.ElideRight, int(self.w - 4))
         if self.h > NIC_H:
-            painter.drawText(
+            self._text(painter, 
                 QRectF(2, 1, self.w - 4, 14),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 name_txt,
             )
             if self.second:
                 font2 = QFont()
-                font2.setPointSize(6)
+                # IP addresses 2pt larger than the other second-line text.
+                font2.setPointSize(8 if self.address and self.second.startswith(self.address.split("/")[0]) else 6)
                 painter.setFont(font2)
                 painter.setPen(QColor("#1565c0" if self.address else "#546e7a"))
                 sub = QFontMetrics(font2).elidedText(self.second, Qt.TextElideMode.ElideRight, int(self.w - 4))
-                painter.drawText(
+                self._text(painter, 
                     QRectF(2, 15, self.w - 4, 18),
                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
                     sub,
                 )
         else:
-            painter.drawText(
+            self._text(painter, 
                 self.boundingRect().adjusted(2, 1, -2, -2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 name_txt,
             )
+
+    def _text(self, painter, rect: QRectF, flags, text: str) -> None:  # noqa: ANN001
+        """Draw a label; on a VLAN-coloured port, on a white chip so it always reads."""
+        if self.vlan_colors and text:
+            bound = painter.boundingRect(rect, flags, text).adjusted(-2, 0, 2, 0)
+            bound = bound.intersected(self.boundingRect().adjusted(1, 1, -1, -1))
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(LABEL_CHIP))
+            painter.drawRoundedRect(bound, 2, 2)
+            painter.restore()
+        painter.drawText(rect, flags, text)
 
     def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
         """Start a port→port cable drag when the canvas is unlocked."""
@@ -594,15 +719,20 @@ class ChassisItem(QGraphicsObject):
     resized = Signal(str, float, float)  # device_name, w, h — every step of a resize
     edit_finished = Signal(str)  # device_name — drag / resize / layout change done
 
-    def __init__(self, device, *, snap: bool = True, grid: int = 20) -> None:  # noqa: ANN001
+    def __init__(self, device, *, snap: bool = True, grid: int = 20,  # noqa: ANN001
+                 palette: dict[str, str] | None = None) -> None:
         super().__init__()
         self.device = device
         self.device_name = device.name
+        self._palette = palette  # VLAN id → colour, shared by the whole canvas
+        self.pulse = 1.0  # 0..1 while selected; the view animates it
         self._drag_moved = False
         self._snap = snap
         self._grid = max(5, grid)
         self._locked = False
         self._faceplate = _is_switch_like(device)
+        self._vlans = port_vlans.for_device(device)  # VLANs per port, bridges (from config)
+        self._bridge_rects: list[tuple[str, QRectF]] = []
         self.port_items: dict[str, PortItem] = {}
         self._user_w = float(device.w) if getattr(device, "w", None) else None
         self._user_h = float(device.h) if getattr(device, "h", None) else None
@@ -670,10 +800,22 @@ class ChassisItem(QGraphicsObject):
         self._handle.setVisible(not self._locked)
 
     def _components(self) -> list[PortComponent]:
+        """Real ports only: VLAN interfaces and bridges are not ports — VLANs
+        colour the ports that carry them, bridges are drawn around their
+        member ports."""
         self.device.ensure_components()
-        return list(self.device.components) or [
+        comps = list(self.device.components) or [
             PortComponent(name=p) for p in self.device.ports
         ]
+        info = self._vlans
+        out = []
+        for c in comps:
+            low = (c.name or "").lower()
+            cls = port_class(c)[0]
+            if cls in ("vlan", "bridge") or low in info.vlan_ifaces or low in info.hidden:
+                continue
+            out.append(c)
+        return out
 
     @property
     def port_layout(self) -> str:
@@ -701,18 +843,25 @@ class ChassisItem(QGraphicsObject):
         tunnels, so every cable lands on a visible port, and stretch to fill
         the box in the chosen layout (one row, flat, rectangular).
         """
-        def key(c: PortComponent) -> tuple:
+        info = self._vlans
+
+        def kind_of(c: PortComponent) -> str:
             cls = port_class(c)[0]
-            sfp = cls == "physical" and _is_sfp_name(c.name)
-            return (_CLASS_ORDER.get(cls, 9), 1 if sfp else 0, _natural_key(c.name))
+            return "sfp" if cls == "physical" and _is_sfp_name(c.name) else cls
+
+        def key(c: PortComponent) -> tuple:
+            # Bridged ports sit together (the bridge is drawn around them),
+            # then the rest; within each, copper → SFP → wireless → tunnels.
+            bridge = info.bridge_of(c.name)
+            cls = port_class(c)[0]
+            return (0 if bridge else 1, bridge.lower(), _CLASS_ORDER.get(cls, 9),
+                    1 if kind_of(c) == "sfp" else 0, _natural_key(c.name))
 
         ordered = sorted(self._components(), key=key)
-        groups = []
-        for c in ordered:
-            cls = port_class(c)[0]
-            groups.append("sfp" if cls == "physical" and _is_sfp_name(c.name) else cls)
+        kinds = [kind_of(c) for c in ordered]
+        groups = [f"{info.bridge_of(c.name)}|{k}" for c, k in zip(ordered, kinds)]
         if self._faceplate:
-            min_cell = SFP_W if "sfp" in groups else RJ45_W
+            min_cell = SFP_W if "sfp" in kinds else RJ45_W
             cell_h = SFP_H
             min_body = FACEPLATE_MIN_W
             self._row_tall = False
@@ -732,8 +881,8 @@ class ChassisItem(QGraphicsObject):
             faceplate=self._faceplate,
         )
         placed = [
-            (comp, x, y, self._faceplate and g == "sfp", cell_w)
-            for comp, g, (x, y) in zip(ordered, groups, places)
+            (comp, x, y, self._faceplate and k == "sfp", cell_w)
+            for comp, k, (x, y) in zip(ordered, kinds, places)
         ]
         body_h = max(natural_h, self._user_h or 0.0)
         return body_w, body_h, placed
@@ -750,9 +899,12 @@ class ChassisItem(QGraphicsObject):
                     child.scene().removeItem(child)
         self.port_items.clear()
         _w, _h, placed = self._layout_metrics()
+        info = self._vlans
+        members: dict[str, list[QRectF]] = {}
         for comp, x, y, is_sfp, cell_w in placed:
             cls, disabled = port_class(comp)
             label, second = port_display(self.device, comp)
+            bridge = info.bridge_of(comp.name)
             item = PortItem(
                 self.device_name,
                 comp.name,
@@ -766,10 +918,27 @@ class ChassisItem(QGraphicsObject):
                 second=second,
                 tall=getattr(self, "_row_tall", False),
                 width=cell_w,
+                vlans=info.port(comp.name),
+                vlan_names=info.names,
+                bridge=bridge,
+                palette=self._palette,
             )
             item.setParentItem(self)
             item.setPos(x, y)
             self.port_items[comp.name] = item
+            if bridge:
+                members.setdefault(bridge, []).append(QRectF(x, y, item.w, item.h))
+        # One outline per bridge per row of ports it wraps.
+        self._bridge_rects: list[tuple[str, QRectF]] = []
+        for bridge, rects in members.items():
+            rows: dict[float, list[QRectF]] = {}
+            for r in rects:
+                rows.setdefault(round(r.top(), 1), []).append(r)
+            for row in rows.values():
+                box = QRectF(min(r.left() for r in row), min(r.top() for r in row), 0, 0)
+                box.setRight(max(r.right() for r in row))
+                box.setBottom(max(r.bottom() for r in row))
+                self._bridge_rects.append((bridge, box.adjusted(-BRIDGE_PAD, -BRIDGE_PAD, BRIDGE_PAD, BRIDGE_PAD)))
 
     def boundingRect(self) -> QRectF:  # noqa: N802
         w, h = self._content_size()
@@ -781,13 +950,21 @@ class ChassisItem(QGraphicsObject):
         if self.device.role == "egress":
             color = DEVICE_KIND_COLORS["egress"]
         rect = self.boundingRect()
-        pen = QPen(QColor(color))
-        pen.setWidth(2 if not self.isSelected() else 3)
+        edge = QColor(color)
+        if self.isSelected():
+            # Selected: border 1px thicker, gently pulsing (view drives self.pulse 0..1).
+            width = SELECTED_BORDER + PULSE_WIDTH * self.pulse
+            edge.setAlpha(int(255 - PULSE_FADE * (1.0 - self.pulse)))
+        else:
+            width = BORDER
+        pen = QPen(edge)
+        pen.setWidthF(width)
         fill = QColor(color)
         fill.setAlpha(28)
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
-        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
+        inset = width / 2
+        painter.drawRoundedRect(rect.adjusted(inset, inset, -inset, -inset), 6, 6)
 
         hdr = QRectF(0, 0, rect.width(), HEADER_H - 2)
         hf = QColor(color)
@@ -868,6 +1045,38 @@ class ChassisItem(QGraphicsObject):
             Qt.AlignmentFlag.AlignLeft,
             f"{n} {style}",
         )
+        self._paint_bridges(painter)
+
+    def _paint_bridges(self, painter) -> None:  # noqa: ANN001
+        """A bridge is drawn around the ports it joins, with its name on the edge."""
+        if not self._bridge_rects:
+            return
+        painter.save()
+        pen = QPen(QColor(BRIDGE_EDGE))
+        pen.setWidthF(1.4)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        font = QFont()
+        font.setPointSize(6)
+        font.setBold(True)
+        metrics = QFontMetrics(font)
+        labelled: set[str] = set()
+        for bridge, box in self._bridge_rects:
+            painter.setPen(pen)
+            painter.setBrush(QBrush(QColor(BRIDGE_FILL)))
+            painter.drawRoundedRect(box, 4, 4)
+            if bridge in labelled:
+                continue
+            labelled.add(bridge)
+            text = metrics.elidedText(f"bridge {bridge}", Qt.TextElideMode.ElideRight,
+                                      int(max(40.0, box.width() - 12)))
+            chip = QRectF(box.left() + 6, box.top() - 6, metrics.horizontalAdvance(text) + 8, 11)
+            painter.setPen(QPen(QColor(BRIDGE_EDGE)))
+            painter.setBrush(QBrush(QColor("#ffffff")))
+            painter.drawRoundedRect(chip, 3, 3)
+            painter.setFont(font)
+            painter.setPen(QColor(BRIDGE_EDGE))
+            painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
 
     def itemChange(self, change, value):  # noqa: ANN001, N802
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.scene():
@@ -993,12 +1202,76 @@ class LinkItem(QGraphicsPathItem):
         self.setPath(path)
 
 
+ZOOM_MIN = 0.1
+ZOOM_MAX = 4.0
+_ZOOM_STEPS = 200  # slider resolution; positions map logarithmically to zoom
+
+
+def zoom_to_slider(z: float) -> int:
+    z = max(ZOOM_MIN, min(ZOOM_MAX, z))
+    return round(_ZOOM_STEPS * math.log(z / ZOOM_MIN) / math.log(ZOOM_MAX / ZOOM_MIN))
+
+
+def slider_to_zoom(pos: int) -> float:
+    return ZOOM_MIN * (ZOOM_MAX / ZOOM_MIN) ** (pos / _ZOOM_STEPS)
+
+
+class ZoomBar(QFrame):
+    """− / slider / + / percent / Fit, floating in the canvas's bottom-right corner."""
+
+    def __init__(self, view: "SiteTopologyView") -> None:
+        super().__init__(view)
+        self._view = view
+        self.setObjectName("zoomBar")
+        self.setStyleSheet(
+            "#zoomBar { background: rgba(255, 255, 255, 225); border: 1px solid #b0bec5;"
+            " border-radius: 6px; }"
+            "#zoomBar QToolButton { border: none; min-width: 20px; font-weight: 600; color: #37474f; }"
+            "#zoomBar QToolButton:hover { background: #e3f2fd; border-radius: 3px; }"
+            "#zoomBar QLabel { color: #37474f; }"
+        )
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 3, 6, 3)
+        row.setSpacing(4)
+        minus = QToolButton()
+        minus.setText("−")
+        minus.setToolTip("Zoom out")
+        minus.clicked.connect(lambda: view.set_zoom(view.zoom() / 1.25))
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, _ZOOM_STEPS)
+        self.slider.setFixedWidth(150)
+        self.slider.setToolTip("Zoom (Ctrl+wheel also zooms)")
+        self.slider.valueChanged.connect(lambda v: view.set_zoom(slider_to_zoom(v)))
+        plus = QToolButton()
+        plus.setText("+")
+        plus.setToolTip("Zoom in")
+        plus.clicked.connect(lambda: view.set_zoom(view.zoom() * 1.25))
+        self.percent = QToolButton()
+        self.percent.setToolTip("Back to 100%")
+        self.percent.setMinimumWidth(44)
+        self.percent.clicked.connect(lambda: view.set_zoom(1.0))
+        fit = QToolButton()
+        fit.setText("Fit")
+        fit.setToolTip("Zoom to show every device")
+        fit.clicked.connect(view.zoom_to_fit)
+        for w in (minus, self.slider, plus, self.percent, fit):
+            row.addWidget(w)
+        self.show_zoom(1.0)
+
+    def show_zoom(self, z: float) -> None:
+        self.slider.blockSignals(True)
+        self.slider.setValue(zoom_to_slider(z))
+        self.slider.blockSignals(False)
+        self.percent.setText(f"{round(z * 100)}%")
+
+
 class SiteTopologyView(QGraphicsView):
     """Editable physical map: grid-locked chassis with NIC / faceplate ports."""
 
     positions_changed = Signal()
     links_changed = Signal()
     device_changed = Signal(str)  # device name after Pull Config / similar
+    device_selected = Signal(str)  # one chassis selected on the canvas ("" = none)
 
     def __init__(self) -> None:
         self._scene = QGraphicsScene()
@@ -1022,6 +1295,15 @@ class SiteTopologyView(QGraphicsView):
         self._wire_from: tuple[str, str] | None = None  # (device, port)
         self._wire_line = None
         self._ssh_password_provider = None
+        self.zoom_bar = ZoomBar(self)
+        self.vlan_legend = VlanLegend(self)
+        self._place_overlays()
+        self._quiet_selection = False
+        self._pulse_t0 = time.monotonic()
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(PULSE_FRAME_MS)
+        self._pulse_timer.timeout.connect(self._pulse_tick)
+        self._scene.selectionChanged.connect(self._on_scene_selection)
 
     def set_snap(self, enabled: bool) -> None:
         self._snap = enabled
@@ -1045,9 +1327,85 @@ class SiteTopologyView(QGraphicsView):
 
     def clear(self) -> None:
         self._cancel_port_link()
-        self._scene.clear()
+        self._pulse_timer.stop()
+        # Forget the items first: clearing the scene fires selectionChanged
+        # while they are being deleted.
         self._chassis.clear()
         self._links.clear()
+        self._quiet_selection = True
+        try:
+            self._scene.clear()
+        finally:
+            self._quiet_selection = False
+
+    # ---- selection: tell the page which device was picked; pulse it ----------
+
+    def selected_device(self) -> str:
+        live = set(map(id, self._live_chassis()))
+        names = [n for n, ch in self._chassis.items() if id(ch) in live and ch.isSelected()]
+        return names[0] if len(names) == 1 else ""
+
+    def select_device(self, name: str, *, ensure_visible: bool = True) -> None:
+        """Select *name*'s chassis (from the device list) without echoing back."""
+        ch = self._chassis.get(name)
+        self._quiet_selection = True
+        try:
+            for other in self._chassis.values():
+                if other is not ch:
+                    other.setSelected(False)
+            if ch is not None:
+                ch.setSelected(True)
+                if ensure_visible:
+                    self.ensureVisible(ch.sceneBoundingRect(), 40, 40)
+        finally:
+            self._quiet_selection = False
+        self._update_pulse()
+
+    def _on_scene_selection(self) -> None:
+        self._update_pulse()
+        if self._quiet_selection:
+            return
+        try:
+            name = self.selected_device()
+        except RuntimeError:  # items being torn down
+            return
+        if name:
+            self.device_selected.emit(name)
+
+    def _live_chassis(self) -> list["ChassisItem"]:
+        out = []
+        for ch in list(self._chassis.values()):
+            try:
+                ch.isSelected()
+            except RuntimeError:  # C++ item already deleted (view closing)
+                continue
+            out.append(ch)
+        return out
+
+    def _update_pulse(self) -> None:
+        live = self._live_chassis()
+        selected = [ch for ch in live if ch.isSelected()]
+        if selected and not self._pulse_timer.isActive():
+            self._pulse_t0 = time.monotonic()
+            self._pulse_timer.start()
+        elif not selected:
+            self._pulse_timer.stop()
+        for ch in live:
+            if not ch.isSelected() and ch.pulse != 1.0:
+                ch.pulse = 1.0
+                ch.update()
+
+    def _pulse_tick(self) -> None:
+        phase = (time.monotonic() - self._pulse_t0) / PULSE_PERIOD_S
+        value = 0.5 + 0.5 * math.sin(2 * math.pi * phase)
+        any_selected = False
+        for ch in self._live_chassis():
+            if ch.isSelected():
+                any_selected = True
+                ch.pulse = value
+                ch.update()
+        if not any_selected:
+            self._pulse_timer.stop()
 
     def set_ssh_password_provider(self, provider) -> None:  # noqa: ANN001
         """Optional callable returning the typed SSH password from Login."""
@@ -1294,10 +1652,78 @@ class SiteTopologyView(QGraphicsView):
     def wheelEvent(self, event) -> None:  # noqa: ANN001, N802
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            self.scale(factor, factor)
+            self.set_zoom(self.zoom() * factor, anchor_mouse=True)
             event.accept()
             return
         super().wheelEvent(event)
+
+    # ---- zoom (slider overlay + Ctrl+wheel) --------------------------------
+
+    def zoom(self) -> float:
+        return self.transform().m11()
+
+    def set_zoom(self, value: float, *, anchor_mouse: bool = False) -> None:
+        """Zoom to *value* (1.0 = 100%), clamped; keeps the view centre (or the
+        point under the mouse for Ctrl+wheel) where it was."""
+        value = max(ZOOM_MIN, min(ZOOM_MAX, value))
+        current = self.zoom()
+        if abs(value - current) < 1e-6:
+            self._sync_zoom_bar()
+            return
+        if anchor_mouse:
+            self.scale(value / current, value / current)  # AnchorUnderMouse
+        else:
+            centre = self.mapToScene(self.viewport().rect().center())
+            self.setTransform(QTransform.fromScale(value, value))
+            self.centerOn(centre)
+        self._sync_zoom_bar()
+
+    def zoom_to_fit(self) -> None:
+        items = self._scene.itemsBoundingRect()
+        if items.isEmpty():
+            self.set_zoom(1.0)
+            return
+        self.fitInView(items.adjusted(-30, -30, 30, 30), Qt.AspectRatioMode.KeepAspectRatio)
+        if not (ZOOM_MIN <= self.zoom() <= ZOOM_MAX):
+            self.set_zoom(self.zoom())
+            self.centerOn(items.center())
+        self._sync_zoom_bar()
+
+    def _sync_zoom_bar(self) -> None:
+        bar = getattr(self, "zoom_bar", None)
+        if bar is not None:
+            bar.show_zoom(self.zoom())
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802
+        super().resizeEvent(event)
+        self._place_overlays()
+
+    def _place_overlays(self) -> None:
+        """Zoom bar bottom-right; VLAN legend across the top."""
+        vp = self.viewport().geometry()
+        bar = getattr(self, "zoom_bar", None)
+        if bar is not None:
+            bar.adjustSize()
+            bar.move(vp.right() - bar.width() - 10, vp.bottom() - bar.height() - 10)
+            bar.raise_()
+        legend = getattr(self, "vlan_legend", None)
+        if legend is not None and legend.isVisibleTo(self):
+            room = max(200, vp.width() - 20 - 18)
+            label = legend.label
+            label.setWordWrap(False)
+            label.setMinimumWidth(0)
+            label.setMaximumWidth(16777215)
+            natural = label.sizeHint().width()
+            if natural > room:  # wrap onto more lines only when the canvas is too narrow
+                label.setWordWrap(True)
+                label.setFixedWidth(room)
+            else:
+                label.setFixedWidth(natural)
+            legend.adjustSize()
+            legend.move(vp.left() + 10, vp.top() + 8)
+            legend.raise_()
+
+    _place_zoom_bar = _place_overlays  # older name
 
     def _on_chassis_moved(self, name: str, x: float, y: float) -> None:
         if self._site is None:
@@ -1337,7 +1763,7 @@ class SiteTopologyView(QGraphicsView):
         tip = self._scene.addText(
             "Drag chassis · right-click chassis for Pull Config / Show more · "
             "drag a port onto another device's port to link · "
-            "Save Topology to persist · Esc cancels a cable · Ctrl+wheel zoom"
+            "Save Topology to persist · Esc cancels a cable · zoom: slider (bottom right) or Ctrl+wheel"
         )
         tip.setDefaultTextColor(QColor("#90a4ae"))
         tipf = QFont()
@@ -1353,19 +1779,37 @@ class SiteTopologyView(QGraphicsView):
         title.setDefaultTextColor(QColor("#263238"))
         title.setPos(8, -48)
 
+        # One VLAN colour per VLAN across the whole canvas, in VLAN order.
+        vids: set[str] = set()
+        for dev in site.devices:
+            for pv in port_vlans.for_device(dev).ports.values():
+                vids.update(pv.vlans)
+        self._palette = port_vlans.assign_palette(vids)
         for dev in site.devices:
             dev.ensure_components()
             if not (dev.model or "").strip():
                 # Hardware model from the device's config (# model = …), so the
                 # header names the box instead of just the vendor.
                 dev.model = device_identity.identity_for(dev).model
-            ch = ChassisItem(dev, snap=self._snap, grid=self._grid)
+            ch = ChassisItem(dev, snap=self._snap, grid=self._grid, palette=self._palette)
             ch.set_locked(self._locked)
             ch.moved.connect(self._on_chassis_moved)
             ch.resized.connect(self._on_chassis_resized)
             ch.edit_finished.connect(lambda _name: self.positions_changed.emit())
             self._scene.addItem(ch)
             self._chassis[dev.name] = ch
+
+        # Legend: every VLAN that colours a port on this canvas, named.
+        legend: dict[str, str] = {}
+        for ch in self._chassis.values():
+            for item in ch.port_items.values():
+                for vid in (item.vlans.vlans if item.vlans else []):
+                    legend.setdefault(vid, "")
+            for vid, name in ch._vlans.names.items():  # noqa: SLF001
+                if vid in legend and not legend[vid]:
+                    legend[vid] = name
+        self.vlan_legend.set_vlans(legend, self._palette)
+        self._place_overlays()
 
         for lane, link in enumerate(site.links):
             a = self._chassis.get(link.a_device)

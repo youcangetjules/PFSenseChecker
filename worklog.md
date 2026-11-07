@@ -4,6 +4,10 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Map selection follows the Devices list both ways; selected chassis border 1px thicker and pulsing; Python Modules unticks apply at next login; 30 new tests for modules that had none (attack_surface rules, vlan_enforcement, monitor probes, cli, wireshark_bridge, excel_layout) plus selection / unload tests. Suite: 382 passed (1.3.105).
+- Topology ports coloured by VLAN, trunks striped, VLAN legend, bridges drawn around their ports, VLAN interfaces / bridges no longer port cells, IP addresses 2pt larger (1.3.104).
+- Config findings shown on hover: CRS109-3 ether4 / ether5 have PVID 630 but are untagged members of 662 / 710; CRS328 combo1-4 and sfp1 are untagged in more than one VLAN; CRS109-3 ether3's bridge port is disabled.
+- Zoom slider on the Login to Routers, Topology and Topology Builder canvases (1.3.103).
 - Login screen rainbow backdrop, very subtle and slowly undulating, different each opening (1.3.102).
 - Fixed device boxes jumping while dragged on Login to Routers / Topology (1.3.101, BUG-046).
 - Logos fill the chassis title bar, aspect kept, margins trimmed; operator's mikrotik.png, pfsense.png and juniper.jpg in assets/logos (1.3.100).

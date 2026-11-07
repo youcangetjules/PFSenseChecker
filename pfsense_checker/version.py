@@ -72,6 +72,46 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.105",
+        date="2026-11-07",
+        notes=(
+            "Login to Routers: selecting a device on the map selects it in the Devices "
+            "list, and selecting a row selects it on the map. The selected device's "
+            "border is 1px thicker and pulses gently.",
+            "Python Modules: unticking Loaded on a loaded module and choosing Save/Commit "
+            "now takes it off the sign-in list; the dialog says the change will be "
+            "updated at your next login (it stays loaded until then).",
+            "More automated tests: attack-surface rules, VLAN enforcement, beacon "
+            "ping / DHCP packet parsing, the headless CLI, the Wireshark bridge stub, "
+            "the Excel layout import, map selection and the pulse.",
+        ),
+    ),
+    Change(
+        version="1.3.104",
+        date="2026-11-07",
+        notes=(
+            "Topology / Login to Routers canvas: VLANs and bridges are no longer drawn as "
+            "ports. Ports are coloured by the VLAN they carry (read from each device's "
+            "config: switch-chip tables, bridge VLAN table and PVIDs, pfSense VLAN "
+            "parents); trunks are striped in the colours of every VLAN they carry; labels "
+            "sit on a white chip so they always read. Hover shows access / trunk, each "
+            "VLAN named, the bridge, and config faults (PVID vs untagged mismatch, untagged "
+            "in several VLANs). A VLAN legend runs across the top. Each bridge is drawn "
+            "as a dashed outline around its member ports (`port_vlans.py`).",
+            "IP addresses on port tiles are 2pt larger.",
+        ),
+    ),
+    Change(
+        version="1.3.103",
+        date="2026-11-07",
+        notes=(
+            "Zoom slider on every site canvas (Login to Routers, Topology, Topology "
+            "Builder): bottom-right bar with -, slider (10%-400%, logarithmic), +, the "
+            "zoom percentage (click for 100%) and Fit. Ctrl+wheel still zooms, within "
+            "the same limits, and moves the slider.",
+        ),
+    ),
+    Change(
         version="1.3.102",
         date="2026-11-07",
         notes=(
