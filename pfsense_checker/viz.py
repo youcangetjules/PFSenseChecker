@@ -913,6 +913,7 @@ DEVICE_KIND_COLORS = {
     "juniper": "#2e7d32",
     "fortinet": "#c62828",
     "cisco": "#0277bd",
+    "linksys": "#1e5bd8",
     "ubiquiti": "#0559c9",
     "netgear-managed": "#6a1b9a",
     "netgear-unmanaged": "#8e24aa",

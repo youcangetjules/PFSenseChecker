@@ -74,6 +74,9 @@ PULSE_PERIOD_S = 1.6
 PULSE_FRAME_MS = 50
 # Bridges are drawn around their member ports (they are not ports themselves).
 BRIDGE_PAD = 3.0
+BRIDGE_LABEL_H = 14.0  # the bridge name chip, fully below the title bar
+BRIDGE_LABEL_STRIP = BRIDGE_LABEL_H + BRIDGE_PAD + 6.0  # title bar → ports when a bridge is drawn
+PORTS_GAP_BELOW_TITLE = 6.0  # title bar → ports otherwise
 BRIDGE_EDGE = "#00838f"
 BRIDGE_FILL = "#1400838f"  # ARGB: faint teal wash
 # Port labels sit on a white chip so they read over any VLAN colour.
@@ -106,6 +109,7 @@ def plan_ports(
     cell_h: float = SFP_H,
     min_body_w: float = 160.0,
     faceplate: bool = True,
+    top: float | None = None,
 ) -> tuple[float, float, float, list[tuple[float, float]]]:
     """Place *len(groups)* port cells. Returns (box w, box h, cell w, [(x, y)]).
 
@@ -114,11 +118,12 @@ def plan_ports(
     VLAN / …); flat fills columns top-then-bottom like a switch faceplate.
     """
     n = len(groups)
+    top = HEADER_H if top is None else top  # where the first row of ports starts
     if layout not in (LAYOUT_ROW, LAYOUT_FLAT, LAYOUT_RECT):
         layout = LAYOUT_ROW
     if n == 0:
         w = max(min_body_w, user_w or 0.0)
-        return w, HEADER_H + cell_h + CHASSIS_PAD + 12, min_cell_w, []
+        return w, top + cell_h + CHASSIS_PAD + 12, min_cell_w, []
     target = RECT_CELL_W[faceplate]
     if layout == LAYOUT_ROW:
         rows, cols = 1, n
@@ -159,8 +164,8 @@ def plan_ports(
     places = []
     for i in range(n):
         r, c = cell(i)
-        places.append((CHASSIS_PAD + c * (cell_w + PORT_GAP) + cum[c], HEADER_H + r * (cell_h + ROW_GAP)))
-    body_h = HEADER_H + rows * cell_h + (rows - 1) * ROW_GAP + CHASSIS_PAD + 12
+        places.append((CHASSIS_PAD + c * (cell_w + PORT_GAP) + cum[c], top + r * (cell_h + ROW_GAP)))
+    body_h = top + rows * cell_h + (rows - 1) * ROW_GAP + CHASSIS_PAD + 12
     return body_w, body_h, cell_w, places
 
 
@@ -169,6 +174,8 @@ def _is_switch_like(device) -> bool:  # noqa: ANN001
     kind = (device.kind or "").lower()
     if role in ("core-switch", "access-switch", "core", "access"):
         return True
+    if kind == "linksys" and (device.model or "").upper().startswith("LGS"):
+        return True  # Linksys LGS business switches have a front panel
     if kind in (
         "switch",
         "mikrotik",
@@ -198,6 +205,7 @@ _VENDOR_BADGES: dict[str, tuple[str, str, str]] = {
     "ubiquiti": ("Ubiquiti", "#0559c9", "#ffffff"),
     "fortinet": ("FORTINET", "#da291c", "#ffffff"),
     "cisco": ("Cisco", "#049fd9", "#ffffff"),
+    "linksys": ("Linksys", "#1e5bd8", "#ffffff"),
     "netgear": ("NETGEAR", "#262626", "#ffffff"),
     "netgear-managed": ("NETGEAR", "#262626", "#ffffff"),
     "netgear-unmanaged": ("NETGEAR", "#262626", "#ffffff"),
@@ -230,7 +238,8 @@ def _vendor_badge(kind: str, model: str) -> tuple[str, str, str] | None:
     return None
 
 
-_LOGO_CACHE: dict[tuple[str, int], QPixmap | None] = {}
+_LOGO_CACHE: dict[tuple, QPixmap | None] = {}  # (path, mtime, height) → scaled logo
+_LOGO_SOURCE: dict[tuple, QImage | None] = {}  # (path, mtime) → cleaned, trimmed logo
 
 
 def logo_target(header: QRectF, box_width: float, size: tuple[int, int] | None) -> QRectF:
@@ -261,9 +270,15 @@ def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
     if key in _LOGO_CACHE:
         return _LOGO_CACHE[key]
     pix: QPixmap | None = None
-    img = _load_logo_image(path)
+    src_key = key[:2]
+    if src_key not in _LOGO_SOURCE:
+        raw = _load_logo_image(path)
+        # Background knock-out + trim: done once per file version, not per size.
+        _LOGO_SOURCE[src_key] = (
+            trim_logo_margins(knock_out_background(raw)) if raw is not None and not raw.isNull() else None
+        )
+    img = _LOGO_SOURCE[src_key]
     if img is not None and not img.isNull():
-        img = trim_logo_margins(img)
         pix = QPixmap.fromImage(
             img.scaledToHeight(max(1, height), Qt.TransformationMode.SmoothTransformation)
         )
@@ -290,6 +305,55 @@ def _load_logo_image(path) -> QImage | None:  # noqa: ANN001
         return img
     img = QImage(str(path))
     return None if img.isNull() else img
+
+
+def _is_backdrop(c: QColor) -> bool:
+    """Light and colourless: white, or the grey squares of a fake transparency
+    checkerboard baked into a downloaded JPG."""
+    r, g, b = c.red(), c.green(), c.blue()
+    return min(r, g, b) > 185 and max(r, g, b) - min(r, g, b) < 18
+
+
+def _has_transparency(img: QImage) -> bool:
+    if not img.hasAlphaChannel():
+        return False
+    w, h = img.width(), img.height()
+    step = max(1, max(w, h) // 200)
+    return any(img.pixelColor(x, y).alpha() < 250 for y in range(0, h, step) for x in range(0, w, step))
+
+
+def knock_out_background(img: QImage, max_pixels: int = 1_500_000) -> QImage:
+    """Make the flat background of a logo transparent, starting from its edges.
+
+    Only for images with no real transparency (JPGs, flattened PNGs). Flood fill
+    from the border over light, colourless pixels, so white parts inside the
+    logo itself are kept. Large images are left alone (cost).
+    """
+    w, h = img.width(), img.height()
+    if w * h > max_pixels or _has_transparency(img):
+        return img
+    out = img.convertToFormat(QImage.Format.Format_ARGB32)
+    seen = bytearray(w * h)
+    stack = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
+    clear = QColor(0, 0, 0, 0)
+    while stack:
+        x, y = stack.pop()
+        i = y * w + x
+        if seen[i]:
+            continue
+        seen[i] = 1
+        if not _is_backdrop(out.pixelColor(x, y)):
+            continue
+        out.setPixelColor(x, y, clear)
+        if x > 0:
+            stack.append((x - 1, y))
+        if x < w - 1:
+            stack.append((x + 1, y))
+        if y > 0:
+            stack.append((x, y - 1))
+        if y < h - 1:
+            stack.append((x, y + 1))
+    return out
 
 
 def trim_logo_margins(img: QImage) -> QImage:
@@ -398,7 +462,12 @@ def port_vlan_tip(vlans: "port_vlans.PortVlans | None", names: dict[str, str]) -
     if vlans is None or not vlans.vlans:
         return []
     out = []
-    if vlans.is_trunk:
+    if vlans.ssid or vlans.via:
+        ssid = f"SSID '{vlans.ssid}'" if vlans.ssid else "Wi-Fi"
+        out.append(f"{ssid} → VLAN " + ", ".join(_vlan_label(v, names) for v in vlans.vlans))
+        if vlans.via:
+            out.append(f"Set by {vlans.via}")
+    elif vlans.is_trunk:
         out.append("Trunk — tagged VLANs: " + ", ".join(_vlan_label(v, names) for v in vlans.tagged))
         if vlans.untagged:
             out.append("Untagged (native) VLAN: " + ", ".join(_vlan_label(v, names) for v in vlans.untagged))
@@ -879,6 +948,7 @@ class ChassisItem(QGraphicsObject):
             cell_h=cell_h,
             min_body_w=min_body,
             faceplate=self._faceplate,
+            top=self._ports_top(ordered),
         )
         placed = [
             (comp, x, y, self._faceplate and k == "sfp", cell_w)
@@ -886,6 +956,11 @@ class ChassisItem(QGraphicsObject):
         ]
         body_h = max(natural_h, self._user_h or 0.0)
         return body_w, body_h, placed
+
+    def _ports_top(self, ports: list[PortComponent]) -> float:
+        """Ports sit clear of the title bar; a bridge gets a strip for its name."""
+        bridged = any(self._vlans.bridge_of(c.name) for c in ports)
+        return HEADER_H + (BRIDGE_LABEL_STRIP if bridged else PORTS_GAP_BELOW_TITLE)
 
     def _content_size(self) -> tuple[float, float]:
         w, h, _ = self._layout_metrics()
@@ -1056,7 +1131,7 @@ class ChassisItem(QGraphicsObject):
         pen.setWidthF(1.4)
         pen.setStyle(Qt.PenStyle.DashLine)
         font = QFont()
-        font.setPointSize(6)
+        font.setPointSize(7)
         font.setBold(True)
         metrics = QFontMetrics(font)
         labelled: set[str] = set()
@@ -1068,8 +1143,10 @@ class ChassisItem(QGraphicsObject):
                 continue
             labelled.add(bridge)
             text = metrics.elidedText(f"bridge {bridge}", Qt.TextElideMode.ElideRight,
-                                      int(max(40.0, box.width() - 12)))
-            chip = QRectF(box.left() + 6, box.top() - 6, metrics.horizontalAdvance(text) + 8, 11)
+                                      int(max(40.0, box.width() - 20)))
+            # Sits on the outline's top edge, in the strip below the title bar.
+            chip = QRectF(box.left() + 8, box.top() - BRIDGE_LABEL_H + 3,
+                          metrics.horizontalAdvance(text) + 12, BRIDGE_LABEL_H)
             painter.setPen(QPen(QColor(BRIDGE_EDGE)))
             painter.setBrush(QBrush(QColor("#ffffff")))
             painter.drawRoundedRect(chip, 3, 3)
@@ -1604,12 +1681,24 @@ class SiteTopologyView(QGraphicsView):
         self.links_changed.emit()
         self.positions_changed.emit()
 
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
+        # Right button is for the context menu only. Qt would otherwise start a
+        # rubber-band selection on any button, so a right-drag on empty space
+        # dragged a selection box around.
+        if event.button() == Qt.MouseButton.RightButton:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event) -> None:  # noqa: ANN001, N802
         if self._wire_from is not None and self._wire_line is not None:
             sp = self.mapToScene(event.position().toPoint())
             line = self._wire_line.line()
             self._wire_line.setLine(QLineF(line.p1(), sp))
             event.accept()
+            return
+        if event.buttons() & Qt.MouseButton.RightButton and not event.buttons() & Qt.MouseButton.LeftButton:
+            event.accept()  # right-drag does nothing
             return
         super().mouseMoveEvent(event)
 
@@ -1779,10 +1868,18 @@ class SiteTopologyView(QGraphicsView):
         title.setDefaultTextColor(QColor("#263238"))
         title.setPos(8, -48)
 
+        # Wireless interfaces get their SSID's VLAN from the CAPsMAN controller
+        # (another device's config), and join their CAP's bridge.
+        linked = []
+        for dev in site.devices:
+            dev.ensure_components()
+            names = [c.name for c in dev.components] or list(dev.ports)
+            linked.append((dev.name, port_vlans.for_device(dev), names))
+        port_vlans.link_capsman(linked)
         # One VLAN colour per VLAN across the whole canvas, in VLAN order.
         vids: set[str] = set()
-        for dev in site.devices:
-            for pv in port_vlans.for_device(dev).ports.values():
+        for _name, info, _names in linked:
+            for pv in info.ports.values():
                 vids.update(pv.vlans)
         self._palette = port_vlans.assign_palette(vids)
         for dev in site.devices:

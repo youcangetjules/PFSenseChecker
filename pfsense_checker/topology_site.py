@@ -7,6 +7,7 @@ logical overlays: VLAN trunks, bridges, VPN agreements, and egress routers.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ DEVICE_KINDS = [
     "juniper",
     "fortinet",
     "cisco",
+    "linksys",
     "ubiquiti",
     "netgear-managed",
     "netgear-unmanaged",
@@ -262,6 +264,8 @@ def kind_for_model(model: str) -> str:
         return "fortinet"
     if any(x in m for x in ("cisco", "catalyst", "nexus", "isr4", "asr1", "asa55", "firepower")):
         return "cisco"
+    if "linksys" in m or "velop" in m or re.match(r"^(ea|mr|mx|lgs|lrt|wrt)\d{3,4}", m):
+        return "linksys"
     if "srx" in m or "juniper" in m:
         return "juniper"
     # HPE now owns Juniper (and Aruba/ProCurve) — treat as the Juniper/HPE kind.
@@ -747,6 +751,9 @@ class Device:
             "ubiquiti",
             "netgear-managed",
             "netgear-unmanaged",
+            "fortinet",
+            "cisco",
+            "linksys",
         }:
             return kind.replace("-", " ").title()
         return ""

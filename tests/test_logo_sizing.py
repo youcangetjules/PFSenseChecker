@@ -44,3 +44,42 @@ def test_trim_removes_transparent_and_white_margins() -> None:
     blank = QImage(10, 10, QImage.Format.Format_ARGB32)
     blank.fill(QColor(0, 0, 0, 0))
     assert sc.trim_logo_margins(blank).size() == blank.size()
+
+
+def test_checkerboard_background_is_cleared_but_inner_white_kept() -> None:
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker import site_canvas as sc
+
+    QApplication.instance() or QApplication([])
+    img = QImage(120, 60, QImage.Format.Format_RGB32)  # a JPG: no alpha
+    for y in range(60):
+        for x in range(120):
+            light = ((x // 8) + (y // 8)) % 2 == 0
+            img.setPixelColor(x, y, QColor(255, 255, 255) if light else QColor(204, 204, 204))
+    for y in range(20, 40):  # blue logo block with a white hole inside
+        for x in range(30, 90):
+            img.setPixelColor(x, y, QColor("#1e5bd8"))
+    for y in range(27, 33):
+        for x in range(55, 65):
+            img.setPixelColor(x, y, QColor("white"))
+    out = sc.knock_out_background(img)
+    assert out.pixelColor(2, 2).alpha() == 0 and out.pixelColor(10, 2).alpha() == 0  # both check colours
+    assert out.pixelColor(60, 30).alpha() == 255  # white inside the logo is kept
+    assert out.pixelColor(40, 25).alpha() == 255
+    trimmed = sc.trim_logo_margins(out)
+    assert trimmed.width() <= 64 and trimmed.height() <= 24
+
+
+def test_real_transparency_is_left_alone() -> None:
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker import site_canvas as sc
+
+    QApplication.instance() or QApplication([])
+    img = QImage(20, 20, QImage.Format.Format_ARGB32)
+    img.fill(QColor(0, 0, 0, 0))
+    img.setPixelColor(5, 5, QColor("white"))
+    assert sc.knock_out_background(img) is img

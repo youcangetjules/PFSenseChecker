@@ -17,5 +17,6 @@ NetCheck is running appears the next time the canvas redraws.
 | Ubiquiti | `ubiquiti.svg`, `unifi.svg` |
 | Cisco | `cisco.svg` |
 | Netgear | `netgear.svg` |
+| Linksys | `linksys.svg` |
 
 (`.png`, `.webp`, `.jpg` in place of `.svg` are fine.)

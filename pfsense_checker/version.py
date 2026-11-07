@@ -72,6 +72,45 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.108",
+        date="2026-11-07",
+        notes=(
+            "Login to Routers: picking a device on the map switches the Devices list to "
+            "that device's subnet tab and selects and shows its row.",
+            "Subnet tabs are drawn by NetCheck (SubnetTabBar): green when the subnet has "
+            "devices, grey when empty — the per-tab colours never showed before because "
+            "Qt style sheets have no :nth-child (BUG-047). The selected tab is a shade "
+            "darker with a 2px border on its left, right and top.",
+        ),
+    ),
+    Change(
+        version="1.3.107",
+        date="2026-11-07",
+        notes=(
+            "WLANs are tied to VLANs: wireless ports are coloured by their SSID's VLAN, "
+            "from the CAPsMAN controller (matched to each CAP by radio name; a CAP's "
+            "second interface is the virtual AP for the slave configuration) or from a "
+            "standalone radio's vlan-mode=use-tag. Hover shows the SSID, VLAN and who set "
+            "it. CAP radios and their virtual APs sit inside the bridge the CAP adds them "
+            "to (dynamic bridge ports that never appear in an export).",
+            "Right-click on empty canvas no longer drags a selection box; the right "
+            "button only opens the menu.",
+            "Port rows sit lower, clear of the title bar; a box with a bridge gets a "
+            "strip for the bridge name, in a larger font.",
+        ),
+    ),
+    Change(
+        version="1.3.106",
+        date="2026-11-07",
+        notes=(
+            "Linksys devices recognised (Velop, EA, MR, MX, LGS, WRT models) with their "
+            "logo, badge and colour; LGS switches drawn as a front panel.",
+            "Logos without real transparency (JPGs, flattened PNGs) have their flat "
+            "background cleared from the edges in — including a fake transparency "
+            "checkerboard — so they sit cleanly on the title bar.",
+        ),
+    ),
+    Change(
         version="1.3.105",
         date="2026-11-07",
         notes=(

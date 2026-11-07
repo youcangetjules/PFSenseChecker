@@ -74,3 +74,17 @@ def test_new_vendor_kinds_from_model() -> None:
     assert kind_for_model("CRS328-24P-4S+") == "mikrotik"
     assert {"fortinet", "cisco"} <= set(DEVICE_KINDS)
     assert di.identity_for(Device(name="x", kind="netgear-managed")).vendor_name == "Netgear"
+
+
+def test_linksys_devices_and_logo(tmp_path, monkeypatch) -> None:
+    from pfsense_checker.topology_site import DEVICE_KINDS, kind_for_model
+
+    for model in ("Linksys Velop MX4200", "EA8300", "MR9600", "LGS308P", "WRT3200ACM"):
+        assert kind_for_model(model) == "linksys", model
+    assert kind_for_model("GS108E") != "linksys"
+    assert "linksys" in DEVICE_KINDS
+    monkeypatch.setattr(di, "LOGO_DIR", tmp_path)
+    (tmp_path / "Linksys.JPG").write_bytes(b"x")
+    assert di.logo_path("linksys").name == "Linksys.JPG"
+    assert di.identity_for(Device(name="x", kind="linksys")).vendor_name == "Linksys"
+    assert Device(name="ap1", kind="linksys").chassis_title() == "Linksys · ap1"

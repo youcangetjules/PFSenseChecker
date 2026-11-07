@@ -31,6 +31,9 @@ class PortVlans:
     untagged: list[str] = field(default_factory=list)  # access VLAN(s); more than one is a fault
     tagged: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    ssid: str = ""  # wireless: the SSID whose clients land in the VLAN
+    via: str = ""  # wireless: where that came from, e.g. "CAPsMAN on CRS328-MASTER"
+
 
     @property
     def vlans(self) -> list[str]:
@@ -52,12 +55,25 @@ class PortVlans:
 
 
 @dataclass
+class CapsmanIface:
+    """A radio (or virtual AP) the CAPsMAN controller provisions."""
+
+    name: str
+    radio: str  # radio-name, matches the CAP's own wireless radio-name
+    master: str  # master-interface ("" / "none" for the physical radio)
+    vid: str
+    ssid: str
+
+@dataclass
 class DeviceVlans:
     ports: dict[str, PortVlans] = field(default_factory=dict)  # lower port name →
     vlan_ifaces: set[str] = field(default_factory=set)  # lower names that are VLAN interfaces
     bridges: dict[str, list[str]] = field(default_factory=dict)  # bridge name → member ports (lower)
     hidden: set[str] = field(default_factory=set)  # lower names that are bridges / bridge assignments
     names: dict[str, str] = field(default_factory=dict)  # VLAN id → a readable name
+    identity: str = ""  # device identity / hostname from its config
+    radios: dict[str, str] = field(default_factory=dict)  # wlan name (lower) → radio-name
+    capsman: list[CapsmanIface] = field(default_factory=list)  # set on a CAPsMAN controller
 
     def port(self, name: str) -> PortVlans | None:
         return self.ports.get((name or "").lower())
@@ -127,8 +143,11 @@ def vlan_color(vid: str, palette: dict[str, str] | None = None) -> str:
 
 def from_result(result) -> DeviceVlans:  # noqa: ANN001
     if getattr(result, "source_type", "") == "mikrotik":
-        return _mikrotik(result.summary.get("raw", {}))
-    return _pfsense(result)
+        info = _mikrotik(result.summary.get("raw", {}))
+    else:
+        info = _pfsense(result)
+    info.identity = getattr(result, "hostname", "") or info.identity
+    return info
 
 
 def _mikrotik(raw: dict) -> DeviceVlans:
@@ -200,7 +219,95 @@ def _mikrotik(raw: dict) -> DeviceVlans:
     for pv in info.ports.values():
         if len(pv.untagged) > 1:
             pv.notes.append("untagged in more than one VLAN")
+    _mikrotik_wireless(raw, info)
+    ident = next(iter(raw.get("system identity", [])), {})
+    info.identity = ident.get("name", "")
     return info
+
+
+def _tagged_vid(mode: str, vid: str) -> str:
+    return vid if (mode or "use-tag") != "no-tag" and vid and vid != "1" else ""
+
+
+def _mikrotik_wireless(raw: dict, info: DeviceVlans) -> None:
+    """SSIDs are tied to VLANs: an SSID tagged into a VLAN is an access port for it."""
+    for w in raw.get("interface wireless", []) + raw.get("interface wifi", []):
+        name = w.get("name") or w.get("default-name") or ""
+        if not name:
+            continue
+        if w.get("radio-name"):
+            info.radios[name.lower()] = str(w["radio-name"]).upper()
+        if _off(w):
+            continue
+        vid = _tagged_vid(w.get("vlan-mode") or w.get("datapath.vlan-mode") or "no-tag",
+                          str(w.get("vlan-id") or w.get("datapath.vlan-id") or ""))
+        if vid:
+            info.ports[name.lower()] = PortVlans(untagged=[vid], ssid=w.get("ssid", "") or
+                                                 w.get("configuration.ssid", ""), via="this device")
+    # A CAP puts the radios CAPsMAN manages on its bridge (dynamic bridge ports
+    # that never appear in an export): /interface wireless cap bridge=…
+    for c in raw.get("interface wireless cap", []) + raw.get("interface wifi cap", []):
+        bridge = c.get("bridge") or c.get("slaves-datapath.bridge") or ""
+        if not bridge or bridge == "none" or _off(c):
+            continue
+        members = info.bridges.setdefault(bridge, [])
+        for wlan in _list(c.get("interfaces")):
+            if wlan.lower() not in members:
+                members.append(wlan.lower())
+    # CAPsMAN controller: each provisioned radio / virtual AP and its SSID's VLAN.
+    datapaths = {d.get("name", ""): d for d in raw.get("caps-man datapath", []) if d.get("name")}
+    configs: dict[str, tuple[str, str]] = {}
+    for c in raw.get("caps-man configuration", []):
+        dp = datapaths.get(c.get("datapath", ""), {})
+        vid = c.get(".vlan-id") or c.get("datapath.vlan-id") or dp.get("vlan-id", "")
+        mode = c.get(".vlan-mode") or c.get("datapath.vlan-mode") or dp.get("vlan-mode", "use-tag")
+        configs[c.get("name", "")] = (_tagged_vid(mode, str(vid)), c.get("ssid", ""))
+    for ci in raw.get("caps-man interface", []):
+        if _off(ci) or not ci.get("name"):
+            continue
+        vid, ssid = configs.get(ci.get("configuration", ""), ("", ""))
+        info.capsman.append(CapsmanIface(ci["name"], str(ci.get("radio-name", "")).upper(),
+                                         ci.get("master-interface", ""), vid, ssid))
+        info.ports[ci["name"].lower()] = PortVlans(untagged=[vid] if vid else [], ssid=ssid,
+                                                   via="CAPsMAN (this controller)")
+
+
+def link_capsman(devices: list[tuple[str, DeviceVlans, list[str]]]) -> None:
+    """Give each CAP's wireless interfaces the VLAN its CAPsMAN controller assigns.
+
+    *devices*: (device name, its VlanInfo, its port names). A CAP radio is matched
+    to the controller's interface by radio-name; the CAP's other wlan interfaces
+    are the virtual APs for the controller's slave configurations, in order.
+    """
+    by_radio: dict[str, tuple[str, CapsmanIface]] = {}
+    slaves: dict[tuple[str, str], list[CapsmanIface]] = {}
+    for name, info, _ports in devices:
+        label = info.identity or name
+        for ci in info.capsman:
+            if ci.radio:
+                by_radio[ci.radio] = (label, ci)
+            if ci.master and ci.master.lower() != "none":
+                slaves.setdefault((label, ci.master.lower()), []).append(ci)
+    if not by_radio:
+        return
+    for _name, info, ports in devices:
+        for wlan, radio in info.radios.items():
+            hit = by_radio.get(radio)
+            if hit is None:
+                continue
+            ctrl, master = hit
+            via = f"CAPsMAN on {ctrl}"
+            info.ports[wlan] = PortVlans(untagged=[master.vid] if master.vid else [], ssid=master.ssid, via=via)
+            extra = sorted(
+                {p.lower() for p in ports if p.lower().startswith(("wlan", "wifi"))} - {wlan} - set(info.radios),
+                key=lambda s: (len(s), s),
+            )
+            bridge = info.bridge_of(wlan)
+            for virt, slave in zip(extra, slaves.get((ctrl, master.name.lower()), [])):
+                info.ports[virt] = PortVlans(untagged=[slave.vid] if slave.vid else [], ssid=slave.ssid,
+                                             via=f"{via} (virtual AP)")
+                if bridge and virt not in info.bridges[bridge]:
+                    info.bridges[bridge].append(virt)  # virtual APs join the same bridge
 
 
 def _pfsense(result) -> DeviceVlans:  # noqa: ANN001

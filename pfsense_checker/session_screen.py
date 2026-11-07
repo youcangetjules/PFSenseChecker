@@ -10,8 +10,8 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QColor, QFont
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QThread, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QSplitter,
+    QTabBar,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -186,16 +187,71 @@ QTabWidget::pane {
     background: #fafafa;
     top: -1px;
 }
-QTabBar::tab {
-    min-height: 22px;
-    padding: 4px 10px;
-    margin-right: 2px;
-    border: 1px solid #b0bec5;
-    border-bottom: none;
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
-}
-"""
+"""  # tabs themselves are painted by SubnetTabBar
+
+
+class SubnetTabBar(QTabBar):
+    """Subnet tabs drawn by hand: Qt style sheets cannot colour single tabs
+    (no :nth-child), so per-tab colours never showed.
+
+    Green = the subnet has devices, grey = empty. The selected tab is a shade
+    darker with a 2px border on its left, right and top.
+    """
+
+    POPULATED = ("#c8e6c9", "#a5d6a7", "#1b5e20", "#2e7d32")  # fill, selected fill, text, edge
+    EMPTY = ("#cfd8dc", "#b8c5cb", "#546e7a", "#546e7a")
+    EDGE = "#b0bec5"
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._populated: list[bool] = []
+        self.setDrawBase(False)
+
+    def set_populated(self, flags: list[bool]) -> None:
+        self._populated = list(flags)
+        self.update()
+
+    def tab_colors(self, index: int) -> tuple[str, str, str, str]:
+        full = index < len(self._populated) and self._populated[index]
+        return self.POPULATED if full else self.EMPTY
+
+    def tabSizeHint(self, index: int) -> QSize:  # noqa: N802
+        hint = super().tabSizeHint(index)
+        bold = QFont(self.font())
+        bold.setBold(True)
+        width = QFontMetrics(bold).horizontalAdvance(self.tabText(index)) + 24
+        return QSize(max(hint.width(), width), max(hint.height(), 28))
+
+    def paintEvent(self, _event) -> None:  # noqa: N802, ANN001
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        current = self.currentIndex()
+        for i in range(self.count()):
+            fill, sel_fill, text, edge = self.tab_colors(i)
+            selected = i == current
+            r = QRectF(self.tabRect(i)).adjusted(1, 2 if not selected else 0, -2, 0)
+            width = 2.0 if selected else 1.0
+            inset = width / 2
+            box = r.adjusted(inset, inset, -inset, 0)
+            path = QPainterPath()
+            radius = 4.0
+            path.moveTo(box.left(), box.bottom())
+            path.lineTo(box.left(), box.top() + radius)
+            path.quadTo(box.left(), box.top(), box.left() + radius, box.top())
+            path.lineTo(box.right() - radius, box.top())
+            path.quadTo(box.right(), box.top(), box.right(), box.top() + radius)
+            path.lineTo(box.right(), box.bottom())
+            painter.fillPath(path, QColor(sel_fill if selected else fill))
+            pen = QPen(QColor(edge if selected else self.EDGE))
+            pen.setWidthF(width)
+            painter.setPen(pen)
+            painter.drawPath(path)  # left, top, right — the bottom stays open
+            font = QFont(self.font())
+            font.setBold(selected)
+            painter.setFont(font)
+            painter.setPen(QColor(text))
+            painter.drawText(r, Qt.AlignmentFlag.AlignCenter, self.tabText(i))
+        painter.end()
 
 
 class _ConnectedDevicePickerDialog(QDialog):
@@ -899,6 +955,7 @@ class SessionScreen(QWidget):
         list_lay.addWidget(self.local_adapter_label)
 
         self.device_subnet_tabs = QTabWidget()
+        self.device_subnet_tabs.setTabBar(SubnetTabBar())
         self.device_subnet_tabs.setDocumentMode(False)
         self.device_subnet_tabs.setToolTip(
             "One tab per subnet — session devices are grouped by SSH host / IP"
@@ -1285,29 +1342,10 @@ class SessionScreen(QWidget):
         """Green tabs when a subnet has devices; grey when empty."""
         if not hasattr(self, "device_subnet_tabs"):
             return
-        rules = [_DEVICE_SUBNET_TAB_STYLE_BASE.strip()]
-        for i, key in enumerate(ordered):
-            populated = len(groups.get(key, [])) > 0
-            n = i + 1
-            if populated:
-                rules.append(
-                    f"QTabBar::tab:nth-child({n}) {{"
-                    f" background-color: #c8e6c9; color: #1b5e20;"
-                    f"}}"
-                    f"QTabBar::tab:nth-child({n}):selected {{"
-                    f" background-color: #81c784; color: #1b5e20; font-weight: bold;"
-                    f"}}"
-                )
-            else:
-                rules.append(
-                    f"QTabBar::tab:nth-child({n}) {{"
-                    f" background-color: #cfd8dc; color: #546e7a;"
-                    f"}}"
-                    f"QTabBar::tab:nth-child({n}):selected {{"
-                    f" background-color: #b0bec5; color: #37474f; font-weight: bold;"
-                    f"}}"
-                )
-        self.device_subnet_tabs.setStyleSheet("\n".join(rules))
+        self.device_subnet_tabs.setStyleSheet(_DEVICE_SUBNET_TAB_STYLE_BASE.strip())
+        bar = self.device_subnet_tabs.tabBar()
+        if isinstance(bar, SubnetTabBar):
+            bar.set_populated([len(groups.get(key, [])) > 0 for key in ordered])
 
     def _apply_device_subnet_tab_filter(self) -> None:
         """Show only devices belonging to the active subnet tab."""
@@ -1940,9 +1978,12 @@ class SessionScreen(QWidget):
 
     def _on_map_device_selected(self, name: str) -> None:
         """A chassis was picked on the map: select its row in the Devices list."""
+        dev = self._site.device(name) if self._site is not None else None
+        # Go to the device's subnet tab first: rows of other subnets are hidden.
+        self._focus_subnet_tab_for_device(dev)
         row = self._row_for_device_name(name)
-        if row is None:
-            return  # e.g. ignored devices hidden from the list
+        if row is None or self.table.isRowHidden(row):
+            return
         if self._exactly_one_selected_row() == row:
             return
         self.table.selectRow(row)

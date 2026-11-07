@@ -4,6 +4,9 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Map pick switches the Devices subnet tab; subnet tabs repainted with their colours and a highlighted selected tab (1.3.108, BUG-047).
+- Linksys support and logo background clearing (1.3.106); linksys.jpg moved into assets/logos.
+- WLANs coloured by SSID VLAN via CAPsMAN on CRS328 (630 LAN / 710 IOT) and placed in each CRS109's bridge; right-click no longer rubber-bands; ports below the title bar with room for the bridge name (1.3.107).
 - Map selection follows the Devices list both ways; selected chassis border 1px thicker and pulsing; Python Modules unticks apply at next login; 30 new tests for modules that had none (attack_surface rules, vlan_enforcement, monitor probes, cli, wireshark_bridge, excel_layout) plus selection / unload tests. Suite: 382 passed (1.3.105).
 - Topology ports coloured by VLAN, trunks striped, VLAN legend, bridges drawn around their ports, VLAN interfaces / bridges no longer port cells, IP addresses 2pt larger (1.3.104).
 - Config findings shown on hover: CRS109-3 ether4 / ether5 have PVID 630 but are untagged members of 662 / 710; CRS328 combo1-4 and sfp1 are untagged in more than one VLAN; CRS109-3 ether3's bridge port is disabled.

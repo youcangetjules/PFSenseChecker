@@ -38,6 +38,7 @@ _VENDOR_NAMES = {
     "fortinet": "Fortinet",
     "cisco": "Cisco",
     "netgear": "Netgear",
+    "linksys": "Linksys",
 }
 
 # Device kind → vendor whose logo it wears.
@@ -54,6 +55,7 @@ LOGO_ALIASES: dict[str, tuple[str, ...]] = {
     "ubiquiti": ("ubiquiti", "unifi", "ui"),
     "cisco": ("cisco",),
     "netgear": ("netgear",),
+    "linksys": ("linksys",),
 }
 LOGO_EXTS = (".svg", ".png", ".webp", ".jpg", ".jpeg")
 
