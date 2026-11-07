@@ -5338,6 +5338,10 @@ def run_app() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("pfSense Config Checker")
     app.setOrganizationName("PFSenseChecker")
+    from pfsense_checker.panel_motif import apply_app_panel_titles
+
+    # Panel (QGroupBox) titles are the Lumen glass-chip pill everywhere.
+    apply_app_panel_titles(app)
 
     from pfsense_checker import app_log
 

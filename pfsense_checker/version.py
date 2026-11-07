@@ -72,6 +72,15 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.99",
+        date="2026-11-07",
+        notes=(
+            "Panel titles (every group box, including the login screen) are the Lumen "
+            "glass-chip pill from motifs.md: translucent 3-stop gradient, soft edge, 5px "
+            "corners, #22303c semi-bold text (`panel_motif.py`). Nothing else restyled.",
+        ),
+    ),
+    Change(
         version="1.3.98",
         date="2026-11-07",
         notes=(

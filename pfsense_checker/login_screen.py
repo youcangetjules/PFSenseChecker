@@ -45,6 +45,7 @@ from pfsense_checker.branding import (
     status_bar_stylesheet,
     status_chip_style,
 )
+from pfsense_checker.panel_motif import panel_title_qss
 from pfsense_checker.paths import PROJECT_ROOT
 from pfsense_checker.version import APP_NAME, VERSION, format_changelog
 
@@ -1098,10 +1099,7 @@ class LoginDialog(QDialog):
 
         # --- Login to main tool ---
         login_box = QGroupBox("Login to main tool")
-        login_box.setStyleSheet(
-            "QGroupBox { font-weight: bold; font-size: 13px; margin-top: 8px; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-        )
+        login_box.setStyleSheet(panel_title_qss(font_size="13px"))
         login_inner = QVBoxLayout(login_box)
         login_inner.setSpacing(10)
 
@@ -1189,10 +1187,7 @@ class LoginDialog(QDialog):
 
         # --- Tools (no login) ---
         tools_box = QGroupBox("Tools (no sign-in required)")
-        tools_box.setStyleSheet(
-            "QGroupBox { font-weight: bold; font-size: 13px; margin-top: 8px; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-        )
+        tools_box.setStyleSheet(panel_title_qss(font_size="13px"))
         tools_inner = QVBoxLayout(tools_box)
         tip = QLabel(
             "These run without logging into the main tool. "
