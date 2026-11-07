@@ -46,6 +46,7 @@ from pfsense_checker.branding import (
     status_chip_style,
 )
 from pfsense_checker.panel_motif import panel_title_qss
+from pfsense_checker.rainbow_backdrop import RainbowBackdrop
 from pfsense_checker.paths import PROJECT_ROOT
 from pfsense_checker.version import APP_NAME, VERSION, format_changelog
 
@@ -1074,7 +1075,9 @@ class LoginDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        body = QWidget()
+        # Very subtle, slowly undulating rainbow; different on every opening.
+        body = RainbowBackdrop()
+        self._backdrop = body
         layout = QVBoxLayout(body)
         layout.setContentsMargins(36, 28, 36, 16)
         layout.setSpacing(14)

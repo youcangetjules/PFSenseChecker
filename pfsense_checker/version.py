@@ -72,6 +72,16 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.102",
+        date="2026-11-07",
+        notes=(
+            "Login screen: a very subtle, slowly undulating rainbow behind it (about 10% "
+            "over the usual grey, waves on 40-90 s cycles), starting from a different "
+            "colour, direction and wave pattern each time it opens. Animates only while "
+            "visible (`rainbow_backdrop.py`).",
+        ),
+    ),
+    Change(
         version="1.3.101",
         date="2026-11-07",
         notes=(

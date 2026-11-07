@@ -4,6 +4,7 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Login screen rainbow backdrop, very subtle and slowly undulating, different each opening (1.3.102).
 - Fixed device boxes jumping while dragged on Login to Routers / Topology (1.3.101, BUG-046).
 - Logos fill the chassis title bar, aspect kept, margins trimmed; operator's mikrotik.png, pfsense.png and juniper.jpg in assets/logos (1.3.100).
 - Panel title pills restyled to the Lumen glass chip (motifs.md section 3), app-wide (1.3.99).
