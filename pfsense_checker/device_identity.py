@@ -35,7 +35,27 @@ _VENDOR_NAMES = {
     "opnsense": "OPNsense",
     "juniper": "Juniper",
     "ubiquiti": "Ubiquiti",
+    "fortinet": "Fortinet",
+    "cisco": "Cisco",
+    "netgear": "Netgear",
 }
+
+# Device kind → vendor whose logo it wears.
+_KIND_VENDOR = {"netgear-managed": "netgear", "netgear-unmanaged": "netgear"}
+
+# Logo file names tried for each vendor, in order (assets/logos/<name>.<ext>,
+# any case). HPE owns Juniper, so an hpe file serves Juniper / Aruba kit too.
+LOGO_ALIASES: dict[str, tuple[str, ...]] = {
+    "mikrotik": ("mikrotik", "routeros"),
+    "pfsense": ("pfsense", "netgate"),
+    "opnsense": ("opnsense", "deciso"),
+    "juniper": ("juniper", "hpe", "juniper-networks"),
+    "fortinet": ("fortinet", "fortigate"),
+    "ubiquiti": ("ubiquiti", "unifi", "ui"),
+    "cisco": ("cisco",),
+    "netgear": ("netgear",),
+}
+LOGO_EXTS = (".svg", ".png", ".webp", ".jpg", ".jpeg")
 
 
 @dataclass(frozen=True)
@@ -109,6 +129,7 @@ def identity_for(device: Any) -> Identity:
     ident = identity_from_config(path) if path else Identity()
     if not ident.vendor:
         kind = (getattr(device, "kind", "") or "").lower()
+        kind = _KIND_VENDOR.get(kind, kind)
         ident = Identity(kind if kind in _VENDOR_NAMES else "", getattr(device, "model", "") or "")
     return ident
 
@@ -149,11 +170,40 @@ def type_line(device: Any) -> str:
                                    f"identity {own}" if own else "") if x)
 
 
-def logo_path(vendor: str) -> Path | None:
+def logo_files(folder: Path | None = None) -> dict[str, Path]:
+    """Lower-case file stem → logo file in *folder* (SVG preferred over PNG, …)."""
+    folder = folder or LOGO_DIR
+    out: dict[str, Path] = {}
+    try:
+        stamp = (str(folder), folder.stat().st_mtime)
+    except OSError:
+        return out
+    cached = _logo_dir_cache.get(stamp[0])
+    if cached is not None and cached[0] == stamp[1]:
+        return cached[1]
+    rank = {ext: i for i, ext in enumerate(LOGO_EXTS)}
+    for f in folder.iterdir():
+        ext = f.suffix.lower()
+        if ext not in rank or not f.is_file():
+            continue
+        stem = f.stem.lower()
+        if stem not in out or rank[ext] < rank[out[stem].suffix.lower()]:
+            out[stem] = f
+    _logo_dir_cache[stamp[0]] = (stamp[1], out)
+    return out
+
+
+# folder → (folder mtime, files): re-read when a logo is added or removed.
+_logo_dir_cache: dict[str, tuple[float, dict[str, Path]]] = {}
+
+
+def logo_path(vendor: str, folder: Path | None = None) -> Path | None:
+    """Logo for a vendor (or device kind), from assets/logos, or None."""
     if not vendor:
         return None
-    for ext in (".svg", ".png"):
-        cand = LOGO_DIR / f"{vendor}{ext}"
-        if cand.is_file():
-            return cand
+    key = _KIND_VENDOR.get(vendor.lower(), vendor.lower())
+    files = logo_files(folder)
+    for name in LOGO_ALIASES.get(key, (key,)):
+        if name in files:
+            return files[name]
     return None

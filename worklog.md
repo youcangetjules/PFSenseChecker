@@ -4,6 +4,12 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- DNS Leakage test package and page (1.3.98). First run on this PC (VLAN 630, 222.10.50.25): uses 222.10.50.1 as it should, but plain DNS to 1.1.1.1 / 8.8.8.8 / 9.9.9.9 (UDP and TCP 53) goes straight out, DoT (853) and DoH reach Cloudflare / Google / Quad9, and use-application-dns.net resolves. DNS egress 172.70.161.26 (Cloudflare: guardian forwards). Windows' fec0:0:0:ffff::1-3 placeholder IPv6 DNS servers are ignored.
+- Topology port layouts (one row / flat / rectangular, right-click the title), cells fill the box width (1.3.97).
+- Vendor logos: lookup widened (aliases, any case, more formats, Fortinet / Cisco / Netgear); waiting on the operator to drop official logo files into assets/logos (1.3.97).
+- gemma4:26b without thinking: 99 s on the same VLAN 662 prompt, same main causes. Think first is now off by default.
+- Troubleshooter live run: gemma4:26b on CRS109-1 VLAN 662 named the missing switch-chip VLAN, the 222.10.70.0/24 vs 222.10.80.0/24 mismatch with guardian, and no access port for 662. It took 9.5 minutes (52 s reading the prompt, about 8 minutes thinking); the first, non-streamed attempt timed out at 600 s. Now streamed, with Think first optional.
+- Problems / Troubleshooting rebuilt (`troubleshoot.py`): device / interface / problem / further info → Ollama against the config, with a preview of exactly what is sent (1.3.96, BUG-044).
 - Name Parser (`name_parser.py`, Config Check tab), Parsed name column and VLAN / bridge row shading in Will it work?; topology type / model / OS / identity line and logo lookup (`device_identity.py`); Graphviz panel (`graphviz_status.py`) (1.3.95).
 - Graphviz 16.1.0 is installed at C:\Program Files\Graphviz\bin and renders, but is not on PATH; the Python graphviz package is not installed.
 - librouteros: all four MikroTiks (RouterOS 7.22.3) have api (8728, plain text) and api-ssl (8729) enabled, but api-ssl has no certificate. librouteros and keyring are not installed in C:\Python312. Operator decision: not yet — no API work until asked.

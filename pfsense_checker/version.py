@@ -72,6 +72,56 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.98",
+        date="2026-11-07",
+        notes=(
+            "DNS Leakage works: build a test package (one zip, a profile per VLAN with "
+            "its expected resolver, read from a loaded pfSense / MikroTik config), run it "
+            "on a computer in each VLAN, open the reports here, or Run on this PC. It "
+            "checks the resolvers the computer uses (IPv4 / IPv6), the expected resolver, "
+            "plain DNS UDP / TCP 53 to Cloudflare, Google and Quad9 (blocked, redirected "
+            "to your resolver, or leaking), DNS-over-TLS, DNS-over-HTTPS, the Firefox DoH "
+            "canary and the DNS egress address (optionally against a VPN exit). "
+            "Standard-library Python only (`dns_leak.py`, `dns_leak_builder.py`).",
+            "Config parser: Unbound ACL detection no longer relies on deprecated XML "
+            "element truthiness.",
+        ),
+    ),
+    Change(
+        version="1.3.97",
+        date="2026-11-07",
+        notes=(
+            "Topology: chassis ports stretch to fill the box width, with full port "
+            "names when there is room. Right-click a chassis title to pick the port "
+            "layout: one row, flat (two rows, switch style) or rectangular (rows to "
+            "fit the box). Saved per device.",
+            "Removed an unused layout menu whose actions called missing methods.",
+            "Vendor logos: assets/logos takes MikroTik, pfSense, OPNsense, Juniper / HPE, "
+            "Fortinet, Ubiquiti, Cisco and Netgear files (SVG / PNG / WebP / JPG, any "
+            "case, aliases such as fortigate or hpe; see assets/logos/README.md). New "
+            "device kinds fortinet and cisco, detected from the model.",
+        ),
+    ),
+    Change(
+        version="1.3.96",
+        date="2026-11-07",
+        notes=(
+            "Problems / Troubleshooting works: describe the problem (device, interface, "
+            "problem type, further info) and Ask Ollama. NetCheck sends the parts of that "
+            "device's config that matter for the interface and problem (VLAN / bridge, "
+            "DHCP incl. config.xml settings, routes, gateways, firewall and NAT rules, "
+            "DNS, VPN, RouterOS sections) plus its own Will it work? checks and findings, "
+            "with other loaded configs as peers. Secrets are dropped first. 'Show what "
+            "will be sent' previews it; Ollama's context window is sized to fit. The "
+            "answer streams in as it is written, with a live timer, a thinking indicator "
+            "and Stop; the timeout only fires if Ollama goes silent for 5 minutes. "
+            "'Think first' (off by default) lets a thinking model reason first: gemma4:26b "
+            "took 9.5 min with it and 1.5 min without, finding the same main causes.",
+            "Secret filter: DHCP dynamic-DNS keys, passphrases and SNMP communities are "
+            "now redacted before anything goes to an AI model (BUG-044).",
+        ),
+    ),
+    Change(
         version="1.3.95",
         date="2026-11-07",
         notes=(

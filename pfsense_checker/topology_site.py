@@ -19,6 +19,8 @@ DEVICE_KINDS = [
     "opnsense",
     "mikrotik",
     "juniper",
+    "fortinet",
+    "cisco",
     "ubiquiti",
     "netgear-managed",
     "netgear-unmanaged",
@@ -254,6 +256,12 @@ def default_ports_for_model(model: str) -> list[str]:
 def kind_for_model(model: str) -> str:
     """Best-effort device kind from model string."""
     m = (model or "").lower()
+    if any(x in m for x in ("fortigate", "fortiswitch", "fortiap", "fortiwifi", "fortinet")) or (
+        m.startswith(("fg-", "fgt", "fs-1", "fs-2", "fs-4"))
+    ):
+        return "fortinet"
+    if any(x in m for x in ("cisco", "catalyst", "nexus", "isr4", "asr1", "asa55", "firepower")):
+        return "cisco"
     if "srx" in m or "juniper" in m:
         return "juniper"
     # HPE now owns Juniper (and Aruba/ProCurve) — treat as the Juniper/HPE kind.
@@ -591,6 +599,9 @@ class Device:
     # Optional chassis size override (scene pixels). None = auto-fit content.
     w: float | None = None
     h: float | None = None
+    # Port layout on the canvas: "row" (one row), "flat" (two rows, switch
+    # style), "rect" (rows to fit the box). "" = row.
+    port_layout: str = ""
     # Operator chose to ignore this device on Login to Routers (for example
     # the same box reached through another VLAN). Greyed out, never probed.
     ignored: bool = False
@@ -660,6 +671,7 @@ class Device:
             "y": self.y,
             "w": self.w,
             "h": self.h,
+            "port_layout": self.port_layout,
             "ignored": self.ignored,
             "inventory": dict(self.inventory),
         }
@@ -698,6 +710,7 @@ class Device:
             y=float(y) if y is not None else None,
             w=float(w) if w is not None else None,
             h=float(h) if h is not None else None,
+            port_layout=str(d.get("port_layout", "") or ""),
             ignored=bool(d.get("ignored", False)),
             inventory=dict(d.get("inventory") or {}),
         )

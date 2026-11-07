@@ -911,6 +911,8 @@ DEVICE_KIND_COLORS = {
     "opnsense": "#ad1457",
     "mikrotik": "#1565c0",
     "juniper": "#2e7d32",
+    "fortinet": "#c62828",
+    "cisco": "#0277bd",
     "ubiquiti": "#0559c9",
     "netgear-managed": "#6a1b9a",
     "netgear-unmanaged": "#8e24aa",

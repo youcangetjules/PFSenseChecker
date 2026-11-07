@@ -52,7 +52,88 @@ NIC_H = 22.0
 NIC_H_WITH_ADDR = 36.0
 NIC_GAP = 4.0
 CABLE_CORRIDOR_H = 40.0  # space below port grid for link dog-legs
-OPTIONS_SIZE = 14.0
+LOGO_MAX_W = 120.0
+
+# Port layouts (right-click the chassis title). Cells stretch to fill the width.
+LAYOUT_ROW = "row"  # every port in one row
+LAYOUT_FLAT = "flat"  # two rows, switch style: 1 over 2, 3 over 4, …
+LAYOUT_RECT = "rect"  # as many rows as needed to fit the box width
+LAYOUTS: tuple[tuple[str, str], ...] = (
+    (LAYOUT_ROW, "One row"),
+    (LAYOUT_FLAT, "Flat — two rows, switch style"),
+    (LAYOUT_RECT, "Rectangular — rows to fit the box"),
+)
+MAX_CELL_W = 200.0
+RECT_CELL_W = {True: 56.0, False: 84.0}  # rectangular target cell width: faceplate / NIC
+ROW_GAP = 6.0
+FACEPLATE_MIN_W = 480.0
+
+
+def plan_ports(
+    groups: list[str],
+    min_cell_w: float,
+    *,
+    layout: str = LAYOUT_ROW,
+    user_w: float | None = None,
+    cell_h: float = SFP_H,
+    min_body_w: float = 160.0,
+    faceplate: bool = True,
+) -> tuple[float, float, float, list[tuple[float, float]]]:
+    """Place *len(groups)* port cells. Returns (box w, box h, cell w, [(x, y)]).
+
+    Cells share one width that stretches to fill the box (up to MAX_CELL_W).
+    In one-row and flat layouts a gap separates groups (copper / SFP / bridge /
+    VLAN / …); flat fills columns top-then-bottom like a switch faceplate.
+    """
+    n = len(groups)
+    if layout not in (LAYOUT_ROW, LAYOUT_FLAT, LAYOUT_RECT):
+        layout = LAYOUT_ROW
+    if n == 0:
+        w = max(min_body_w, user_w or 0.0)
+        return w, HEADER_H + cell_h + CHASSIS_PAD + 12, min_cell_w, []
+    target = RECT_CELL_W[faceplate]
+    if layout == LAYOUT_ROW:
+        rows, cols = 1, n
+    elif layout == LAYOUT_FLAT:
+        rows = 2 if n > 1 else 1
+        cols = -(-n // rows)
+    else:
+        if user_w:
+            cols = int((user_w - 2 * CHASSIS_PAD + PORT_GAP) // (target + PORT_GAP))
+        else:
+            cols = int(-(-((2 * n) ** 0.5) // 1))
+        cols = max(1, min(n, cols))
+        rows = -(-n // cols)
+        cols = -(-n // rows)  # balance: 16 ports in 2 rows is 8 + 8, not 15 + 1
+
+    def cell(i: int) -> tuple[int, int]:  # (row, col)
+        if layout == LAYOUT_FLAT:
+            return i % rows, i // rows
+        return i // cols, i % cols
+
+    extra = [0.0] * cols  # group gap before each column
+    if layout != LAYOUT_RECT:
+        col_groups: list[set[str]] = [set() for _ in range(cols)]
+        for i, g in enumerate(groups):
+            col_groups[cell(i)[1]].add(g)
+        for c in range(1, cols):
+            if col_groups[c] != col_groups[c - 1]:
+                extra[c] = GROUP_GAP
+    cum = [0.0] * cols
+    for c in range(1, cols):
+        cum[c] = cum[c - 1] + extra[c]
+    gaps = (cols - 1) * PORT_GAP + cum[-1]
+    natural_cell = target if (layout == LAYOUT_RECT and not user_w) else min_cell_w
+    natural_w = 2 * CHASSIS_PAD + gaps + cols * natural_cell
+    body_w = max(min_body_w, natural_w, user_w or 0.0)
+    cell_w = (body_w - 2 * CHASSIS_PAD - gaps) / cols
+    cell_w = max(min_cell_w, min(MAX_CELL_W, cell_w))
+    places = []
+    for i in range(n):
+        r, c = cell(i)
+        places.append((CHASSIS_PAD + c * (cell_w + PORT_GAP) + cum[c], HEADER_H + r * (cell_h + ROW_GAP)))
+    body_h = HEADER_H + rows * cell_h + (rows - 1) * ROW_GAP + CHASSIS_PAD + 12
+    return body_w, body_h, cell_w, places
 
 
 def _is_switch_like(device) -> bool:  # noqa: ANN001
@@ -87,6 +168,11 @@ _VENDOR_BADGES: dict[str, tuple[str, str, str]] = {
     "mikrotik": ("MikroTik", "#293c4a", "#ffffff"),
     "juniper": ("HPE", "#01a982", "#ffffff"),
     "ubiquiti": ("Ubiquiti", "#0559c9", "#ffffff"),
+    "fortinet": ("FORTINET", "#da291c", "#ffffff"),
+    "cisco": ("Cisco", "#049fd9", "#ffffff"),
+    "netgear": ("NETGEAR", "#262626", "#ffffff"),
+    "netgear-managed": ("NETGEAR", "#262626", "#ffffff"),
+    "netgear-unmanaged": ("NETGEAR", "#262626", "#ffffff"),
 }
 
 
@@ -120,11 +206,16 @@ _LOGO_CACHE: dict[tuple[str, int], QPixmap | None] = {}
 
 
 def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
-    """Vendor logo scaled to *height*, from assets/logos (None when absent)."""
-    key = (vendor, height)
+    """Vendor logo scaled to *height* (at most LOGO_MAX_W wide), from assets/logos."""
+    path = device_identity.logo_path(vendor)
+    if path is None:
+        return None
+    try:
+        key = (str(path), path.stat().st_mtime, height)
+    except OSError:
+        return None
     if key in _LOGO_CACHE:
         return _LOGO_CACHE[key]
-    path = device_identity.logo_path(vendor)
     pix: QPixmap | None = None
     if path is not None:
         if path.suffix.lower() == ".svg":
@@ -143,6 +234,8 @@ def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
             loaded = QPixmap(str(path))
             if not loaded.isNull():
                 pix = loaded.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+    if pix is not None and pix.width() > LOGO_MAX_W:
+        pix = pix.scaledToWidth(int(LOGO_MAX_W), Qt.TransformationMode.SmoothTransformation)
     _LOGO_CACHE[key] = pix
     return pix
 
@@ -237,6 +330,7 @@ class PortItem(QGraphicsObject):
         label: str = "",
         second: str = "",
         tall: bool = False,
+        width: float | None = None,
     ) -> None:
         super().__init__()
         self.device_name = device_name
@@ -250,6 +344,8 @@ class PortItem(QGraphicsObject):
         self.label = label or port_name
         self.second = second
         self.w = SFP_W if (faceplate and sfp) else (RJ45_W if faceplate else NIC_W)
+        if width:
+            self.w = float(width)
         if faceplate:
             self.h = SFP_H
         elif tall or self.second:
@@ -303,19 +399,26 @@ class PortItem(QGraphicsObject):
         if self.faceplate and not self.sfp:
             painter.setPen(QPen(QColor("#78909c")))
             mid = self.w / 2
-            painter.drawLine(QPointF(mid - 3, 4), QPointF(mid - 3, self.h - 10))
-            painter.drawLine(QPointF(mid + 3, 4), QPointF(mid + 3, self.h - 10))
-            painter.drawLine(QPointF(mid - 4, self.h - 8), QPointF(mid + 4, self.h - 8))
+            # Wide cells carry the whole name: keep the jack above it.
+            bottom = 9.0 if self.w >= 30 else self.h - 10
+            painter.drawLine(QPointF(mid - 3, 3), QPointF(mid - 3, bottom))
+            painter.drawLine(QPointF(mid + 3, 3), QPointF(mid + 3, bottom))
+            painter.drawLine(QPointF(mid - 4, bottom + 2), QPointF(mid + 4, bottom + 2))
 
         painter.setPen(QColor("#212121"))
         font = QFont()
-        font.setPointSize(6 if self.faceplate else 7)
+        font.setPointSize(7 if (not self.faceplate or self.w >= 40) else 6)
         font.setBold(True)
         painter.setFont(font)
-        label = self.port_name
-        if self.faceplate and len(label) > 4:
-            label = label[-4:]
         if self.faceplate:
+            metrics = QFontMetrics(font)
+            label = self.port_name
+            if metrics.horizontalAdvance(label) > self.w - 2:
+                # Narrow cell: keep the distinguishing end (ether12 → er12),
+                # otherwise elide the full name to the cell.
+                label = label[-4:] if self.w < 30 else metrics.elidedText(
+                    label, Qt.TextElideMode.ElideMiddle, int(self.w - 2)
+                )
             painter.drawText(
                 self.boundingRect().adjusted(1, 1, -1, -2),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
@@ -432,69 +535,6 @@ class ResizeHandle(QGraphicsObject):
         event.accept()
 
 
-class LayoutOptionsHandle(QGraphicsObject):
-    """Bottom-right layout menu (columns / single row / reset size)."""
-
-    def __init__(self, chassis: "ChassisItem") -> None:
-        super().__init__(chassis)
-        self._chassis = chassis
-        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
-        self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setZValue(21)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresParentOpacity, True)
-        self.setToolTip(
-            "Port layout — single row, column count, or reset chassis size"
-        )
-
-    def boundingRect(self) -> QRectF:  # noqa: N802
-        return QRectF(0, 0, OPTIONS_SIZE, OPTIONS_SIZE)
-
-    def paint(self, painter, option, widget=None) -> None:  # noqa: ANN001, N802
-        del option, widget
-        if self._chassis._locked:
-            return
-        r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.setPen(QPen(QColor("#455a64"), 1))
-        painter.setBrush(QBrush(QColor("#eceff1")))
-        painter.drawRoundedRect(r, 2, 2)
-        painter.setPen(QColor("#37474f"))
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(7)
-        painter.setFont(font)
-        painter.drawText(r, Qt.AlignmentFlag.AlignCenter, "…")
-
-    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
-        if self._chassis._locked:
-            event.ignore()
-            return
-        self._show_menu(event)
-        event.accept()
-
-    def _show_menu(self, event) -> None:  # noqa: ANN001
-        views = self.scene().views() if self.scene() else []
-        parent = views[0] if views else None
-        menu = QMenu(parent if isinstance(parent, QWidget) else None)
-        flat = menu.addAction("Single row (flat)")
-        auto = menu.addAction("Auto columns (from width)")
-        menu.addSeparator()
-        col_actions = {}
-        for n in (2, 3, 4, 6, 8):
-            col_actions[menu.addAction(f"{n} columns")] = n
-        menu.addSeparator()
-        fit = menu.addAction("Reset size — fit all ports")
-        chosen = menu.exec(event.screenPos())
-        if chosen is flat:
-            self._chassis.set_port_layout(1)
-        elif chosen is auto:
-            self._chassis.set_port_layout(None)
-        elif chosen in col_actions:
-            self._chassis.set_port_layout(col_actions[chosen])
-        elif chosen is fit:
-            self._chassis.reset_chassis_layout()
-
-
 class ChassisItem(QGraphicsObject):
     """Physical device box; NICs/ports are child PortItems (components)."""
 
@@ -525,7 +565,8 @@ class ChassisItem(QGraphicsObject):
         self._place_handle()
         self.setPos(device.x or 0, device.y or 0)
         self.setToolTip(
-            f"{device.name}\nRight-click: Pull Config · Show more (OS / hardware / "
+            f"{device.name}\nRight-click the title: port layout (one row / flat / rectangular)\n"
+            "Right-click: Pull Config · Show more (OS / hardware / "
             "uptime / SNMP alerts)"
         )
 
@@ -579,74 +620,66 @@ class ChassisItem(QGraphicsObject):
             PortComponent(name=p) for p in self.device.ports
         ]
 
-    def _layout_metrics(self) -> tuple[float, float, list[tuple[PortComponent, float, float, bool]]]:
-        """Return (width, height, list of (comp, x, y, is_sfp))."""
-        comps = self._components()
-        placed: list[tuple[PortComponent, float, float, bool]] = []
+    @property
+    def port_layout(self) -> str:
+        return getattr(self.device, "port_layout", "") or LAYOUT_ROW
 
+    def set_port_layout(self, layout: str) -> None:
+        """Switch one row / flat / rectangular; keeps the width, refits the height."""
+        if layout == self.port_layout:
+            return
+        self.prepareGeometryChange()
+        self.device.port_layout = layout
+        self._user_h = None
+        self.device.h = None
+        self._rebuild_ports()
+        self._place_handle()
+        self.update()
+        w, h = self._content_size()
+        self.resized.emit(self.device_name, w, h)
+
+    def _layout_metrics(self) -> tuple[float, float, list[tuple[PortComponent, float, float, bool, float]]]:
+        """Return (width, height, list of (comp, x, y, is_sfp, cell width)).
+
+        Ports are grouped physical copper → SFP → bridge → VLAN → wireless →
+        tunnels, so every cable lands on a visible port, and stretch to fill
+        the box in the chosen layout (one row, flat, rectangular).
+        """
+        def key(c: PortComponent) -> tuple:
+            cls = port_class(c)[0]
+            sfp = cls == "physical" and _is_sfp_name(c.name)
+            return (_CLASS_ORDER.get(cls, 9), 1 if sfp else 0, _natural_key(c.name))
+
+        ordered = sorted(self._components(), key=key)
+        groups = []
+        for c in ordered:
+            cls = port_class(c)[0]
+            groups.append("sfp" if cls == "physical" and _is_sfp_name(c.name) else cls)
         if self._faceplate:
-            # Single-row (or dual-row if > 28) wide faceplate with group gaps
-            copper = [c for c in comps if not _is_sfp_name(c.name)]
-            sfp = [c for c in comps if _is_sfp_name(c.name)]
-            # Prefer one wide row so every jack is a discrete visible cell.
-            # Only wrap to two rows when copper count is huge (48+).
-            use_two_rows = len(copper) >= 40
-            x = CHASSIS_PAD
-            y0 = HEADER_H
-            if use_two_rows:
-                half = (len(copper) + 1) // 2
-                rows = [copper[:half], copper[half:]]
-            else:
-                rows = [copper]
-
-            max_x = x
-            for ri, row in enumerate(rows):
-                x = CHASSIS_PAD
-                y = y0 + ri * (RJ45_H + PORT_GAP + 6)
-                for i, comp in enumerate(row):
-                    if i and i % 8 == 0:
-                        x += GROUP_GAP
-                    placed.append((comp, x, y, False))
-                    x += RJ45_W + PORT_GAP
-                max_x = max(max_x, x)
-
-            # SFP / combo cages to the right, visually distinct
-            sx = max_x + GROUP_GAP * 1.5
-            sy = y0
-            for i, comp in enumerate(sfp):
-                placed.append((comp, sx + i * (SFP_W + PORT_GAP), sy, True))
-            end_x = sx + max(len(sfp), 0) * (SFP_W + PORT_GAP) + CHASSIS_PAD
-            if not sfp:
-                end_x = max_x + CHASSIS_PAD
-            rows_h = len(rows)
-            natural_h = HEADER_H + rows_h * (RJ45_H + PORT_GAP + 6) + CHASSIS_PAD + 12
-            # Minimum width ~ full 24-port faceplate
-            natural_w = max(480.0, end_x)
-            body_w = max(natural_w, self._user_w or 0.0)
-            body_h = max(natural_h, self._user_h or 0.0)
-            return body_w, body_h, placed
-
-        # Routers / firewalls: one horizontal row, grouped physical → bridge →
-        # VLAN → wireless → tunnels, so every cable lands on a visible port.
-        ordered = sorted(
-            comps,
-            key=lambda c: (_CLASS_ORDER.get(port_class(c)[0], 9), _natural_key(c.name)),
+            min_cell = SFP_W if "sfp" in groups else RJ45_W
+            cell_h = SFP_H
+            min_body = FACEPLATE_MIN_W
+            self._row_tall = False
+        else:
+            tall = any(port_display(self.device, c)[1] for c in ordered)
+            self._row_tall = tall
+            min_cell = NIC_W
+            cell_h = NIC_H_WITH_ADDR if tall else NIC_H
+            min_body = MIN_CHASSIS_W
+        body_w, natural_h, cell_w, places = plan_ports(
+            groups,
+            min_cell,
+            layout=self.port_layout,
+            user_w=self._user_w,
+            cell_h=cell_h,
+            min_body_w=min_body,
+            faceplate=self._faceplate,
         )
-        tall = any(port_display(self.device, c)[1] for c in ordered)
-        row_h = NIC_H_WITH_ADDR if tall else NIC_H
-        x = CHASSIS_PAD
-        prev_cls = None
-        for comp in ordered:
-            cls = port_class(comp)[0]
-            if prev_cls is not None and cls != prev_cls:
-                x += GROUP_GAP
-            placed.append((comp, x, HEADER_H, False))
-            x += NIC_W + NIC_GAP
-            prev_cls = cls
-        natural_w = max(MIN_CHASSIS_W, x - NIC_GAP + CHASSIS_PAD)
-        body_w = max(natural_w, self._user_w or 0.0)
-        body_h = HEADER_H + row_h + CHASSIS_PAD + 10
-        self._row_tall = tall
+        placed = [
+            (comp, x, y, self._faceplate and g == "sfp", cell_w)
+            for comp, g, (x, y) in zip(ordered, groups, places)
+        ]
+        body_h = max(natural_h, self._user_h or 0.0)
         return body_w, body_h, placed
 
     def _content_size(self) -> tuple[float, float]:
@@ -661,7 +694,7 @@ class ChassisItem(QGraphicsObject):
                     child.scene().removeItem(child)
         self.port_items.clear()
         _w, _h, placed = self._layout_metrics()
-        for comp, x, y, is_sfp in placed:
+        for comp, x, y, is_sfp, cell_w in placed:
             cls, disabled = port_class(comp)
             label, second = port_display(self.device, comp)
             item = PortItem(
@@ -676,6 +709,7 @@ class ChassisItem(QGraphicsObject):
                 label=label,
                 second=second,
                 tall=getattr(self, "_row_tall", False),
+                width=cell_w,
             )
             item.setParentItem(self)
             item.setPos(x, y)
@@ -1010,10 +1044,12 @@ class SiteTopologyView(QGraphicsView):
         if chassis is None:
             super().contextMenuEvent(event)
             return
-        self._popup_chassis_menu(chassis.device, event.globalPos())
+        on_title = chassis.mapFromScene(sp).y() < HEADER_H
+        self._popup_chassis_menu(chassis.device, event.globalPos(), chassis=chassis if on_title else None)
         event.accept()
 
-    def _popup_chassis_menu(self, device, global_pos) -> None:  # noqa: ANN001
+    def _popup_chassis_menu(self, device, global_pos, *, chassis: "ChassisItem | None" = None) -> None:  # noqa: ANN001
+        """Chassis menu; right-clicking the title also offers the port layouts."""
         from pfsense_checker.chassis_actions import CHASSIS_MENU_ITEMS, perform_chassis_action
 
         menu = QMenu(self)
@@ -1024,10 +1060,24 @@ class SiteTopologyView(QGraphicsView):
         )
         title_act.setEnabled(False)
         menu.addSeparator()
+        layouts = {}
+        if chassis is not None:
+            head = menu.addAction("Port layout" + (" (canvas locked)" if self._locked else ""))
+            head.setEnabled(False)
+            for mode, label in LAYOUTS:
+                act = menu.addAction(label)
+                act.setCheckable(True)
+                act.setChecked(chassis.port_layout == mode)
+                act.setEnabled(not self._locked)
+                layouts[act] = mode
+            menu.addSeparator()
         actions = {}
         for action_id, label in CHASSIS_MENU_ITEMS:
             actions[menu.addAction(label)] = action_id
         chosen = menu.exec(global_pos)
+        if chosen in layouts and chassis is not None:
+            chassis.set_port_layout(layouts[chosen])
+            return
         action_id = actions.get(chosen)
         if not action_id:
             return

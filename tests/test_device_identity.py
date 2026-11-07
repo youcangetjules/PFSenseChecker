@@ -51,3 +51,26 @@ def test_logo_from_assets_folder(tmp_path, monkeypatch) -> None:
     assert di.logo_path("mikrotik") is None
     (tmp_path / "mikrotik.png").write_bytes(b"x")
     assert di.logo_path("mikrotik") == tmp_path / "mikrotik.png"
+
+
+def test_logo_aliases_case_and_format(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(di, "LOGO_DIR", tmp_path)
+    (tmp_path / "FortiGate.PNG").write_bytes(b"x")
+    (tmp_path / "hpe.webp").write_bytes(b"x")
+    (tmp_path / "netgear.jpg").write_bytes(b"x")
+    (tmp_path / "netgear.svg").write_text("<svg/>", encoding="utf-8")
+    assert di.logo_path("fortinet").name == "FortiGate.PNG"
+    assert di.logo_path("juniper").name == "hpe.webp"  # HPE owns Juniper
+    assert di.logo_path("netgear-managed").suffix == ".svg"  # kind → vendor, SVG preferred
+    assert di.logo_path("cisco") is None
+
+
+def test_new_vendor_kinds_from_model() -> None:
+    from pfsense_checker.topology_site import DEVICE_KINDS, kind_for_model
+
+    assert kind_for_model("FortiGate 60F") == "fortinet"
+    assert kind_for_model("FG-100F") == "fortinet"
+    assert kind_for_model("Cisco Catalyst 9200") == "cisco"
+    assert kind_for_model("CRS328-24P-4S+") == "mikrotik"
+    assert {"fortinet", "cisco"} <= set(DEVICE_KINDS)
+    assert di.identity_for(Device(name="x", kind="netgear-managed")).vendor_name == "Netgear"

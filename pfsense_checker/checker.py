@@ -965,9 +965,12 @@ def _check_dns(root: ET.Element, result: CheckResult) -> None:
                 outgoing = [p for p in re.split(r"[\s,]+", raw) if p]
         result.dns["unbound_active_interface"] = active
         result.dns["unbound_outgoing_network"] = outgoing
-        result.dns["unbound_has_acls"] = bool(
-            _find(unbound, "acls") or _find_all(unbound, "acl")
-        )
+        acls = _find(unbound, "acls")
+        # An <acls> block counts only when it holds entries (explicit len():
+        # Element truthiness is deprecated and means "has children").
+        result.dns["unbound_has_acls"] = (
+            acls is not None and len(acls) > 0
+        ) or bool(_find_all(unbound, "acl"))
         result.dns["unbound_port"] = _text(_find(unbound, "port")) or "53"
         result.dns["unbound_system_domain_local_zone_type"] = _text(
             _find(unbound, "system_domain_local_zone_type")

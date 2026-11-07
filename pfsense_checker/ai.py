@@ -59,6 +59,10 @@ SECRET_FIELD_HINTS = (
     "serverauthkey",
     "lighttpd",
     "wpa",
+    "domainkey",
+    "passphrase",
+    "passwd",
+    "community",
 )
 
 # Patterns for secret-looking blobs in free text.
@@ -423,8 +427,14 @@ def ask_ollama(
     api_key: str = "",
     temperature: float = 0.2,
     timeout: float = 180,
+    system: str | None = None,
+    num_ctx: int | None = None,
 ) -> str:
-    """Ask a local Ollama model using its native non-streaming chat API."""
+    """Ask a local Ollama model using its native non-streaming chat API.
+
+    *system* replaces the findings-advisor prompt; *num_ctx* raises Ollama's
+    context window (its default is small and silently cuts long prompts).
+    """
     model = model.strip()
     if not model:
         raise RuntimeError("Select or enter an Ollama model.")
@@ -433,6 +443,9 @@ def ask_ollama(
     safe_question = redact_text(
         question or "Summarise and prioritise the issues."
     )
+    options: dict = {"temperature": temperature}
+    if num_ctx:
+        options["num_ctx"] = int(num_ctx)
     payload = _ollama_json(
         f"{_normalise_ollama_url(base_url)}/api/chat",
         method="POST",
@@ -442,13 +455,13 @@ def ask_ollama(
             "model": model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": system or _SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": f"{safe_context}\n\nQuestion: {safe_question}",
                 },
             ],
-            "options": {"temperature": temperature},
+            "options": options,
         },
     )
     message = payload.get("message")
@@ -458,4 +471,111 @@ def ask_ollama(
             raise RuntimeError(f"Ollama request failed: {error}")
         raise RuntimeError("Ollama response did not contain a message")
     reply = str(message.get("content", "")).strip()
+    return reply or "(empty response from Ollama)"
+
+
+class OllamaStopped(RuntimeError):
+    """The caller stopped a streaming Ollama request."""
+
+
+def ask_ollama_stream(
+    context: str,
+    question: str,
+    *,
+    model: str = DEFAULT_OLLAMA_MODEL,
+    base_url: str = DEFAULT_OLLAMA_URL,
+    api_key: str = "",
+    temperature: float = 0.2,
+    system: str | None = None,
+    num_ctx: int | None = None,
+    idle_timeout: float = 300,
+    think: bool | None = None,
+    on_text=None,  # noqa: ANN001 - callable(str): answer so far
+    on_thinking=None,  # noqa: ANN001 - callable(int): thinking chunks so far
+    should_stop=None,  # noqa: ANN001 - callable() -> bool
+) -> str:
+    """Like :func:`ask_ollama` but streamed.
+
+    *idle_timeout* is how long Ollama may stay silent (loading the model,
+    reading the prompt) — not a limit on the whole answer. Raises
+    :class:`OllamaStopped` when *should_stop* returns True.
+    """
+    model = model.strip()
+    if not model:
+        raise RuntimeError("Select or enter an Ollama model.")
+    options: dict = {"temperature": temperature}
+    if num_ctx:
+        options["num_ctx"] = int(num_ctx)
+    body = {
+        "model": model,
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": system or _SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"{redact_text(context)}\n\nQuestion: "
+                f"{redact_text(question or 'Summarise and prioritise the issues.')}",
+            },
+        ],
+        "options": options,
+    }
+    if think is False:
+        # Thinking models (gemma4, qwen3, …) can think for minutes first;
+        # others ignore this.
+        body["think"] = False
+    headers = {
+        "Accept": "application/x-ndjson",
+        "Content-Type": "application/json",
+        "User-Agent": "PFSenseChecker/1.x",
+    }
+    key = api_key or load_ollama_api_key()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    url = f"{_normalise_ollama_url(base_url)}/api/chat"
+    request = urllib.request.Request(
+        url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST"
+    )
+    parts: list[str] = []
+    thinking = 0
+    size = 0
+    try:
+        with urllib.request.urlopen(request, timeout=idle_timeout) as response:  # noqa: S310
+            for raw in response:
+                if should_stop is not None and should_stop():
+                    raise OllamaStopped("Stopped.")
+                size += len(raw)
+                if size > MAX_OLLAMA_RESPONSE:
+                    raise RuntimeError("Ollama response exceeded the 4 MiB safety limit")
+                if not raw.strip():
+                    continue
+                try:
+                    chunk = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise RuntimeError("Ollama returned an invalid stream") from exc
+                if chunk.get("error"):
+                    raise RuntimeError(f"Ollama request failed: {chunk['error']}")
+                msg = chunk.get("message") or {}
+                if msg.get("thinking"):
+                    thinking += 1
+                    if on_thinking is not None:
+                        on_thinking(thinking)
+                if msg.get("content"):
+                    parts.append(str(msg["content"]))
+                    if on_text is not None:
+                        on_text("".join(parts))
+                if chunk.get("done"):
+                    break
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(512).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Cannot reach Ollama at {url}: {exc.reason}. Check that Ollama is running."
+        ) from exc
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"Ollama sent nothing for {idle_timeout:.0f} s (model still loading, or the "
+            "prompt is too big for this machine). Try a smaller model."
+        ) from exc
+    reply = "".join(parts).strip()
     return reply or "(empty response from Ollama)"

@@ -73,8 +73,10 @@ from pfsense_checker import (
     snmp,
     subnet_health,
     syslog_recv,
+    troubleshoot,
 )
 from pfsense_checker.branding import NAV_TREE_STYLE, render_logo_pixmap
+from pfsense_checker.paths import PROJECT_ROOT
 from pfsense_checker.db_admin_screen import DatabaseScreen
 from pfsense_checker.section_menu import SlidingSectionMenu
 from pfsense_checker.session_screen import SessionScreen
@@ -606,6 +608,8 @@ class HomeScreen(QWidget):
             self._syslog_apply_filter()
         elif key == "console":
             self._refresh_console_status()
+        elif key == "problems":
+            self._ts_refresh_devices()
         if key:
             title = self.nav.label(key) or section_title(key)
             self.section_changed.emit(key, title, section_capabilities(key))
@@ -2019,19 +2023,102 @@ class HomeScreen(QWidget):
         tf.setBold(True)
         title.setFont(tf)
         v.addWidget(title)
-        v.addWidget(
-            _section_card(
-                "Diagnose site issues",
-                "Start from config findings and resiliency gaps, watch live beacon "
-                "health, then use the AI Advisor (Ollama or Poe) on redacted "
-                "evidence. Measure reachability with Speed Checker when you need "
-                "a quick corridor check.",
-            )
+        blurb = QLabel(
+            "Describe the problem: pick the device and interface, the kind of problem, and "
+            "add anything else you know. NetCheck sends Ollama the parts of that device's "
+            "loaded config that matter (interface, VLAN / bridge, DHCP, routes, gateways, "
+            "firewall and NAT rules, DNS, VPN) plus its own checks — passwords, keys and "
+            "other secrets are removed first."
         )
+        blurb.setWordWrap(True)
+        blurb.setStyleSheet("color: #555;")
+        v.addWidget(blurb)
 
+        box = QGroupBox("Describe the problem")
+        form = QFormLayout(box)
+        dev_row = QHBoxLayout()
+        self.ts_device = QComboBox()
+        self.ts_device.setMinimumWidth(420)
+        self.ts_device.currentIndexChanged.connect(self._ts_device_changed)
+        dev_row.addWidget(self.ts_device, stretch=1)
+        btn_ts_refresh = QPushButton("Refresh")
+        btn_ts_refresh.setToolTip("Re-read the loaded configs from Login to Routers")
+        btn_ts_refresh.clicked.connect(self._ts_refresh_devices)
+        dev_row.addWidget(btn_ts_refresh)
+        form.addRow("Device:", dev_row)
+        self.ts_iface = QComboBox()
+        self.ts_iface.setMinimumWidth(420)
+        self.ts_iface.setMaxVisibleItems(25)
+        form.addRow("Interface:", self.ts_iface)
+        self.ts_problem = QComboBox()
+        for p in troubleshoot.PROBLEMS:
+            self.ts_problem.addItem(p.label, p.key)
+        form.addRow("Problem:", self.ts_problem)
+        self.ts_notes = QPlainTextEdit()
+        self.ts_notes.setPlaceholderText(
+            "Anything else: what stopped working and when, which clients / addresses, what "
+            "you have tried, error messages…"
+        )
+        self.ts_notes.setFixedHeight(90)
+        form.addRow("Further info:", self.ts_notes)
+        model_row = QHBoxLayout()
+        self.ts_model = QComboBox()
+        self.ts_model.setEditable(True)
+        self.ts_model.setMinimumWidth(240)
+        model_row.addWidget(self.ts_model)
+        self.ts_think = QCheckBox("Think first")
+        self.ts_think.setChecked(False)
+        self.ts_think.setToolTip(
+            "Let thinking models (gemma4, qwen3, …) reason before answering. On this PC "
+            "gemma4:26b took about 9½ minutes with thinking and 1½ without, with the same "
+            "main causes found."
+        )
+        model_row.addWidget(self.ts_think)
+        self.ts_ollama_lbl = QLabel("")
+        self.ts_ollama_lbl.setStyleSheet("color: #555;")
+        model_row.addWidget(self.ts_ollama_lbl, stretch=1)
+        form.addRow("Ollama model:", model_row)
+        v.addWidget(box)
+
+        run_row = QHBoxLayout()
+        self.ts_ask_btn = QPushButton("Ask Ollama")
+        self.ts_ask_btn.setStyleSheet(_primary_btn())
+        self.ts_ask_btn.clicked.connect(self._ts_ask)
+        run_row.addWidget(self.ts_ask_btn)
+        self.ts_stop_btn = QPushButton("Stop")
+        self.ts_stop_btn.setEnabled(False)
+        self.ts_stop_btn.clicked.connect(self._ts_stop)
+        run_row.addWidget(self.ts_stop_btn)
+        btn_preview = QPushButton("Show what will be sent")
+        btn_preview.clicked.connect(self._ts_preview)
+        run_row.addWidget(btn_preview)
+        btn_copy = QPushButton("Copy answer")
+        btn_copy.clicked.connect(self._ts_copy)
+        run_row.addWidget(btn_copy)
+        self.ts_status = QLabel("")
+        self.ts_status.setWordWrap(True)
+        self.ts_status.setStyleSheet("color: #555;")
+        run_row.addWidget(self.ts_status, stretch=1)
+        v.addLayout(run_row)
+
+        self.ts_answer = QTextEdit()
+        self.ts_answer.setReadOnly(True)
+        self.ts_answer.setPlaceholderText("Ollama's answer appears here.")
+        v.addWidget(self.ts_answer, stretch=1)
+        self._ts_worker: QThread | None = None
+        self._ts_last_answer = ""
+        self._ts_partial = ""
+        self._ts_thinking = 0
+        self._ts_timer = QTimer(self)
+        self._ts_timer.setInterval(1000)
+        self._ts_timer.timeout.connect(self._ts_tick)
+        self._ts_fill_models()
+
+        other = QLabel("Other tools:")
+        other.setStyleSheet("color: #555;")
+        v.addWidget(other)
         actions = QHBoxLayout()
         btn_findings = QPushButton("Open Findings")
-        btn_findings.setStyleSheet(_primary_btn())
         btn_findings.clicked.connect(lambda: self.open_workspace.emit("Findings"))
         actions.addWidget(btn_findings)
         btn_res = QPushButton("Open Resiliency")
@@ -2055,16 +2142,241 @@ class HomeScreen(QWidget):
         more.addWidget(btn_config)
         more.addStretch(1)
         v.addLayout(more)
-
-        tip = QLabel(
-            "Typical path: open a config → review Findings → Analyze resiliency → "
-            "ask AI Advisor. Use Live Monitor when beacons are deployed."
-        )
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: #555;")
-        v.addWidget(tip)
-        v.addStretch(1)
+        self._ts_refresh_devices()
         return page
+
+    # ---- Problems / Troubleshooting: describe → Ollama -------------------
+
+    def _ts_device_rows(self) -> list[tuple[str, str]]:
+        """(label, config path) for every device with a loaded config."""
+        rows = [
+            (f"{name}  —  {' · '.join(x for x in (kind, ip) if x)}", path)
+            for name, kind, ip, path, ignored in loaded_config_devices(self._live_site)
+            if not ignored
+        ]
+        if rows:
+            return rows
+        # No Login to Routers site yet: offer the pulled configs on disk.
+        export_dir = PROJECT_ROOT / "data" / "mikrotik_exports"
+        newest: dict[str, Path] = {}
+        if export_dir.is_dir():
+            for f in sorted(export_dir.iterdir(), key=lambda p: p.stat().st_mtime):
+                if f.suffix.lower() in (".xml", ".rsc"):
+                    newest[f.name.split("_", 1)[0]] = f
+        out: list[tuple[str, str]] = []
+        for f in newest.values():
+            from pfsense_checker import device_identity
+
+            try:
+                ident = device_identity.identity_from_config(f)
+            except Exception:  # noqa: BLE001
+                ident = device_identity.Identity()
+            parts = f.stem.split("_")
+            ip = parts[1] if len(parts) > 1 else ""
+            what = " ".join(x for x in (ident.vendor_name, ident.model) if x)
+            detail = " · ".join(x for x in (what, ip, "pulled config") if x)
+            out.append((f"{ident.hostname or f.stem}  —  {detail}", str(f)))
+        return sorted(out, key=lambda r: r[0].lower())
+
+    def _ts_refresh_devices(self) -> None:
+        combo = getattr(self, "ts_device", None)
+        if combo is None:
+            return
+        current = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        rows = self._ts_device_rows()
+        for label, path in rows:
+            combo.addItem(label, path)
+        if not rows:
+            combo.addItem("No loaded configs — Load Config on Login to Routers", "")
+        idx = combo.findData(current) if current else -1
+        combo.setCurrentIndex(max(idx, 0))
+        combo.blockSignals(False)
+        self._ts_device_changed()
+
+    def _ts_device_changed(self, *_args) -> None:  # noqa: ANN002
+        path = self.ts_device.currentData()
+        keep = self.ts_iface.currentData()
+        self.ts_iface.clear()
+        if not path:
+            return
+        try:
+            result = troubleshoot.load_result(path)
+            choices = troubleshoot.interface_choices(result)
+        except Exception as exc:  # noqa: BLE001
+            self.ts_status.setText(f"Could not read that config: {exc}")
+            return
+        for c in choices:
+            self.ts_iface.addItem(c.label, c.key)
+        idx = self.ts_iface.findData(keep) if keep else -1
+        self.ts_iface.setCurrentIndex(idx if idx >= 0 else (1 if len(choices) > 1 else 0))
+
+    def _ts_fill_models(self) -> None:
+        url, model = ai.load_ollama_settings()
+        self.ts_model.clear()
+        self.ts_model.addItem(model)
+        if not ai.is_ollama_enabled():
+            self.ts_ollama_lbl.setText("Ollama is turned off in Setup → Ollama.")
+            return
+        try:
+            names = ai.list_ollama_models(url, timeout=2)
+        except Exception as exc:  # noqa: BLE001
+            self.ts_ollama_lbl.setText(f"{url}: not reachable ({exc})")
+            return
+        for name in names:
+            if self.ts_model.findText(name) < 0:
+                self.ts_model.addItem(name)
+        self.ts_ollama_lbl.setText(f"{url} · {len(names)} model(s)")
+
+    def _ts_inputs(self):  # noqa: ANN202
+        """(result, peers, iface, problem key, notes) or None with a status message."""
+        path = self.ts_device.currentData()
+        if not path:
+            self.ts_status.setText("Pick a device with a loaded config first.")
+            return None
+        try:
+            result = troubleshoot.load_result(path)
+        except Exception as exc:  # noqa: BLE001
+            self.ts_status.setText(f"Could not read that config: {exc}")
+            return None
+        peers = []
+        for i in range(self.ts_device.count()):
+            other = self.ts_device.itemData(i)
+            if other and other != path:
+                try:
+                    peers.append(troubleshoot.load_result(other))
+                except Exception:  # noqa: BLE001, S112
+                    continue
+        return (result, peers, self.ts_iface.currentData() or "",
+                self.ts_problem.currentData(), self.ts_notes.toPlainText())
+
+    def _ts_context(self) -> tuple[str, str, str] | None:
+        got = self._ts_inputs()
+        if got is None:
+            return None
+        result, peers, iface, problem, notes = got
+        context = troubleshoot.build_context(result, iface, problem, notes, peers=peers)
+        return context, iface, problem
+
+    def _ts_preview(self) -> None:
+        built = self._ts_context()
+        if built is None:
+            return
+        context, iface, problem = built
+        dlg = QDialog(self)
+        dlg.setWindowTitle("What will be sent to Ollama")
+        dlg.resize(1000, 750)
+        lay = QVBoxLayout(dlg)
+        note = QLabel(
+            f"{len(context):,} characters · question: {troubleshoot.question_for(problem, iface)}"
+        )
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        text = QPlainTextEdit(context)
+        text.setReadOnly(True)
+        text.setFont(QFont("Consolas", 9))
+        lay.addWidget(text, stretch=1)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        lay.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+        dlg.exec()
+
+    def _ts_ask(self) -> None:
+        if self._ts_worker is not None and self._ts_worker.isRunning():
+            return
+        if not ai.is_ollama_enabled():
+            self.ts_status.setText("Ollama is turned off in Setup → Ollama.")
+            return
+        model = self.ts_model.currentText().strip()
+        if not model:
+            self.ts_status.setText("Pick an Ollama model.")
+            return
+        built = self._ts_context()
+        if built is None:
+            return
+        context, iface, problem = built
+        url, _ = ai.load_ollama_settings()
+        worker = _TroubleshootWorker(
+            context, problem, iface, url=url, model=model, think=self.ts_think.isChecked()
+        )
+        worker.done.connect(self._ts_done)
+        worker.failed.connect(self._ts_failed)
+        worker.partial.connect(self._ts_on_partial)
+        worker.thinking.connect(self._ts_on_thinking)
+        self._ts_worker = worker
+        self._ts_started = datetime.now()
+        self._ts_partial = ""
+        self._ts_thinking = 0
+        self._ts_asking = (model, len(context))
+        self.ts_ask_btn.setEnabled(False)
+        self.ts_stop_btn.setEnabled(True)
+        self.ts_answer.clear()
+        self._ts_timer.start()
+        self._ts_tick()
+        app_log.get_logger("troubleshoot").info(
+            "Ask Ollama: device=%s iface=%s problem=%s model=%s chars=%d",
+            self.ts_device.currentText(), iface or "(device)", problem, model, len(context),
+        )
+        worker.start()
+
+    def _ts_elapsed(self) -> str:
+        secs = (datetime.now() - getattr(self, "_ts_started", datetime.now())).total_seconds()
+        return f"{secs:.0f} s"
+
+    def _ts_tick(self) -> None:
+        model, chars = getattr(self, "_ts_asking", ("", 0))
+        if self._ts_partial:
+            what = "writing the answer"
+        elif self._ts_thinking:
+            what = f"thinking ({self._ts_thinking} steps)"
+        else:
+            what = f"loading the model and reading {chars:,} characters of config"
+        self.ts_status.setText(f"{model}: {what}… {self._ts_elapsed()}")
+        if self._ts_partial:
+            bar = self.ts_answer.verticalScrollBar()
+            at_end = bar.value() >= bar.maximum() - 4
+            self.ts_answer.setMarkdown(self._ts_partial)
+            if at_end:
+                bar.setValue(bar.maximum())
+
+    def _ts_on_partial(self, text: str) -> None:
+        self._ts_partial = text
+
+    def _ts_on_thinking(self, count: int) -> None:
+        self._ts_thinking = count
+
+    def _ts_stop(self) -> None:
+        if self._ts_worker is not None and self._ts_worker.isRunning():
+            self._ts_worker.stop()
+            self.ts_stop_btn.setEnabled(False)
+            self.ts_status.setText("Stopping…")
+
+    def _ts_finish(self) -> None:
+        self._ts_timer.stop()
+        self.ts_ask_btn.setEnabled(True)
+        self.ts_stop_btn.setEnabled(False)
+
+    def _ts_done(self, reply: str) -> None:
+        self._ts_finish()
+        self._ts_last_answer = reply
+        self.ts_answer.setMarkdown(reply)
+        self.ts_status.setText(f"Answered by {self.ts_model.currentText()} in {self._ts_elapsed()}.")
+
+    def _ts_failed(self, error: str) -> None:
+        self._ts_finish()
+        if self._ts_partial:
+            self._ts_last_answer = self._ts_partial
+            self.ts_answer.setMarkdown(self._ts_partial)
+        self.ts_status.setText(f"Ollama stopped after {self._ts_elapsed()}: {error}")
+        app_log.get_logger("troubleshoot").warning("Ollama failed: %s", error)
+
+    def _ts_copy(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+
+        if self._ts_last_answer:
+            QGuiApplication.clipboard().setText(self._ts_last_answer)
+            self.ts_status.setText("Answer copied.")
 
     def _build_wireshark(self) -> QWidget:
         from pfsense_checker.wireshark_bridge import (
@@ -2287,22 +2599,267 @@ class HomeScreen(QWidget):
         )
 
     def _build_dns_leakage(self) -> QWidget:
-        return self._security_page(
-            "DNS Leakage",
-            [
-                (
-                    "What this section is for",
-                    "Where DNS queries from each VLAN really go: the intended "
-                    "resolver, or straight out to the Internet, a VPN-bypassing "
-                    "path, DNS-over-HTTPS, or a device's hard-coded server.",
-                ),
-                (
-                    "Status",
-                    "Not built yet. The Config Check DNS findings cover the "
-                    "resolver / forwarder settings in the meantime.",
-                ),
-            ],
+        page = QWidget()
+        v = QVBoxLayout(page)
+        title = QLabel("DNS Leakage")
+        tf = QFont()
+        tf.setPointSize(13)
+        tf.setBold(True)
+        title.setFont(tf)
+        v.addWidget(title)
+        blurb = QLabel(
+            "Where DNS from each VLAN really goes. Build the test package, run it on a computer "
+            "in each VLAN (it picks the VLAN from its own address), and open the reports here — "
+            "or run it on this PC. It checks the resolvers the computer uses, whether plain DNS "
+            "to public resolvers gets out, is blocked or is redirected to your resolver, "
+            "DNS-over-TLS / DNS-over-HTTPS, the Firefox DoH canary, and where DNS leaves from."
         )
+        blurb.setWordWrap(True)
+        blurb.setStyleSheet("color: #555;")
+        v.addWidget(blurb)
+
+        build = QGroupBox("1. Build the test package")
+        bl = QVBoxLayout(build)
+        src_row = QHBoxLayout()
+        src_row.addWidget(QLabel("VLANs from:"))
+        self.dl_source = QComboBox()
+        self.dl_source.setMinimumWidth(420)
+        self.dl_source.currentIndexChanged.connect(self._dl_source_changed)
+        src_row.addWidget(self.dl_source, stretch=1)
+        btn_src = QPushButton("Refresh")
+        btn_src.clicked.connect(self._dl_refresh_sources)
+        src_row.addWidget(btn_src)
+        bl.addLayout(src_row)
+        self.dl_profiles = QTableWidget(0, 4)
+        self.dl_profiles.setHorizontalHeaderLabels(["VLAN / interface", "Subnet", "Expected resolver(s)", "From"])
+        self.dl_profiles.verticalHeader().setVisible(False)
+        self.dl_profiles.horizontalHeader().setStretchLastSection(True)
+        for col, width in enumerate((300, 140, 200)):
+            self.dl_profiles.setColumnWidth(col, width)
+        self.dl_profiles.setToolTip("Untick a row to leave that VLAN out. Expected resolvers can be edited.")
+        self.dl_profiles.setMinimumHeight(160)
+        bl.addWidget(self.dl_profiles)
+        eg_row = QHBoxLayout()
+        eg_row.addWidget(QLabel("Expected DNS egress (optional):"))
+        self.dl_egress = QLineEdit()
+        self.dl_egress.setPlaceholderText(
+            "public IPs DNS should leave from, e.g. your VPN exit — blank = just report it"
+        )
+        eg_row.addWidget(self.dl_egress, stretch=1)
+        bl.addLayout(eg_row)
+        b_row = QHBoxLayout()
+        btn_build = QPushButton("Build package…")
+        btn_build.setStyleSheet(_primary_btn())
+        btn_build.clicked.connect(self._dl_build)
+        b_row.addWidget(btn_build)
+        self.dl_build_status = QLabel("")
+        self.dl_build_status.setWordWrap(True)
+        self.dl_build_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        b_row.addWidget(self.dl_build_status, stretch=1)
+        bl.addLayout(b_row)
+        v.addWidget(build)
+
+        res = QGroupBox("2. Results")
+        rl = QVBoxLayout(res)
+        r_row = QHBoxLayout()
+        self.dl_run_btn = QPushButton("Run on this PC")
+        self.dl_run_btn.setToolTip("Run the same test from this computer, using the VLAN profiles above")
+        self.dl_run_btn.clicked.connect(self._dl_run_here)
+        r_row.addWidget(self.dl_run_btn)
+        btn_open = QPushButton("Open reports…")
+        btn_open.clicked.connect(self._dl_open_reports)
+        r_row.addWidget(btn_open)
+        btn_clear = QPushButton("Clear")
+        btn_clear.clicked.connect(lambda: self.dl_results.clear())
+        r_row.addWidget(btn_clear)
+        self.dl_run_status = QLabel("")
+        self.dl_run_status.setWordWrap(True)
+        r_row.addWidget(self.dl_run_status, stretch=1)
+        rl.addLayout(r_row)
+        self.dl_results = QTreeWidget()
+        self.dl_results.setHeaderLabels(["Computer / check", "Result", "Detail", "Fix"])
+        for col, width in enumerate((330, 70, 520)):
+            self.dl_results.setColumnWidth(col, width)
+        self.dl_results.setWordWrap(True)
+        self.dl_results.setAlternatingRowColors(False)
+        rl.addWidget(self.dl_results, stretch=1)
+        v.addWidget(res, stretch=1)
+        self._dl_worker: QThread | None = None
+        self._dl_refresh_sources()
+        return page
+
+    # ---- DNS Leakage ------------------------------------------------------
+
+    _DL_COLOURS = {"pass": "#c8e6c9", "warn": "#fff3cd", "fail": "#ffcdd2", "info": "#e3f2fd", "skip": "#eeeeee"}
+
+    def _dl_refresh_sources(self) -> None:
+        current = self.dl_source.currentData()
+        self.dl_source.blockSignals(True)
+        self.dl_source.clear()
+        rows = self._ts_device_rows()
+        for label, path in rows:
+            self.dl_source.addItem(label, path)
+        if not rows:
+            self.dl_source.addItem("No loaded configs — Load Config on Login to Routers", "")
+        # Firewalls first: they usually hold the per-VLAN resolver.
+        idx = self.dl_source.findData(current) if current else -1
+        if idx < 0:
+            idx = next((i for i in range(self.dl_source.count())
+                        if "pfsense" in self.dl_source.itemText(i).lower()
+                        or "opnsense" in self.dl_source.itemText(i).lower()), 0)
+        self.dl_source.setCurrentIndex(idx)
+        self.dl_source.blockSignals(False)
+        self._dl_source_changed()
+
+    def _dl_source_changed(self, *_args) -> None:  # noqa: ANN002
+        from pfsense_checker import dns_leak_builder
+
+        table = self.dl_profiles
+        table.setRowCount(0)
+        path = self.dl_source.currentData()
+        if not path:
+            return
+        try:
+            profiles = dns_leak_builder.profiles_from_config(troubleshoot.load_result(path))
+        except Exception as exc:  # noqa: BLE001
+            self.dl_build_status.setText(f"Could not read that config: {exc}")
+            return
+        table.setRowCount(len(profiles))
+        for r, p in enumerate(profiles):
+            first = QTableWidgetItem(p["label"])
+            first.setFlags(first.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            first.setCheckState(Qt.CheckState.Checked)
+            table.setItem(r, 0, first)
+            for c, text in ((1, p["subnet"]), (3, p.get("source", ""))):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(r, c, item)
+            exp = QTableWidgetItem(", ".join(p["expected_resolvers"]))
+            if not p["expected_resolvers"]:
+                exp.setBackground(QColor("#fff3cd"))
+            table.setItem(r, 2, exp)
+
+    def _dl_profiles(self) -> list[dict]:
+        from pfsense_checker import dns_leak_builder
+
+        out = []
+        t = self.dl_profiles
+        for r in range(t.rowCount()):
+            first = t.item(r, 0)
+            if first is None or first.checkState() != Qt.CheckState.Checked:
+                continue
+            out.append({
+                "label": first.text(),
+                "subnet": t.item(r, 1).text() if t.item(r, 1) else "",
+                "expected_resolvers": dns_leak_builder._ips(  # noqa: SLF001
+                    dns_leak_builder._split(t.item(r, 2).text() if t.item(r, 2) else "")  # noqa: SLF001
+                ),
+            })
+        return out
+
+    def _dl_egress_list(self) -> list[str]:
+        from pfsense_checker import dns_leak_builder
+
+        return dns_leak_builder._ips(dns_leak_builder._split(self.dl_egress.text()))  # noqa: SLF001
+
+    def _dl_build(self) -> None:
+        from pfsense_checker import dns_leak_builder
+
+        profiles = self._dl_profiles()
+        if not profiles:
+            self.dl_build_status.setText("Tick at least one VLAN.")
+            return
+        default = PROJECT_ROOT / "data" / "dnsleak_packages"
+        folder = QFileDialog.getExistingDirectory(self, "Save the DNS leak test package in", str(default))
+        if not folder:
+            return
+        site = self.dl_source.currentText().split("  —  ")[0]
+        try:
+            path = dns_leak_builder.build_package(
+                folder, profiles, site=site, expected_egress=self._dl_egress_list()
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.dl_build_status.setText(f"Build failed: {exc}")
+            return
+        self.dl_build_status.setText(
+            f"Built {path} — {len(profiles)} VLAN profile(s). Copy it to a computer in each "
+            "VLAN, unzip, run run_dns_leak.cmd (Windows) or run_dns_leak.sh."
+        )
+        app_log.get_logger("dns_leak").info("Built DNS leak package %s (%d profiles)", path, len(profiles))
+
+    def _dl_run_here(self) -> None:
+        if self._dl_worker is not None and self._dl_worker.isRunning():
+            return
+        config = {
+            "site": self.dl_source.currentText().split("  —  ")[0],
+            "profiles": self._dl_profiles(),
+            "expected_egress": self._dl_egress_list(),
+        }
+        worker = _DnsLeakWorker(config)
+        worker.done.connect(self._dl_run_done)
+        worker.failed.connect(self._dl_run_failed)
+        self._dl_worker = worker
+        self.dl_run_btn.setEnabled(False)
+        self.dl_run_status.setText("Testing DNS from this PC… (about 20 seconds)")
+        worker.start()
+
+    def _dl_run_done(self, report: dict) -> None:
+        from pfsense_checker import dns_leak
+
+        self.dl_run_btn.setEnabled(True)
+        try:
+            path = dns_leak.save_report(report, PROJECT_ROOT / "data" / "dnsleak_results")
+            saved = f" Saved {path.name}."
+        except OSError as exc:
+            saved = f" Not saved: {exc}"
+        self.dl_run_status.setText(f"Done in {report.get('seconds')} s: {report.get('result', '').upper()}.{saved}")
+        self._dl_add_report(report)
+
+    def _dl_run_failed(self, error: str) -> None:
+        self.dl_run_btn.setEnabled(True)
+        self.dl_run_status.setText(f"Test failed: {error}")
+
+    def _dl_open_reports(self) -> None:
+        from pfsense_checker import dns_leak_builder
+
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open DNS leak reports", str(PROJECT_ROOT / "data" / "dnsleak_results"),
+            "DNS leak reports (*.json)",
+        )
+        bad = []
+        for p in paths:
+            try:
+                self._dl_add_report(dns_leak_builder.load_report(p))
+            except (OSError, ValueError) as exc:
+                bad.append(f"{Path(p).name}: {exc}")
+        if bad:
+            self.dl_run_status.setText("Skipped: " + "; ".join(bad))
+        elif paths:
+            self.dl_run_status.setText(f"Opened {len(paths)} report(s).")
+
+    def _dl_add_report(self, report: dict) -> None:
+        when = str(report.get("started", ""))[:19].replace("T", " ")
+        top = QTreeWidgetItem([
+            f"{report.get('host', '?')} · {report.get('label', '?')} {report.get('subnet', '')}".strip(),
+            str(report.get("result", "")).upper(),
+            f"{when} UTC · {report.get('os', '')} · addresses {', '.join(report.get('addresses', []))} · "
+            f"resolvers {', '.join(report.get('resolvers', [])) or '?'}",
+            "",
+        ])
+        font = top.font(0)
+        font.setBold(True)
+        top.setFont(0, font)
+        colour = QColor(self._DL_COLOURS.get(report.get("result", ""), "#ffffff"))
+        top.setBackground(1, colour)
+        for c in report.get("checks", []):
+            child = QTreeWidgetItem([c.get("title", ""), c.get("status", "").upper(), c.get("detail", ""),
+                                     c.get("fix", "")])
+            child.setBackground(1, QColor(self._DL_COLOURS.get(c.get("status", ""), "#ffffff")))
+            child.setToolTip(2, c.get("detail", ""))
+            child.setToolTip(3, c.get("fix", ""))
+            top.addChild(child)
+        self.dl_results.insertTopLevelItem(0, top)
+        top.setExpanded(True)
 
     def _build_about(self) -> QWidget:
         from pfsense_checker import version as ver
@@ -4210,6 +4767,65 @@ _SYSLOG_AI_PROMPTS: dict[str, tuple[str, str]] = {
         "where relevant, ordered from most to least likely to help.",
     ),
 }
+
+
+class _DnsLeakWorker(QThread):
+    """Run the DNS leak test from this PC off the UI thread."""
+
+    done = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+        self._config = config
+
+    def run(self) -> None:  # noqa: D102
+        from pfsense_checker import dns_leak
+
+        try:
+            report = dns_leak.run(self._config)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+            return
+        self.done.emit(report)
+
+
+class _TroubleshootWorker(QThread):
+    """Ask Ollama about a described problem off the UI thread."""
+
+    done = Signal(str)
+    failed = Signal(str)
+    partial = Signal(str)  # answer so far
+    thinking = Signal(int)  # thinking chunks so far
+
+    def __init__(
+        self, context: str, problem: str, iface: str, *, url: str, model: str, think: bool = True
+    ) -> None:
+        super().__init__()
+        self._args = (context, problem, iface)
+        self._url = url
+        self._model = model
+        self._think = think
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run(self) -> None:  # noqa: D102
+        try:
+            reply = troubleshoot.ask(
+                *self._args,
+                model=self._model,
+                base_url=self._url,
+                think=self._think,
+                on_text=self.partial.emit,
+                on_thinking=self.thinking.emit,
+                should_stop=lambda: self._stop,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+            return
+        self.done.emit(reply)
 
 
 class _SyslogAiWorker(QThread):
