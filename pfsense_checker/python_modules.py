@@ -219,6 +219,15 @@ def availability(
     return True, f"Loaded and usable ({import_name} {installed_version})"
 
 
+_NOT_NEEDED_MARKERS = ("not used by netcheck", "not imported by netcheck")
+
+
+def is_needed(status: "ModuleStatus") -> bool:
+    """True when NetCheck code uses this package (its note does not say otherwise)."""
+    note = (status.optional_note or "").lower()
+    return not any(marker in note for marker in _NOT_NEEDED_MARKERS)
+
+
 def load_at_start_names(path: Path | None = None) -> list[str]:
     """Import names saved as Loaded (may include stale or unknown names)."""
     p = path or LOAD_AT_START_PATH

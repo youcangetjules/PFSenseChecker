@@ -4,6 +4,18 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Inventory viewer step 1: `ssh_inventory` rebuilt for pfSense/FreeBSD and RouterOS over SSH (read-only), Ports / interfaces is now a table saved with the device (1.3.88, BUG-024). Not yet run against live devices: Connect in the app to collect. Next: RouterOS API (api-ssl), SNMP v3, feed into Will it work?.
+- Will it work? → Reachability for pfSense and MikroTik, cross-device default gateway; DHCP uses the same dead-VLAN-interface check (1.3.87).
+- Reachability findings: guardian opt3 (100.48.56.0/24, LB_MCN) and opt12 (VLAN 662) have no pass rule out (pfSense default block). CRS328-MASTER's bridge filters VLANs but is not tagged in VLAN 710, so its own VL710 address (222.20.20.5) and DHCP relay REL5 are dead. VLAN 662 subnet mismatch confirmed from both sides. Internal networks use public address space (100.48.x, 144.80.37.x, 213.26.72.x, 222.10.x, 222.20.20.x).
+- Will it work? → Bandwidth (estimate), cross-device per VLAN to the Internet; details pane for long results (1.3.86).
+- Bandwidth findings: Internet ≈ 1 Gbps via WAN1 (FailoverGW tier 1), failover 150 Mbps via WAN2; WAN3 not in the group. Five VLANs share guardian mce1 (1 Gbps per its description) behind a 10G switch uplink, so mce1 is the bottleneck. CRS109-1 ether5 negotiates 10 Mbps only. VLAN 662 has no working gateway (subnet mismatch). CAPsMAN 2.4 GHz 20 MHz n ≈ 72 Mbps realistic per radio.
+- Will it work? → Wireless (local radios, CAP, CAPsMAN manager, cross-device CAP/manager dependencies). Python Modules rows shaded green / red for needed modules (1.3.85).
+- Wireless findings on the live network: CAPsMAN on CRS328-MASTER uses WPA2-PSK/AES (no WPA3, no PMF); channels 2412/2432/2442 overlap (use 1/6/11); CAP CRS109-1 bridge has vlan-filtering=no, so SSID VLANs 630/710 pass but VLAN hopping is possible; CRS109-1 has both legacy and wifi CAP enabled.
+- Config Check → Will it work? (`config_analysis.py`): DHCP area for pfSense and MikroTik, cross-device relay resolution, degraded state and coverage when upstream configs are missing (1.3.84).
+- DHCP findings on the live network (CRS328-MASTER + guardian): VL600 relays to 222.10.1.1 but guardian opt19 has DHCP disabled; VL662 is 222.10.70.0/24 on the MikroTik but 222.10.80.0/24 on guardian (relay target 222.10.70.1 owned by nothing loaded); relays on VL600/630/638/710 sit on the server's own subnet (duplicate answers); guardian opt4 scope enabled on a disabled interface and overlapping opt3; 8-address pools on opt6/opt7.
+- guardian config.xml was unreadable (sudo text after </pfsense>); fixed (BUG-041).
+- Main menu: Security Holes, Pentesting, DNS Leakage sections with landing pages; no tests run yet. Operator has a remote pentesting server (details needed before wiring it in) (1.3.83).
+- Python Modules: Persist Changes button (load ticked modules now and after each sign-in); Save/Commit applies to this session only (1.3.82).
 - Load config dialog: load from device first and default; status connected is green and semi-bold; Config button green when loaded, blue while loading; login Tools buttons red / green / hazard-striped Check Config; Cancel renamed Cancel/Quit App (1.3.81).
 - Login panel: Help / Options / Forgot Credentials equal width, yellow / dark grey / blue with electric 1px borders; Login gets an electric-blue border, Cancel white with an 80% grey border (1.3.80).
 - Python Modules: Available column (system-set, green/red with reason), Loaded choices persist across logins (data/python_modules.json, requirements.txt allowlist), a note for every package. 15 listed packages are not imported anywhere (1.3.79).

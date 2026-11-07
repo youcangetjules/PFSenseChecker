@@ -74,3 +74,96 @@ def test_modules_page_has_available_column(monkeypatch) -> None:
     assert t.item(1, 5).toolTip() == "Installed but not loaded"
     assert t.item(0, 6).text() == "PySide6"
     assert "1 available" in home.modules_summary.text()
+
+
+def test_persist_changes_saves_loaded_ticks(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from pfsense_checker.home_screen import HomeScreen
+
+    QApplication.instance() or QApplication([])
+    saved = tmp_path / "python_modules.json"
+    monkeypatch.setattr(pm, "LOAD_AT_START_PATH", saved)
+    rows = [
+        pm.ModuleStatus("PySide6", "", ">=6.6.0", "6.8.0", True, True, "PySide6", "PySide6>=6.6.0"),
+        pm.ModuleStatus("openpyxl", "", ">=3.1.0", "3.1.5", True, False, "openpyxl", "openpyxl>=3.1.0"),
+    ]
+    monkeypatch.setattr(pm, "inspect_requirements", lambda path=None: rows)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    home = HomeScreen()
+    home._ensure_page("modules")
+    assert home.btn_modules_persist.text() == "Persist Changes"
+    # PySide6 is loaded but nothing is saved yet: persisting would change things.
+    assert home.btn_modules_persist.isEnabled()
+
+    imported: list[str] = []
+
+    def fake_import(name):  # noqa: ANN001
+        imported.append(name)
+        rows[1] = pm.ModuleStatus("openpyxl", "", ">=3.1.0", "3.1.5", True, True,
+                                  "openpyxl", "openpyxl>=3.1.0")
+
+    monkeypatch.setattr(pm, "import_now", fake_import)
+    load_box = home._modules_cell_checkbox(home.modules_table.cellWidget(1, 4))
+    load_box.setChecked(True)  # tick openpyxl Loaded
+    assert home.btn_modules_persist.isEnabled()
+    home._modules_persist()
+    assert imported == ["openpyxl"]  # loaded now as well as saved
+    assert pm.load_at_start_names(saved) == ["PySide6", "openpyxl"]
+    assert not home.btn_modules_persist.isEnabled()  # saved == ticks
+
+
+def test_persist_skips_modules_that_fail_to_load(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from pfsense_checker.home_screen import HomeScreen
+
+    QApplication.instance() or QApplication([])
+    saved = tmp_path / "python_modules.json"
+    monkeypatch.setattr(pm, "LOAD_AT_START_PATH", saved)
+    rows = [
+        pm.ModuleStatus("PySide6", "", ">=6.6.0", "6.8.0", True, True, "PySide6", "PySide6>=6.6.0"),
+        pm.ModuleStatus("pygraphviz", "", ">=1.11", "1.11", True, False, "pygraphviz", "pygraphviz>=1.11"),
+    ]
+    monkeypatch.setattr(pm, "inspect_requirements", lambda path=None: rows)
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    monkeypatch.setattr(QMessageBox, "warning", lambda _p, _t, text: warnings.append(text))
+
+    def boom(name):  # noqa: ANN001
+        raise ImportError("DLL load failed")
+
+    monkeypatch.setattr(pm, "import_now", boom)
+    home = HomeScreen()
+    home._ensure_page("modules")
+    home._modules_cell_checkbox(home.modules_table.cellWidget(1, 4)).setChecked(True)
+    home._modules_persist()
+    assert pm.load_at_start_names(saved) == ["PySide6"]
+    assert warnings and "pygraphviz" in warnings[0]
+
+
+def test_needed_rows_are_shaded(monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker.home_screen import HomeScreen
+
+    QApplication.instance() or QApplication([])
+    rows = [
+        pm.ModuleStatus("PySide6", "", ">=6.6", "6.8", True, True, "PySide6", "PySide6>=6.6",
+                        optional_note="Required. Qt GUI toolkit.", available=True),
+        pm.ModuleStatus("paramiko", "", ">=3.4", "3.5", True, False, "paramiko", "paramiko>=3.4",
+                        optional_note="Optional. SSH client.", available=False),
+        pm.ModuleStatus("scapy", "", ">=2.5", "2.6", True, False, "scapy", "scapy>=2.5",
+                        optional_note="Optional. Packet crafting. Not used by NetCheck yet.", available=False),
+    ]
+    monkeypatch.setattr(pm, "inspect_requirements", lambda path=None: rows)
+    monkeypatch.setattr(pm, "load_at_start_names", lambda path=None: [])
+    home = HomeScreen()
+    home._ensure_page("modules")
+    t = home.modules_table
+    assert t.item(0, 0).background().color().name() == "#e8f5e9"  # needed, loaded
+    assert t.item(1, 0).background().color().name() == "#ffebee"  # needed, not loaded
+    from PySide6.QtCore import Qt
+
+    assert t.item(2, 0).background().style() == Qt.BrushStyle.NoBrush  # not needed: no shading
+    assert t.item(1, 5).background().color().name() == "#ffcdd2"  # Available keeps its colour

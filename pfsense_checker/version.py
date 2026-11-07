@@ -72,6 +72,123 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.88",
+        date="2026-11-07",
+        notes=(
+            "Interface inventory over SSH works again (ssh_inventory.py had been "
+            "committed empty): after Connect, pfSense / FreeBSD reports ifconfig "
+            "(link, negotiated speed, duplex, MAC, addresses, VLAN parent), "
+            "pciconf (NIC vendor / model), version and CPU; MikroTik reports "
+            "interfaces, addresses, VLANs, model, serial, firmware, uptime and "
+            "each running port's negotiated rate and SFP module. Read commands "
+            "only, using the saved SSH login. A device of unknown kind is "
+            "identified first (uname).",
+            "Ports / interfaces is a table: port, status (green when up), speed, "
+            "MAC, address, VLAN / parent, hardware, source, with when and how it "
+            "was collected. The inventory is saved with the device.",
+        ),
+    ),
+    Change(
+        version="1.3.87",
+        date="2026-11-07",
+        notes=(
+            "Will it work? → Reachability. pfSense: default gateway / group "
+            "usable, outbound NAT mode covers each internal network, the first "
+            "deciding firewall rule per network (pass, or block / reject before "
+            "any pass, or none — pfSense blocks by default), DNS resolver, "
+            "overlapping subnets. MikroTik: default route on-link and its "
+            "gateway in a loaded config (a dependency), VLAN interfaces on a "
+            "VLAN-filtering bridge that is not a tagged member (the device's "
+            "own address there is dead), the same VLAN on a different subnet "
+            "on the router, overlapping subnets.",
+            "Internal networks in public (Internet-routable) address space are "
+            "flagged.",
+            "DHCP: a relay or server on such a dead VLAN interface is reported "
+            "as never seeing a request.",
+        ),
+    ),
+    Change(
+        version="1.3.86",
+        date="2026-11-07",
+        notes=(
+            "Will it work? → Bandwidth (estimate). pfSense: Internet capacity "
+            "from the default gateway / group (load-balanced tier, failover "
+            "tier) and per-network LAN speed and sharing; speeds come from "
+            "interface descriptions (e.g. '1G', '150m'), media or NIC type. "
+            "MikroTik: port speeds from speed= / advertise= or port type, ports "
+            "that only negotiate 10 / 100 Mbps, per-VLAN access ports, trunks "
+            "and assumed uplink, Wi-Fi (PHY and ≈ realistic), then onward "
+            "through the loaded router that serves the VLAN to the Internet.",
+            "Without the router's config a VLAN's path is degraded past the "
+            "uplink. A VLAN whose tag reaches the router on a different subnet "
+            "is flagged: those clients have no working gateway.",
+            "Will it work? shows the full result and fix of the selected check "
+            "under the list.",
+        ),
+    ),
+    Change(
+        version="1.3.85",
+        date="2026-11-07",
+        notes=(
+            "Will it work? → Wireless. Local MikroTik radios: SSID, security "
+            "(open / WEP fail, WPA1 / TKIP warn), protected management frames, "
+            "country, WPS, bridged or addressed. CAP: manager found by address "
+            "or discovery (a dependency), CAPsMAN enabled there, and each "
+            "locally forwarded SSID VLAN carried on the CAP bridge. CAPsMAN "
+            "manager: SSID, security profile, channel, country, datapath bridge, "
+            "provisioning, overlapping 2.4 GHz channels, and the CAPs as a "
+            "dependency. A bridge with VLAN filtering off is reported: tags pass "
+            "but nothing stops VLAN hopping.",
+            "Python Modules: rows NetCheck needs are light green when loaded and "
+            "available, light red when not; packages it does not use are not "
+            "shaded.",
+        ),
+    ),
+    Change(
+        version="1.3.84",
+        date="2026-11-07",
+        notes=(
+            "Config Check → Will it work?: a deep functional analysis with a "
+            "verdict per area (Works / Works with warnings / Will not work / "
+            "Degraded). DHCP is the first area: pfSense scopes (interface up and "
+            "addressed, range inside the subnet and off the interface address, "
+            "pool size, overlaps, static maps, gateway and DNS options, resolver "
+            "listening), MikroTik servers (bridge-port binding, pool, network "
+            "entry, gateway / DNS) and relays (interface address, firewall input "
+            "chain for UDP 67).",
+            "Cross-device: relays are followed to the loaded config that owns "
+            "the server address (scope enabled? serves the relayed subnet? same "
+            "VLAN id with a different subnet? relay on the server's own subnet?). "
+            "When a needed upstream config is not loaded, the analysis says it "
+            "is degraded, gives the coverage and names each config to add.",
+            "Failures and warnings also appear in Findings (category DHCP).",
+            "Config Check reads pfSense configs pulled with sudo again: the "
+            "sudo lecture / prompt that was saved after </pfsense> made the "
+            "whole file unreadable. Pulls now drop it, and existing files load "
+            "with a warning.",
+        ),
+    ),
+    Change(
+        version="1.3.83",
+        date="2026-11-07",
+        notes=(
+            "Main menu: Security Holes, Pentesting and DNS Leakage sections "
+            "after Config Check. Each has a landing page with its purpose and "
+            "scope; none runs tests yet.",
+        ),
+    ),
+    Change(
+        version="1.3.82",
+        date="2026-11-07",
+        notes=(
+            "Python Modules: Persist Changes next to Save/Commit. It loads any "
+            "ticked module that is not loaded yet and saves the Loaded column, "
+            "so those modules load again after each sign-in. Purple when the "
+            "ticks differ from what is saved; a module that fails to load is "
+            "not saved. Save/Commit now only applies changes to this session.",
+        ),
+    ),
+    Change(
         version="1.3.81",
         date="2026-11-07",
         notes=(

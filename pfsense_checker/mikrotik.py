@@ -101,6 +101,49 @@ def _kind_for_section(section: str) -> str:
     return _TUNNEL_SECTIONS.get(last, "other")
 
 
+# Sections whose full key/value pairs are kept in result.summary["raw"].
+RAW_SECTIONS = frozenset(
+    {
+        "ip address",
+        "ip pool",
+        "ip dhcp-server",
+        "ip dhcp-server network",
+        "ip dhcp-server lease",
+        "ip dhcp-relay",
+        "ip dhcp-client",
+        "ip firewall filter",
+        "ip dns",
+        "ip route",
+        "interface bridge",
+        "interface bridge port",
+        "interface bridge vlan",
+        "interface vlan",
+        "interface list member",
+        "interface wireless",
+        "interface wireless security-profiles",
+        "interface wifi",
+        "interface wifi security",
+        "interface wifi configuration",
+        "interface wifi datapath",
+        "interface wifi cap",
+        "interface wifi capsman",
+        "interface wireless cap",
+        "caps-man manager",
+        "caps-man manager interface",
+        "caps-man configuration",
+        "caps-man security",
+        "caps-man datapath",
+        "caps-man channel",
+        "caps-man interface",
+        "caps-man provisioning",
+        "interface ethernet",
+        "interface bonding",
+        "queue simple",
+        "queue tree",
+    }
+)
+
+
 def parse_routeros(text: str, path: Path | str | None = None) -> CheckResult:
     result = CheckResult(
         path=Path(path) if path else None,
@@ -154,6 +197,13 @@ def parse_routeros(text: str, path: Path | str | None = None) -> CheckResult:
 
         if verb not in ("add", "set"):
             continue
+
+        if section in RAW_SECTIONS:
+            # Keep every key for the deep analysis (config_analysis.py); the
+            # typed model above drops some (connection-state, local-address…).
+            raw = dict(pairs)
+            raw["_verb"] = verb
+            result.summary.setdefault("raw", {}).setdefault(section, []).append(raw)
 
         _dispatch(
             section,

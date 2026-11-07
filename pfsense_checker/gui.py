@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QStyle,
     QStackedWidget,
     QTabWidget,
     QTableWidget,
@@ -620,6 +621,7 @@ class MainWindow(QMainWindow):
             return
         self._workspace_built = True
         self._build_dashboard_tab()
+        self._build_will_it_work_tab()
         self._build_topology_tab()
         self._build_site_tab()
         self._build_resiliency_tab()
@@ -3985,6 +3987,189 @@ class MainWindow(QMainWindow):
         self.ai_ask.setEnabled(True)
         self.statusBar().showMessage("AI advisor error", 4000)
 
+    # --- Will it work? (deep functional analysis) ---
+
+    def _build_will_it_work_tab(self) -> None:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(4, 4, 4, 4)
+        self.wiw_banner = QLabel("Drop or open a config to see whether DHCP and the rest will work.")
+        self.wiw_banner.setWordWrap(True)
+        self.wiw_banner.setTextFormat(Qt.TextFormat.RichText)
+        self.wiw_banner.setStyleSheet("padding: 8px; border-radius: 4px; background: #eceff1; color: #37474f;")
+        v.addWidget(self.wiw_banner)
+        self.wiw_tree = QTreeWidget()
+        self.wiw_tree.setHeaderLabels(["Check", "Result", "Fix"])
+        self.wiw_tree.setColumnWidth(0, 420)
+        self.wiw_tree.setColumnWidth(1, 620)
+        self.wiw_tree.setAlternatingRowColors(True)
+        self.wiw_tree.header().setStretchLastSection(True)
+        self.wiw_tree.currentItemChanged.connect(self._show_wiw_detail)
+        v.addWidget(self.wiw_tree, stretch=1)
+        # Full text of the selected check (long bandwidth paths do not fit a row).
+        self.wiw_detail = QLabel("Select a check to see its full result and fix.")
+        self.wiw_detail.setWordWrap(True)
+        self.wiw_detail.setTextFormat(Qt.TextFormat.RichText)
+        self.wiw_detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.wiw_detail.setMinimumHeight(64)
+        self.wiw_detail.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.wiw_detail.setStyleSheet(
+            "padding: 8px; border: 1px solid #cfd8dc; border-radius: 4px; background: #fafafa;"
+        )
+        v.addWidget(self.wiw_detail)
+        self.tabs.addTab(page, "Will it work?")
+
+    def _show_wiw_detail(self, item: QTreeWidgetItem | None, _prev=None) -> None:  # noqa: ANN001
+        import html
+
+        if item is None:
+            return
+        check, result, fix = (item.text(0), item.text(1), item.text(2))
+        body = f"<b>{html.escape(check)}</b><br/>{html.escape(result)}"
+        if fix:
+            body += f"<br/><span style='color:#1565c0;'>Fix: {html.escape(fix)}</span>"
+        self.wiw_detail.setText(body)
+
+    def _peer_results(self, current: CheckResult) -> list[CheckResult]:
+        """Other loaded configs (Login to Routers), parsed once per file version."""
+        from pfsense_checker.home_screen import loaded_config_devices
+
+        cache = getattr(self, "_peer_cache", None)
+        if cache is None:
+            cache = self._peer_cache = {}
+        here = str(current.path.resolve()) if current.path else ""
+        out: list[CheckResult] = []
+        for name, _kind, _ip, path, ignored in loaded_config_devices(self._live_site):
+            if ignored:
+                continue
+            p = Path(path)
+            try:
+                key = str(p.resolve())
+                stamp = p.stat().st_mtime
+            except OSError:
+                continue
+            if key == here:
+                continue
+            hit = cache.get(key)
+            if hit is None or hit[0] != stamp:
+                try:
+                    res = check_file(p)
+                except Exception as exc:  # noqa: BLE001
+                    app_log.get_logger("analysis").warning("Peer config %s unreadable: %s", p, exc)
+                    continue
+                res.device_name = name
+                cache[key] = (stamp, res)
+                hit = cache[key]
+            out.append(hit[1])
+        return out
+
+    def _known_devices(self) -> dict[str, str]:
+        known: dict[str, str] = {}
+        for dev in getattr(self._live_site, "devices", []) or []:
+            ip = ((dev.ssh.host if dev.ssh else "") or dev.mgmt_ip or "").strip()
+            if ip:
+                known[ip] = dev.name
+        return known
+
+    def _run_will_it_work(self, result: CheckResult) -> None:
+        from pfsense_checker import config_analysis as ca
+
+        self._analysis = None
+        if not (result.valid_xml or result.source_type == "mikrotik"):
+            return
+        try:
+            analysis = ca.analyse(result, self._peer_results(result), self._known_devices())
+        except Exception as exc:  # noqa: BLE001
+            app_log.get_logger("analysis").error("Will it work? analysis failed: %s", exc)
+            return
+        self._analysis = analysis
+        if not result.summary.get("_wiw_findings_added"):
+            result.findings.extend(ca.findings_from(analysis))
+            result.summary["_wiw_findings_added"] = True
+        app_log.get_logger("analysis").info(
+            "Will it work? %s: %s (coverage %d%%, %d upstream missing)",
+            analysis.device,
+            ", ".join(f"{a.area}={a.status}" for a in analysis.areas),
+            round(analysis.coverage * 100),
+            len(analysis.missing),
+        )
+
+    def _render_will_it_work(self) -> None:
+        from pfsense_checker import config_analysis as ca
+
+        tree = getattr(self, "wiw_tree", None)
+        if tree is None:
+            return
+        tree.clear()
+        analysis = getattr(self, "_analysis", None)
+        if analysis is None:
+            self.wiw_banner.setText("No analysis for this config.")
+            return
+        if analysis.degraded:
+            items = "".join(
+                f"<li>{dep.role} <b>{dep.address}</b>"
+                + (f" — on Login to Routers as <b>{dep.known_as}</b>" if dep.known_as else " — not on Login to Routers")
+                + f": needed for {dep.needed_for}</li>"
+                for dep in analysis.missing
+            )
+            self.wiw_banner.setText(
+                f"<b>Checking is degraded — assessment coverage {round(analysis.coverage * 100)} %.</b> "
+                f"{len(analysis.missing)} upstream config(s) are not loaded, so some results below are "
+                f"incomplete until you load them (Login to Routers → Load Config):<ul>{items}</ul>"
+            )
+            self.wiw_banner.setStyleSheet(
+                "padding: 8px; border-radius: 4px; background: #fff3e0; color: #e65100; border: 1px solid #ffb74d;"
+            )
+        else:
+            self.wiw_banner.setText(
+                f"<b>Full coverage.</b> Every device this config depends on has its config loaded "
+                f"({analysis.device})."
+            )
+            self.wiw_banner.setStyleSheet(
+                "padding: 8px; border-radius: 4px; background: #e8f5e9; color: #1b5e20; border: 1px solid #81c784;"
+            )
+        verdict_colour = {
+            ca.WORKS: "#2e7d32",
+            ca.WARNINGS: "#ef6c00",
+            ca.FAILS: "#c62828",
+            ca.DEGRADED: "#e65100",
+            ca.ABSENT: "#78909c",
+        }
+        style = self.style()
+        sp = QStyle.StandardPixmap
+        check_style = {
+            ca.PASS: (style.standardIcon(sp.SP_DialogApplyButton), "#2e7d32"),
+            ca.WARN: (style.standardIcon(sp.SP_MessageBoxWarning), "#ef6c00"),
+            ca.FAIL: (style.standardIcon(sp.SP_MessageBoxCritical), "#c62828"),
+            ca.INFO: (style.standardIcon(sp.SP_MessageBoxInformation), "#607d8b"),
+        }
+        bold = QFont()
+        bold.setBold(True)
+        for area in analysis.areas:
+            top = QTreeWidgetItem([area.area, ca.VERDICT_TEXT[area.status], ""])
+            top.setForeground(1, QColor(verdict_colour[area.status]))
+            top.setFont(0, bold)
+            top.setFont(1, bold)
+            tree.addTopLevelItem(top)
+            for check in area.checks:
+                icon, colour = check_style[check.status]
+                child = QTreeWidgetItem([check.subject, check.message, check.remediation])
+                child.setIcon(0, icon)
+                child.setForeground(0, QColor(colour))
+                child.setToolTip(0, check.subject)
+                child.setToolTip(1, check.message)
+                child.setToolTip(2, check.remediation)
+                top.addChild(child)
+            for dep in area.missing:
+                child = QTreeWidgetItem(
+                    [f"{dep.role} {dep.address}", f"Config not loaded — cannot check {dep.needed_for}.",
+                     "Load that device's config on Login to Routers."]
+                )
+                child.setIcon(0, style.standardIcon(sp.SP_MessageBoxQuestion))
+                child.setForeground(0, QColor("#e65100"))
+                top.addChild(child)
+            top.setExpanded(area.status in (ca.FAILS, ca.DEGRADED, ca.WARNINGS))
+
     def _build_report_tab(self) -> None:
         self.report = QTextEdit()
         self.report.setReadOnly(True)
@@ -4356,6 +4541,7 @@ class MainWindow(QMainWindow):
 
     def _on_result(self, result: CheckResult) -> None:
         self._result = result
+        self._run_will_it_work(result)
         self._render_summary(result)
         self._render_dashboard(result)
         if hasattr(self, "tabs") and self.tabs.count():
@@ -4370,6 +4556,7 @@ class MainWindow(QMainWindow):
         self._render_services_net(result)
         self._render_packages(result)
         self._render_report(result)
+        self._render_will_it_work()
         self._refresh_ai_context()
         self.statusBar().showMessage(
             f"Done — {result.error_count} errors, {result.warning_count} warnings, "

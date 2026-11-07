@@ -362,6 +362,13 @@ def extract_firewall_config_xml(text: str) -> str:
     if not starts:
         return ""
     chunk = raw[min(starts) :].strip()
+    # sudo writes its lecture / prompt to stderr, which is joined after the
+    # file: cut everything after the closing root tag.
+    low_chunk = chunk.lower()
+    end = max(low_chunk.rfind("</pfsense>"), low_chunk.rfind("</opnsense>"))
+    if end >= 0:
+        close_len = len("</opnsense>") if low_chunk.startswith("</opnsense>", end) else len("</pfsense>")
+        chunk = chunk[: end + close_len]
     return chunk if looks_like_firewall_config_xml(chunk) else ""
 
 

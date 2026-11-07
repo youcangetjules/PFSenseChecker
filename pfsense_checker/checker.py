@@ -200,6 +200,39 @@ def _is_routeros_file(path: Path) -> bool:
     return looks_like_routeros(head)
 
 
+_ROOT_OPEN_RE = re.compile(r"<(pfsense|opnsense)[\s>]", re.IGNORECASE)
+
+
+def _trim_after_root(text: str, result: CheckResult) -> str:
+    """Drop text after </pfsense> / </opnsense> (with a warning).
+
+    SSH pulls through sudo used to append sudo's lecture and password prompt
+    after the closing tag, which made the whole config unreadable.
+    """
+    m = _ROOT_OPEN_RE.search(text)
+    if not m:
+        return text
+    close = f"</{m.group(1)}>"
+    end = text.lower().rfind(close.lower())
+    if end < 0:
+        return text
+    tail = text[end + len(close):]
+    if not tail.strip():
+        return text
+    lines = len(tail.strip().splitlines())
+    result.findings.append(
+        Finding(
+            Severity.WARNING,
+            "XML",
+            f"{lines} line(s) of text after {close} were ignored — usually terminal "
+            "or sudo output captured with an SSH config pull.",
+            remediation="Pull the config again from Login to Routers, or delete the "
+            "text after the closing tag.",
+        )
+    )
+    return text[: end + len(close)]
+
+
 def _load_root(path: Path, result: CheckResult) -> ET.Element | None:
     if not path.is_file():
         result.findings.append(
@@ -254,6 +287,7 @@ def _load_root(path: Path, result: CheckResult) -> ET.Element | None:
             Finding(Severity.ERROR, "Encoding", "Null byte(s) present — invalid XML")
         )
 
+    text = _trim_after_root(text, result)
     try:
         return ET.fromstring(text)
     except ET.ParseError as exc:
@@ -707,6 +741,10 @@ def _check_nat(root: ET.Element, result: CheckResult) -> None:
     nat = _find(root, "nat")
     if nat is None:
         return
+    outbound = _find(nat, "outbound")
+    result.summary["outbound_nat_mode"] = (
+        _find_text(outbound, "mode") if outbound is not None else ""
+    ) or "automatic"
     # Inbound port forwards
     for i, rule in enumerate(_find_all(nat, "rule")):
         result.nat_rules.append(
@@ -853,6 +891,16 @@ def _collect_vpn(root: ET.Element, result: CheckResult) -> None:
 # --------------------------------------------------------------------------- #
 
 def _check_dhcp(root: ET.Element, result: CheckResult) -> None:
+    relay = _find(root, "dhcrelay")
+    if relay is not None:
+        result.summary["dhcp_relay"] = {
+            "enabled": _has_flag(relay, "enable"),
+            "interface": _find_text(relay, "interface"),
+            "server": _find_text(relay, "server"),
+        }
+    result.summary["dhcp_backend"] = (
+        _find_text(_find(root, "system"), "dhcpbackend") if _find(root, "system") is not None else ""
+    ) or "isc"
     for section in ("dhcpd", "dhcpdv6"):
         dhcp = _find(root, section)
         if dhcp is None:
@@ -868,6 +916,18 @@ def _check_dhcp(root: ET.Element, result: CheckResult) -> None:
                 "from": _find_text(rng, "from") if rng is not None else "",
                 "to": _find_text(rng, "to") if rng is not None else "",
                 "staticmaps": str(len(_find_all(scope, "staticmap"))),
+                # Deep analysis (config_analysis.py) reads these.
+                "gateway": _find_text(scope, "gateway"),
+                "dnsservers": ",".join(
+                    _text(d) for d in _find_all(scope, "dnsserver") if _text(d)
+                ),
+                "domain": _find_text(scope, "domain"),
+                "defaultleasetime": _find_text(scope, "defaultleasetime"),
+                "failover_peerip": _find_text(scope, "failover_peerip"),
+                "staticmap_list": ";".join(
+                    f"{_find_text(m, 'ipaddr')}|{_find_text(m, 'mac')}"
+                    for m in _find_all(scope, "staticmap")
+                ),
             }
             result.dhcp_scopes.append(entry)
 
@@ -957,17 +1017,25 @@ def _check_gateways(root: ET.Element, result: CheckResult) -> None:
         )
     for group in _find_all(gws, "gateway_group"):
         members = []
+        tiers: dict[str, int] = {}
         for item in _find_all(group, "item"):
-            name = _text(item).split("|", 1)[0].strip()
+            bits = _text(item).split("|")
+            name = bits[0].strip()
             if name:
                 members.append(name)
+                try:
+                    tiers[name] = int(bits[1]) if len(bits) > 1 else 1
+                except ValueError:
+                    tiers[name] = 1
         result.gateway_groups.append(
             {
                 "name": _find_text(group, "name"),
                 "descr": _find_text(group, "descr"),
                 "members": members,
+                "tiers": tiers,
             }
         )
+    result.summary["default_gateway_v4"] = _find_text(gws, "defaultgw4")
 
 
 _VPN_BIND_KEYWORDS = {"any", "lo0", "localhost", ""}

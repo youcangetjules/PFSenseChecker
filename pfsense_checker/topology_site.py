@@ -594,6 +594,8 @@ class Device:
     # Operator chose to ignore this device on Login to Routers (for example
     # the same box reached through another VLAN). Greyed out, never probed.
     ignored: bool = False
+    # Last interface inventory (ssh_inventory.InventoryResult.to_dict()).
+    inventory: dict[str, Any] = field(default_factory=dict)
 
     def ensure_ssh(self) -> SshAccess:
         """Return (creating if needed) the SSH access record for this device."""
@@ -659,6 +661,7 @@ class Device:
             "w": self.w,
             "h": self.h,
             "ignored": self.ignored,
+            "inventory": dict(self.inventory),
         }
 
     @classmethod
@@ -696,6 +699,7 @@ class Device:
             w=float(w) if w is not None else None,
             h=float(h) if h is not None else None,
             ignored=bool(d.get("ignored", False)),
+            inventory=dict(d.get("inventory") or {}),
         )
         device.ensure_config_source()
         return device

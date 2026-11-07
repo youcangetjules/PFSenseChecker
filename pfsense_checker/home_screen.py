@@ -80,6 +80,9 @@ SECTIONS = (
     ("beaconing", "Beaconing"),
     ("subnet_health", "Subnet Health"),
     ("config", "Config Check"),
+    ("security_holes", "Security Holes"),
+    ("pentesting", "Pentesting"),
+    ("dns_leakage", "DNS Leakage"),
     ("speed", "Speed Checker"),
     ("topology", "Topology"),
     ("database", "Database"),
@@ -119,6 +122,9 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "subnet_health": "Local + beacon subnets · ping/speed · Wired/WLAN",
     "config": "Open pfSense/MikroTik configs · findings workspace",
     "config.open": "Open a config file or folder · pull from a connected device",
+    "security_holes": "Known weaknesses across loaded configs and seen devices",
+    "pentesting": "Authorised testing of your own devices · scope before tests",
+    "dns_leakage": "Where DNS queries really go · bypass and leak checks",
     "speed": "Ping & download checks from chosen source",
     "topology": "Live/experimental site map · load/save · builder",
     "database": "PostgreSQL browse · SQL · schema · NetCheck tables",
@@ -315,6 +321,9 @@ class HomeScreen(QWidget):
             "syslog": self._build_syslog,
             "log_pipeline": self._build_log_pipeline,
             "wireshark": self._build_wireshark,
+            "security_holes": self._build_security_holes,
+            "pentesting": self._build_pentesting,
+            "dns_leakage": self._build_dns_leakage,
             "setup.oui": self._build_setup_oui,
             "setup.logging": self._build_setup_logging,
             "setup.openobserve": self._build_setup_openobserve,
@@ -1205,12 +1214,22 @@ class HomeScreen(QWidget):
         )
         self.btn_modules_save.clicked.connect(self._modules_save_commit)
         actions.addWidget(self.btn_modules_save)
+        self.btn_modules_persist = QPushButton("Persist Changes")
+        self.btn_modules_persist.setEnabled(False)
+        self.btn_modules_persist.setStyleSheet(_modules_action_btn_style("save_idle"))
+        self.btn_modules_persist.setToolTip(
+            "Make the Loaded column survive log-out / log-in: ticked modules "
+            "are loaded now (if not already) and again after each sign-in. "
+            "Turns purple when the ticks differ from what is saved."
+        )
+        self.btn_modules_persist.clicked.connect(self._modules_persist)
+        actions.addWidget(self.btn_modules_persist)
         # Match height to Refresh, width to Open requirements.txt; same font size.
-        for b in (btn_refresh, btn_open, self.btn_modules_save):
+        for b in (btn_refresh, btn_open, self.btn_modules_save, self.btn_modules_persist):
             b.ensurePolished()
         width = max(btn_open.sizeHint().width(), 168)
         height = max(btn_refresh.sizeHint().height(), 28)
-        for b in (btn_refresh, btn_open, self.btn_modules_save):
+        for b in (btn_refresh, btn_open, self.btn_modules_save, self.btn_modules_persist):
             b.setFixedSize(width, height)
         actions.addStretch(1)
         self.modules_summary = QLabel("")
@@ -1281,6 +1300,32 @@ class HomeScreen(QWidget):
         lay.addWidget(box)
         holder.setProperty("checkbox", box)
         return holder
+
+    def _modules_shade_row(self, row: int, st) -> None:  # noqa: ANN001
+        """Needed + loaded and available: light green. Needed but not: light red."""
+        if not python_modules.is_needed(st):
+            return
+        ok = bool(st.loaded and st.available)
+        colour = QColor("#e8f5e9" if ok else "#ffebee")
+        why = (
+            "Needed by NetCheck — loaded and available."
+            if ok
+            else "Needed by NetCheck — not loaded or not available: " + (st.available_reason or "")
+        )
+        for col in range(self.modules_table.columnCount()):
+            if col == 5:
+                continue  # Available keeps its own green / red
+            item = self.modules_table.item(row, col)
+            if item is not None:
+                item.setBackground(colour)
+                if col == 0:
+                    item.setToolTip(why)
+            holder = self.modules_table.cellWidget(row, col)
+            if holder is not None:
+                holder.setAutoFillBackground(True)
+                pal = holder.palette()
+                pal.setColor(holder.backgroundRole(), colour)
+                holder.setPalette(pal)
 
     @staticmethod
     def _modules_available_item(st) -> QTableWidgetItem:  # noqa: ANN001
@@ -1366,6 +1411,7 @@ class HomeScreen(QWidget):
             note_item = QTableWidgetItem(st.optional_note)
             note_item.setToolTip(st.optional_note)  # long notes are elided
             self.modules_table.setItem(r, 7, note_item)
+            self._modules_shade_row(r, st)
         self._modules_baseline = baseline
         summary = python_modules.runtime_summary()
         self.modules_runtime.setText(
@@ -1406,6 +1452,75 @@ class HomeScreen(QWidget):
         self.btn_modules_save.setStyleSheet(
             _modules_action_btn_style("save_active" if dirty else "save_idle")
         )
+        persist = getattr(self, "btn_modules_persist", None)
+        if persist is not None:
+            changed = self._modules_persist_dirty()
+            persist.setEnabled(changed)
+            persist.setStyleSheet(
+                _modules_action_btn_style("persist_active" if changed else "save_idle")
+            )
+
+    def _modules_ticked_loaded(self) -> set[str]:
+        """Import names whose Loaded box is ticked right now."""
+        rows = getattr(self, "_modules_status_rows", [])
+        current = self._modules_current_checks()
+        return {
+            st.import_name
+            for st, (_inst, load) in zip(rows, current)
+            if load and st.import_name
+        }
+
+    def _modules_persist_dirty(self) -> bool:
+        rows = getattr(self, "_modules_status_rows", [])
+        if not rows:
+            return False
+        known = {st.import_name for st in rows}
+        saved = set(python_modules.load_at_start_names()) & known
+        return self._modules_ticked_loaded() != saved
+
+    def _modules_persist(self) -> None:
+        """Save the Loaded column as the set imported after every sign-in.
+
+        Ticked modules not loaded yet are imported first, so what the table
+        shows, what is loaded now, and what is saved stay the same.
+        """
+        rows = getattr(self, "_modules_status_rows", [])
+        loaded_now = {st.import_name for st in rows if st.loaded}
+        failed: list[str] = []
+        names: list[str] = []
+        for name in sorted(self._modules_ticked_loaded()):
+            if name not in loaded_now:
+                try:
+                    python_modules.import_now(name)
+                except Exception as exc:  # noqa: BLE001
+                    failed.append(f"{name}: {exc}")
+                    continue
+            names.append(name)
+        if failed:
+            QMessageBox.warning(
+                self,
+                "Persist Changes",
+                "Not saved — these could not be loaded:\n" + "\n".join(failed),
+            )
+        try:
+            python_modules.save_load_at_start(names)
+        except OSError as exc:
+            QMessageBox.critical(self, "Persist Changes", f"Could not save:\n{exc}")
+            return
+        app_log.get_logger("modules").info(
+            "Loaded modules persisted for next sign-in: %s", ", ".join(names) or "(none)"
+        )
+        QMessageBox.information(
+            self,
+            "Persist Changes",
+            (
+                "These modules will be loaded again after each sign-in:\n"
+                + "\n".join(names)
+            )
+            if names
+            else "No modules will be loaded at sign-in (beyond what NetCheck needs).",
+        )
+        self._modules_refresh()
 
     def _modules_save_commit(self) -> None:
         if not self._modules_is_dirty():
@@ -1416,7 +1531,6 @@ class HomeScreen(QWidget):
         to_install: list[str] = []
         to_import: list[str] = []
         notes: list[str] = []
-        persist: dict[str, bool] = {}
         for i, st in enumerate(rows):
             want_inst, want_load = current[i]
             was_inst, was_load = baseline[i]
@@ -1432,13 +1546,11 @@ class HomeScreen(QWidget):
                 to_import.append(st.import_name)
             elif (not want_load) and was_load:
                 notes.append(
-                    f"{st.import_name} stays loaded until NetCheck restarts; it "
-                    "will not be loaded after the next login."
+                    f"Cannot unload {st.import_name} from a running process "
+                    "(use Persist Changes to stop loading it after sign-in)."
                 )
-            if want_load != was_load:
-                persist[st.import_name] = want_load
 
-        if not to_install and not to_import and not notes and not persist:
+        if not to_install and not to_import and not notes:
             QMessageBox.information(self, "Save/Commit", "Nothing to apply.")
             return
 
@@ -1472,13 +1584,8 @@ class HomeScreen(QWidget):
                 results.append(f"Loaded {mod}")
             except Exception as exc:  # noqa: BLE001
                 results.append(f"Load failed {mod}: {exc}")
-        for mod, wanted in persist.items():
-            try:
-                python_modules.set_load_at_start(mod, wanted)
-            except OSError as exc:
-                results.append(f"Could not save Loaded choice for {mod}: {exc}")
-        if persist:
-            results.append("Loaded choices saved; they apply again after each login.")
+        if to_import:
+            results.append("Use Persist Changes to load these again after each sign-in.")
 
         results.extend(notes)
         self._modules_refresh()
@@ -1618,6 +1725,81 @@ class HomeScreen(QWidget):
         v.addWidget(QLabel("Stub Lua plugin (not loaded):"))
         v.addWidget(stub)
         return page
+
+    def _security_page(self, title_text: str, cards: list[tuple[str, str]]) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        title = QLabel(title_text)
+        tf = QFont()
+        tf.setPointSize(13)
+        tf.setBold(True)
+        title.setFont(tf)
+        v.addWidget(title)
+        for heading, body in cards:
+            v.addWidget(_section_card(heading, body))
+        v.addStretch(1)
+        return page
+
+    def _build_security_holes(self) -> QWidget:
+        return self._security_page(
+            "Security Holes",
+            [
+                (
+                    "What this section is for",
+                    "One list of known weaknesses across every loaded config and "
+                    "every device seen on Login to Routers: exposed management "
+                    "(Telnet, plain-HTTP GUIs, Winbox / API reachable from user "
+                    "VLANs), weak VPN crypto, any-to-any rules, default or shared "
+                    "credentials, outdated firmware.",
+                ),
+                (
+                    "Status",
+                    "Not built yet — tell NetCheck's maintainer what to include "
+                    "first. Today the Config Check attack-surface assessment and "
+                    "the Seen devices on Login to Routers hold these findings.",
+                ),
+            ],
+        )
+
+    def _build_pentesting(self) -> QWidget:
+        return self._security_page(
+            "Pentesting",
+            [
+                (
+                    "What this section is for",
+                    "Active, authorised tests against your own network: confirm "
+                    "that what the configs claim is blocked really is blocked, "
+                    "from a chosen source VLAN to a chosen target.",
+                ),
+                (
+                    "Scope and authorisation",
+                    "Tests will only run against subnets and devices on this "
+                    "site, after you confirm the scope for each run, and every "
+                    "run is logged. Some defences react to tests — pfSense "
+                    "sshguard blocked this PC after repeated SSH probes — so "
+                    "test windows should be agreed with whoever runs the network.",
+                ),
+                ("Status", "Not built yet — no tests run from this page."),
+            ],
+        )
+
+    def _build_dns_leakage(self) -> QWidget:
+        return self._security_page(
+            "DNS Leakage",
+            [
+                (
+                    "What this section is for",
+                    "Where DNS queries from each VLAN really go: the intended "
+                    "resolver, or straight out to the Internet, a VPN-bypassing "
+                    "path, DNS-over-HTTPS, or a device's hard-coded server.",
+                ),
+                (
+                    "Status",
+                    "Not built yet. The Config Check DNS findings cover the "
+                    "resolver / forwarder settings in the meantime.",
+                ),
+            ],
+        )
 
     def _build_about(self) -> QWidget:
         from pfsense_checker import version as ver
@@ -3658,6 +3840,14 @@ def _modules_action_btn_style(kind: str) -> str:
             + " border: 1px solid rgb(245, 158, 11);"
             + " color: #3e2723; }"
             + "QPushButton:hover { background-color: rgba(255, 213, 79, 230); }"
+        )
+    if kind == "persist_active":
+        return (
+            base
+            + " background-color: rgba(106, 27, 154, 220);"
+            + " border: 1px solid rgb(74, 20, 140);"
+            + " color: white; }"
+            + "QPushButton:hover { background-color: rgba(123, 31, 162, 240); }"
         )
     if kind == "save_active":
         return (

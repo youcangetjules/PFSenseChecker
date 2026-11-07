@@ -639,6 +639,47 @@ class _InventoryWorker(QThread):
             self.failed.emit(self._device.name, result.error or "inventory failed")
 
 
+_INVENTORY_COLUMNS = ("Port", "Status", "Speed", "MAC", "Address", "VLAN / parent", "Hardware", "Source")
+
+
+def inventory_rows(dev: Device) -> list[dict]:
+    """Rows for the Ports / interfaces table (pure, so it is testable)."""
+    inv = dev.inventory or {}
+    rows: list[dict] = []
+    for i in inv.get("interfaces") or []:
+        speed = i.get("speed_mbps")
+        speed_txt = ""
+        if speed:
+            speed_txt = f"{speed / 1000:g} Gbps" if speed >= 1000 else f"{speed:g} Mbps"
+            if i.get("duplex") == "half":
+                speed_txt += " half"
+        vlan = ""
+        if i.get("vlan_id"):
+            vlan = f"VLAN {i['vlan_id']}" + (f" on {i['parent']}" if i.get("parent") else "")
+        status = i.get("status") or ""
+        rows.append({
+            "port": i.get("name", ""),
+            "status": status,
+            "speed": speed_txt,
+            "mac": i.get("mac", ""),
+            "address": ", ".join(i.get("addresses") or []),
+            "vlan": vlan or (i.get("kind") or ""),
+            "hardware": i.get("pci_vendor") or i.get("pci") or "",
+            "source": (i.get("source") or inv.get("source") or "ssh").upper(),
+            "up": status in ("active", "link-ok", "running", "up"),
+            "comment": i.get("comment", ""),
+        })
+    if rows:
+        return rows
+    for comp in dev.components or [PortComponent(name=p) for p in dev.ports]:
+        rows.append({
+            "port": comp.name, "status": "", "speed": comp.media or "", "mac": "",
+            "address": comp.address or "", "vlan": "", "hardware": comp.slot or "",
+            "source": "Config", "up": False, "comment": "",
+        })
+    return rows
+
+
 class _AdapterLabelWorker(QThread):
     """Resolve the local NIC summary off the UI thread (PowerShell on Windows)."""
 
@@ -1034,13 +1075,18 @@ class SessionScreen(QWidget):
         ports_lay = QVBoxLayout(ports_col)
         ports_lay.setContentsMargins(0, 0, 0, 0)
         ports_lay.setSpacing(4)
-        ports_lay.addWidget(QLabel("Ports / interfaces"))
-        self.device_detail_ports = QPlainTextEdit()
-        self.device_detail_ports.setReadOnly(True)
-        self.device_detail_ports.setFont(QFont("Consolas", 9))
-        self.device_detail_ports.setPlaceholderText(
-            "Port list appears here after Connect (SSH inventory)."
-        )
+        self.device_ports_caption = QLabel("Ports / interfaces")
+        self.device_ports_caption.setWordWrap(True)
+        ports_lay.addWidget(self.device_ports_caption)
+        self.device_detail_ports = QTableWidget(0, len(_INVENTORY_COLUMNS))
+        self.device_detail_ports.setHorizontalHeaderLabels(list(_INVENTORY_COLUMNS))
+        self.device_detail_ports.verticalHeader().setVisible(False)
+        self.device_detail_ports.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.device_detail_ports.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.device_detail_ports.setAlternatingRowColors(True)
+        self.device_detail_ports.horizontalHeader().setStretchLastSection(True)
+        for col, width in enumerate((120, 90, 70, 125, 125, 110, 190)):
+            self.device_detail_ports.setColumnWidth(col, width)
         self.device_detail_ports.setMinimumHeight(96)
         ports_lay.addWidget(self.device_detail_ports, stretch=1)
 
@@ -1377,6 +1423,47 @@ class SessionScreen(QWidget):
             )
         return "\n".join(lines)
 
+    def _fill_inventory_table(self, dev: Device | None) -> None:
+        """Ports / interfaces table: SSH inventory when collected, else known ports."""
+        table = self.device_detail_ports
+        caption = self.device_ports_caption
+        table.setRowCount(0)
+        if dev is None:
+            caption.setText("Ports / interfaces — select a device.")
+            return
+        rows = inventory_rows(dev)
+        inv = dev.inventory or {}
+        if inv.get("interfaces"):
+            when = (inv.get("collected_at") or "").replace("T", " ").replace("+00:00", " UTC")
+            sysinfo = inv.get("system") or {}
+            facts = " · ".join(x for x in (sysinfo.get("model"), sysinfo.get("version"),
+                                            f"up {sysinfo['uptime']}" if sysinfo.get("uptime") else "") if x)
+            up = sum(1 for r in rows if r["up"])
+            caption.setText(
+                f"Ports / interfaces — {len(rows)} ({up} up), collected {when} over "
+                f"{(inv.get('source') or 'ssh').upper()} ({inv.get('platform', '?')})"
+                + (f" · {facts}" if facts else "")
+            )
+        elif rows:
+            caption.setText(f"Ports / interfaces — {len(rows)} known from the config / topology. "
+                            "Connect to collect live link state and speeds.")
+        else:
+            caption.setText("Ports / interfaces — none yet. Connect to collect them over SSH.")
+        table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, key in enumerate(("port", "status", "speed", "mac", "address", "vlan", "hardware", "source")):
+                item = QTableWidgetItem(row[key])
+                if key == "status":
+                    colour = "#2e7d32" if row["up"] else ("#9e9e9e" if row["status"] else "#607d8b")
+                    item.setForeground(QColor(colour))
+                    if row["up"]:
+                        font = item.font()
+                        font.setWeight(QFont.Weight.DemiBold)
+                        item.setFont(font)
+                if row["comment"]:
+                    item.setToolTip(row["comment"])
+                table.setItem(r, c, item)
+
     def _refresh_device_details(self, dev: Device | None = None) -> None:
         summary = getattr(self, "device_detail", None)
         ports = getattr(self, "device_detail_ports", None)
@@ -1388,7 +1475,7 @@ class SessionScreen(QWidget):
         if summary is not None:
             summary.setPlainText(self._format_device_summary(dev))
         if ports is not None:
-            ports.setPlainText(self._format_device_ports(dev))
+            self._fill_inventory_table(dev)
 
     def _save_column_widths(self, *_args) -> None:  # noqa: ANN002
         if not hasattr(self, "table") or not hasattr(self, "found_table"):

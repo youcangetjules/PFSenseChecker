@@ -162,3 +162,19 @@ def test_loaded_configs_list_opens_config_check(tmp_path) -> None:
     home.config_pulled_for_check.connect(opened.append)
     home._open_loaded_config(home.loaded_configs.item(0))
     assert opened == [str(cfg)]
+
+
+def test_security_sections_open() -> None:
+    _app()
+    from pfsense_checker.home_screen import HomeScreen
+
+    home = HomeScreen()
+    for key, title in (
+        ("security_holes", "Security Holes"),
+        ("pentesting", "Pentesting"),
+        ("dns_leakage", "DNS Leakage"),
+    ):
+        home.show_section(key)
+        assert home.current_section_key() == key
+        assert home.stack.currentWidget() is home._pages[key]
+        assert home.nav.label(key) == title
