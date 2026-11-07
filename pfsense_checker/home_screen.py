@@ -1218,7 +1218,7 @@ class HomeScreen(QWidget):
         actions.addWidget(self.modules_summary)
         v.addLayout(actions)
 
-        self.modules_table = QTableWidget(0, 7)
+        self.modules_table = QTableWidget(0, 8)
         self.modules_table.setHorizontalHeaderLabels(
             [
                 "Package",
@@ -1226,15 +1226,23 @@ class HomeScreen(QWidget):
                 "Installed",
                 "Importable",
                 "Loaded",
+                "Available",
                 "Import name",
                 "Notes",
             ]
         )
+        avail_hdr = self.modules_table.horizontalHeaderItem(5)
+        if avail_hdr is not None:
+            avail_hdr.setToolTip(
+                "Set by NetCheck: green = installed, version meets Required, and "
+                "loaded in this process without error. You change Installed and "
+                "Loaded; this follows."
+            )
         self.modules_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
         self.modules_table.horizontalHeader().setSectionResizeMode(
-            6, QHeaderView.ResizeMode.Stretch
+            7, QHeaderView.ResizeMode.Stretch
         )
         self.modules_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.modules_table.setSelectionBehavior(
@@ -1243,6 +1251,7 @@ class HomeScreen(QWidget):
         self.modules_table.setAlternatingRowColors(True)
         self.modules_table.setColumnWidth(2, 72)
         self.modules_table.setColumnWidth(4, 72)
+        self.modules_table.setColumnWidth(5, 84)
         v.addWidget(self.modules_table, stretch=1)
 
         tip = QLabel(
@@ -1273,6 +1282,24 @@ class HomeScreen(QWidget):
         holder.setProperty("checkbox", box)
         return holder
 
+    @staticmethod
+    def _modules_available_item(st) -> QTableWidgetItem:  # noqa: ANN001
+        """Read-only green / red cell; the system sets it, not the user."""
+        item = QTableWidgetItem("yes" if st.available else "no")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        if st.available:
+            item.setBackground(QColor("#c8e6c9"))
+            item.setForeground(QColor("#1b5e20"))
+        else:
+            item.setBackground(QColor("#ffcdd2"))
+            item.setForeground(QColor("#b71c1c"))
+        font = item.font()
+        font.setBold(True)
+        item.setFont(font)
+        item.setToolTip(st.available_reason)
+        return item
+
     def _modules_cell_checkbox(self, holder: QWidget | None) -> QCheckBox | None:
         if holder is None:
             return None
@@ -1291,6 +1318,8 @@ class HomeScreen(QWidget):
         installed_n = 0
         loaded_n = 0
         missing_n = 0
+        available_n = 0
+        saved_loads = set(python_modules.load_at_start_names())
         for r, st in enumerate(rows):
             is_installed = bool(st.installed_version)
             if is_installed:
@@ -1322,11 +1351,21 @@ class HomeScreen(QWidget):
                 4,
                 self._modules_checkbox(
                     bool(st.loaded),
-                    "Loaded in this process" if st.loaded else "Not loaded",
+                    ("Loaded in this process" if st.loaded else "Not loaded")
+                    + (
+                        " · loaded again after each login"
+                        if st.import_name in saved_loads
+                        else ""
+                    ),
                 ),
             )
-            self.modules_table.setItem(r, 5, QTableWidgetItem(st.import_name))
-            self.modules_table.setItem(r, 6, QTableWidgetItem(st.optional_note))
+            self.modules_table.setItem(r, 5, self._modules_available_item(st))
+            if st.available:
+                available_n += 1
+            self.modules_table.setItem(r, 6, QTableWidgetItem(st.import_name))
+            note_item = QTableWidgetItem(st.optional_note)
+            note_item.setToolTip(st.optional_note)  # long notes are elided
+            self.modules_table.setItem(r, 7, note_item)
         self._modules_baseline = baseline
         summary = python_modules.runtime_summary()
         self.modules_runtime.setText(
@@ -1335,6 +1374,7 @@ class HomeScreen(QWidget):
         )
         self.modules_summary.setText(
             f"{installed_n} installed · {missing_n} missing · {loaded_n} loaded now"
+            f" · {available_n} available"
         )
         self._modules_update_save_btn()
 
@@ -1376,6 +1416,7 @@ class HomeScreen(QWidget):
         to_install: list[str] = []
         to_import: list[str] = []
         notes: list[str] = []
+        persist: dict[str, bool] = {}
         for i, st in enumerate(rows):
             want_inst, want_load = current[i]
             was_inst, was_load = baseline[i]
@@ -1391,10 +1432,13 @@ class HomeScreen(QWidget):
                 to_import.append(st.import_name)
             elif (not want_load) and was_load:
                 notes.append(
-                    f"Cannot unload {st.import_name} from a running process."
+                    f"{st.import_name} stays loaded until NetCheck restarts; it "
+                    "will not be loaded after the next login."
                 )
+            if want_load != was_load:
+                persist[st.import_name] = want_load
 
-        if not to_install and not to_import and not notes:
+        if not to_install and not to_import and not notes and not persist:
             QMessageBox.information(self, "Save/Commit", "Nothing to apply.")
             return
 
@@ -1428,6 +1472,13 @@ class HomeScreen(QWidget):
                 results.append(f"Loaded {mod}")
             except Exception as exc:  # noqa: BLE001
                 results.append(f"Load failed {mod}: {exc}")
+        for mod, wanted in persist.items():
+            try:
+                python_modules.set_load_at_start(mod, wanted)
+            except OSError as exc:
+                results.append(f"Could not save Loaded choice for {mod}: {exc}")
+        if persist:
+            results.append("Loaded choices saved; they apply again after each login.")
 
         results.extend(notes)
         self._modules_refresh()

@@ -1,70 +1,83 @@
+# Each package has its own note (shown in Home → Python Modules → Notes).
+# "Not used by NetCheck yet" = listed for planned work; nothing imports it.
+
+# Required. Qt GUI toolkit: every NetCheck window, table, map and dialog.
 PySide6>=6.6.0
 
-# Optional: enables the "AI Advisor" tab (LLM advice via Poe). Safe to omit;
-# the app detects their absence and disables that feature.
+# Optional. Poe API client for the AI Advisor tab (LLM advice on findings). Without it the tab is disabled.
 fastapi-poe>=0.0.36
+
+# Optional. Makes Python trust the Windows certificate store for HTTPS (AI Advisor calls through corporate or private CAs).
 truststore>=0.9.0
 
-# Optional: Excel Physical Layout import (Topology Builder -> Import Excel...)
+# Optional. Reads .xlsx workbooks: Topology Builder → Import Excel (physical layout).
 openpyxl>=3.1.0
 
-# MikroTik REST credentials via Windows Credential Manager / OS keyring
+# Stores device and service passwords in Windows Credential Manager (MikroTik REST, OpenObserve) instead of in files.
 keyring>=25.0.0
 
-# Optional: full SSH login checks on the Session screen. Without it the
-# session screen falls back to TCP/banner reachability tests only.
+# Optional. SSH client: full logins, inventory and config pulls on Login to Routers. Without it only TCP/banner reachability is tested.
 paramiko>=3.4.0
 
-# Optional: PostgreSQL Database section (login, browse, SQL, schema graph).
+# Optional. PostgreSQL driver for the netcheck database: login, users, topology, the Database section.
 psycopg[binary]>=3.1.0
 
-# Optional: TimescaleDB time-series PostgreSQL (hypertables, monitor metrics).
-# Requires PostgreSQL with the TimescaleDB extension installed on the server.
+# Optional. TimescaleDB helpers (time-series hypertables). Not used by NetCheck yet; needs the TimescaleDB server extension.
 timescaledb>=0.2.1
 
-# Optional: MikroTik RouterOS API (API port, not REST). Safe to omit;
-# file/REST flows work without it. Install via Python Modules when needed.
+# Optional. MikroTik RouterOS API client (API port 8728/8729, not REST). Not used by NetCheck yet.
 librouteros>=3.2.0
 
-# Optional: Juniper Junos PyEZ (NETCONF). Safe to omit; used only when
-# talking to Junos devices via jnpr.junos.
+# Optional. Juniper Junos PyEZ: Junos automation over NETCONF (import name jnpr.junos). Not used by NetCheck yet.
 junos-eznc>=2.7.0
 
-# SNMPv2c/v3 stack for managed switches (TP-Link, Netgear) and Dell iDRAC.
-# Install via Python Modules → Save/Commit. Pair with Setup → MIB Libraries.
+# Optional. SNMP v2c/v3 engine: SNMP (v3) setup test probe and polling managed switches / iDRAC.
 pysnmp>=5.1.0
+
+# Optional. MIB compiler: turns vendor MIB files into pysnmp modules (Setup → MIB Libraries).
 pysmi>=1.5.0
 
-# Optional: HTTPS clients for Omada/Netgear REST and Redfish-style APIs.
+# Optional. HTTP client: AI Advisor requests to Poe.
 httpx>=0.27.0
+
+# Optional. Classic HTTP client. Not imported by NetCheck directly; redfish, napalm and others depend on it.
 requests>=2.31.0
 
-# Optional: DMTF Redfish client for Dell iDRAC (power, health, NICs, inventory).
+# Optional. DMTF Redfish client for Dell iDRAC (power, health, NICs, inventory). Not used by NetCheck yet.
 redfish>=3.2.0
 
-# Optional: SSH CLI automation with device-type profiles (TP-Link / Netgear
-# fallback when SNMP or REST is incomplete).
+# Optional. SSH CLI automation with per-vendor device profiles (TP-Link / Netgear fallback). Not used by NetCheck yet.
 netmiko>=4.3.0
 
-# Optional: multi-vendor network driver layer (NAPALM). Coverage varies by OS.
+# Optional. NAPALM multi-vendor driver layer (getters / config for Junos, EOS, IOS…). Not used by NetCheck yet; large dependency tree.
 napalm>=5.0.0
 
-# Optional: NETCONF client (some ProSAFE / Junos-adjacent gear).
+# Optional. NETCONF client (Junos and other NETCONF devices). Not used by NetCheck yet.
 ncclient>=0.6.15
 
-# Optional: packet craft / L2 discovery helpers. Heavy — enable only if needed.
+# Optional. Packet crafting / sniffing (L2 discovery). Not used by NetCheck yet. Powerful and heavy: needs Npcap and often admin rights.
 scapy>=2.5.0
 
-# Optional: topology visualisation / graph helpers (in-app map stays PySide6).
-# Install via Python Modules → Save/Commit; toggle off locally if unused.
+# Optional. Graph algorithms (paths, reachability, cycles) over topologies. Not used by NetCheck yet.
 networkx>=3.2
+
+# Optional. Static charts / PNG plotting. Not used by NetCheck yet (dashboard charts are drawn with Qt).
 matplotlib>=3.8.0
+
+# Optional. Interactive HTML charts. Not used by NetCheck yet.
 plotly>=5.18.0
+
+# Optional. Interactive HTML network-graph export (vis.js). Not used by NetCheck yet.
 pyvis>=0.3.2
-# Graphviz Python bindings — requires Graphviz OS install for full layout.
+
+# Optional. Python front end for Graphviz layouts; needs the Graphviz program installed. Not used by NetCheck yet.
 graphviz>=0.20.0
-# Optional native Graphviz C bindings (often fails on Windows without Graphviz).
+
+# Optional. Native Graphviz C bindings; often fails to build on Windows without Graphviz. Not used by NetCheck yet.
 pygraphviz>=1.11
+
+# Optional. Pure-Python layered (Sugiyama) graph layout, no Graphviz needed. Not used by NetCheck yet.
 grandalf>=0.8
-# python-igraph on PyPI; import name is igraph.
+
+# Optional. Fast C graph library (python-igraph on PyPI; import name igraph). Not used by NetCheck yet.
 igraph>=0.11.0

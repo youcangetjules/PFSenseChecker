@@ -4,6 +4,8 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Login panel: Help / Options / Forgot Credentials equal width, yellow / dark grey / blue with electric 1px borders; Login gets an electric-blue border, Cancel white with an 80% grey border (1.3.80).
+- Python Modules: Available column (system-set, green/red with reason), Loaded choices persist across logins (data/python_modules.json, requirements.txt allowlist), a note for every package. 15 listed packages are not imported anywhere (1.3.79).
 - Loaded configs list under the section menu (click to open in Config Check). Database page shows logged-in user@db and real SSL state (TLSv1.3 on localhost) next to Save login (1.3.78).
 - Ignore device on the Login to Routers device list (saved, greyed, never probed). Discovery made sshguard-safe after it got this PC blocked from 222.10.50.1 SSH/GUI (1.3.77, BUG-040).
 - Section menu: back arrow above the submenu title returns to the full section list (1.3.76).

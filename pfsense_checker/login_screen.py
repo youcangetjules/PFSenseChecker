@@ -90,6 +90,46 @@ def _secondary_btn_style() -> str:
     )
 
 
+def _tinted_btn_style(
+    bg: str, fg: str, border: str, hover_bg: str, pressed_bg: str
+) -> str:
+    """Solid button with a 1px 'electric' border in a vivid version of *bg*."""
+    return (
+        "QPushButton {"
+        f" padding: 6px 14px; font-weight: 600;"
+        f" background-color: {bg}; color: {fg};"
+        f" border: 1px solid {border}; border-radius: 3px; }}"
+        f"QPushButton:hover {{ background-color: {hover_bg}; }}"
+        f"QPushButton:pressed {{ background-color: {pressed_bg}; }}"
+    )
+
+
+# Help / Options / Forgot Credentials on the login panel.
+HELP_BTN_STYLE = _tinted_btn_style("#ffd54f", "#212121", "#ffea00", "#ffe082", "#ffca28")
+OPTIONS_BTN_STYLE = _tinted_btn_style("#424242", "#ffffff", "#b0bec5", "#616161", "#212121")
+FORGOT_BTN_STYLE = _tinted_btn_style("#1e88e5", "#ffffff", "#00b0ff", "#42a5f5", "#1565c0")
+# Login / Cancel on the login panel (sizes set by _sync_action_button_pair).
+LOGIN_BTN_STYLE = (
+    "QPushButton {"
+    " padding: 8px 22px; font-weight: bold;"
+    " background-color: #1565c0; color: white;"
+    " border: 1px solid #448aff; border-radius: 3px; }"
+    "QPushButton:hover { background-color: #42a5f5; }"
+    "QPushButton:pressed { background-color: #0d47a1; }"
+)
+CANCEL_BTN_STYLE = _tinted_btn_style("#ffffff", "#212121", "#333333", "#f5f5f5", "#e0e0e0")
+
+
+def _sync_widths_to(reference: QPushButton, *others: QPushButton) -> None:
+    """Give *others* the same fixed size as *reference* (its natural width)."""
+    from PySide6.QtWidgets import QSizePolicy
+
+    width = reference.sizeHint().width()
+    for btn in (reference, *others):
+        btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        btn.setFixedSize(width, _ACTION_BTN_H)
+
+
 def _inline_btn_style() -> str:
     return (
         "QPushButton {"
@@ -972,21 +1012,24 @@ class LoginDialog(QDialog):
         self.btn_help = QPushButton("Help")
         self.btn_options = QPushButton("Options")
         self.btn_forgot = QPushButton("Forgot Credentials")
+        self.btn_help.setStyleSheet(HELP_BTN_STYLE)
+        self.btn_options.setStyleSheet(OPTIONS_BTN_STYLE)
+        self.btn_forgot.setStyleSheet(FORGOT_BTN_STYLE)
         for b in (self.btn_help, self.btn_options, self.btn_forgot):
-            b.setStyleSheet(_secondary_btn_style())
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setFixedHeight(_ACTION_BTN_H)
+        # Forgot Credentials is the widest label: the other two match it.
+        _sync_widths_to(self.btn_forgot, self.btn_help, self.btn_options)
         self.btn_help.clicked.connect(self._show_help)
         self.btn_options.clicked.connect(self._open_options)
         self.btn_forgot.clicked.connect(self._open_forgot_credentials)
 
         self.submit = QPushButton("Login to main tool")
         self.submit.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.submit.setStyleSheet(_primary_btn_style())
+        self.submit.setStyleSheet(LOGIN_BTN_STYLE)
         self.submit.clicked.connect(self._on_submit)
         self._enter_button = self.submit
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setStyleSheet(_secondary_btn_style())
+        self.cancel_btn.setStyleSheet(CANCEL_BTN_STYLE)
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self.reject)
 

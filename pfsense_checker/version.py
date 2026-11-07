@@ -72,6 +72,34 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.80",
+        date="2026-11-07",
+        notes=(
+            "Login panel: Help (yellow), Options (dark grey, white text) and "
+            "Forgot Credentials (blue) are the same width as Forgot Credentials, "
+            "each with a 1px border in an electric version of its colour.",
+            "Login to main tool keeps its size and gets an electric-blue 1px "
+            "border; Cancel is white with a 1px 80% grey (#333333) border.",
+        ),
+    ),
+    Change(
+        version="1.3.79",
+        date="2026-11-07",
+        notes=(
+            "Python Modules: an Available column right of Loaded, set by "
+            "NetCheck — green when the package is installed, meets Required, "
+            "and is loaded in this process without an import error; red with "
+            "the reason in the tooltip otherwise. You only change Installed and "
+            "Loaded.",
+            "Loaded choices survive log-out / log-in: Save/Commit stores them in "
+            "data/python_modules.json and they are imported again after each "
+            "sign-in. Only modules listed in requirements.txt are honoured.",
+            "Every package in requirements.txt has its own note (what it is, "
+            "what NetCheck uses it for), shown in the Notes column. 15 packages "
+            "are marked 'Not used by NetCheck yet'.",
+        ),
+    ),
+    Change(
         version="1.3.78",
         date="2026-11-07",
         notes=(

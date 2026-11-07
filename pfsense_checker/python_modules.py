@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -79,6 +80,9 @@ class ModuleStatus:
     import_name: str
     raw: str
     optional_note: str = ""
+    # Set by the system: loaded correctly and usable right now.
+    available: bool = False
+    available_reason: str = ""
 
     @property
     def status(self) -> str:
@@ -171,12 +175,114 @@ def is_loaded(module_name: str) -> bool:
     return any(name == module_name or name.startswith(prefix) for name in sys.modules)
 
 
+# import name -> error text from the last failed import in this process.
+_LOAD_ERRORS: dict[str, str] = {}
+
+# Modules the operator ticked Loaded; imported again after each login.
+LOAD_AT_START_PATH = PROJECT_ROOT / "data" / "python_modules.json"
+
+
+def version_meets(installed: str, specifier: str) -> bool | None:
+    """True / False against *specifier*, or None when it cannot be checked."""
+    if not installed or not (specifier or "").strip():
+        return None
+    try:
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+        from packaging.version import InvalidVersion, Version
+    except ImportError:
+        return None
+    try:
+        return Version(installed) in SpecifierSet(specifier)
+    except (InvalidSpecifier, InvalidVersion):
+        return None
+
+
+def availability(
+    *,
+    installed_version: str,
+    specifier: str,
+    loaded: bool,
+    import_name: str,
+) -> tuple[bool, str]:
+    """(available, reason): installed, version OK, loaded, no import error."""
+    if not installed_version:
+        return False, "Not installed"
+    error = _LOAD_ERRORS.get(import_name)
+    if error and not loaded:
+        return False, f"Import failed: {error}"
+    if version_meets(installed_version, specifier) is False:
+        return False, f"Installed {installed_version} does not meet {specifier}"
+    if not loaded:
+        return False, (
+            "Installed but not loaded in this process — tick Loaded, then Save/Commit"
+        )
+    return True, f"Loaded and usable ({import_name} {installed_version})"
+
+
+def load_at_start_names(path: Path | None = None) -> list[str]:
+    """Import names saved as Loaded (may include stale or unknown names)."""
+    p = path or LOAD_AT_START_PATH
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    names = data.get("load_at_start") if isinstance(data, dict) else None
+    return [str(n) for n in names or [] if str(n).strip()]
+
+
+def save_load_at_start(names: list[str], path: Path | None = None) -> None:
+    p = path or LOAD_AT_START_PATH
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        json.dumps({"load_at_start": sorted(set(names))}, indent=2),
+        encoding="utf-8",
+    )
+
+
+def set_load_at_start(import_name: str, wanted: bool, path: Path | None = None) -> None:
+    names = set(load_at_start_names(path))
+    if wanted:
+        names.add(import_name)
+    else:
+        names.discard(import_name)
+    save_load_at_start(sorted(names), path)
+
+
+def load_saved_modules(
+    path: Path | None = None, requirements: Path | None = None
+) -> dict[str, str]:
+    """Import the saved Loaded modules. Returns {name: "ok" | error}.
+
+    Only import names that belong to requirements.txt are honoured, so an
+    edited python_modules.json cannot make NetCheck import arbitrary code.
+    """
+    allowed = {import_name_for(e.name) for e in parse_requirements(requirements)}
+    results: dict[str, str] = {}
+    for name in load_at_start_names(path):
+        if name not in allowed:
+            results[name] = "skipped: not in requirements.txt"
+            continue
+        try:
+            import_now(name)
+            results[name] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            results[name] = _LOAD_ERRORS.get(name) or str(exc)
+    return results
+
+
 def inspect_requirements(path: Path | None = None) -> list[ModuleStatus]:
     """Build status rows for each requirements.txt entry."""
     out: list[ModuleStatus] = []
     for entry in parse_requirements(path):
         mod = import_name_for(entry.name)
         version = installed_version(entry.name)
+        loaded = is_loaded(mod)
+        ok, why = availability(
+            installed_version=version,
+            specifier=entry.specifier,
+            loaded=loaded,
+            import_name=mod,
+        )
         out.append(
             ModuleStatus(
                 name=entry.name,
@@ -184,10 +290,12 @@ def inspect_requirements(path: Path | None = None) -> list[ModuleStatus]:
                 specifier=entry.specifier,
                 installed_version=version,
                 importable=is_importable(mod),
-                loaded=is_loaded(mod),
+                loaded=loaded,
                 import_name=mod,
                 raw=entry.raw,
                 optional_note=entry.optional_note,
+                available=ok,
+                available_reason=why,
             )
         )
     return out
@@ -229,4 +337,9 @@ def import_now(module_name: str) -> None:
     name = (module_name or "").strip()
     if not name:
         raise ValueError("Empty module name")
-    importlib.import_module(name)
+    try:
+        importlib.import_module(name)
+    except Exception as exc:
+        _LOAD_ERRORS[name] = f"{type(exc).__name__}: {exc}"[:300]
+        raise
+    _LOAD_ERRORS.pop(name, None)

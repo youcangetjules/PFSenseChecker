@@ -4913,6 +4913,19 @@ def run_app() -> int:
         splash.raise_()
         app.processEvents()
 
+    # Modules the operator ticked Loaded (Python Modules) survive log-in /
+    # log-out: import them again now.
+    try:
+        from pfsense_checker import python_modules as _pm
+
+        for _name, _res in _pm.load_saved_modules().items():
+            if _res == "ok":
+                app_log.get_logger("modules").info("Loaded at login: %s", _name)
+            else:
+                app_log.get_logger("modules").warning("Load at login %s: %s", _name, _res)
+    except Exception as _exc:  # noqa: BLE001
+        app_log.get_logger("modules").error("Load saved modules failed: %s", _exc)
+
     import time as _time
 
     t_build = _time.perf_counter()
