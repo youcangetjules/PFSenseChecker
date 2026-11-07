@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetrics,
+    QImage,
     QPainter,
     QPainterPath,
     QPixmap,
@@ -52,7 +53,11 @@ NIC_H = 22.0
 NIC_H_WITH_ADDR = 36.0
 NIC_GAP = 4.0
 CABLE_CORRIDOR_H = 40.0  # space below port grid for link dog-legs
-LOGO_MAX_W = 120.0
+# Vendor logo fills the chassis title bar (less this inset), aspect kept,
+# never wider than this share of the box.
+LOGO_INSET = 4.0
+LOGO_MAX_SHARE = 0.4
+LOGO_SUPERSAMPLE = 2  # rendered at 2x so it stays sharp when zoomed
 
 # Port layouts (right-click the chassis title). Cells stretch to fill the width.
 LAYOUT_ROW = "row"  # every port in one row
@@ -205,8 +210,24 @@ def _vendor_badge(kind: str, model: str) -> tuple[str, str, str] | None:
 _LOGO_CACHE: dict[tuple[str, int], QPixmap | None] = {}
 
 
+def logo_target(header: QRectF, box_width: float, size: tuple[int, int] | None) -> QRectF:
+    """Where the logo goes: right of the title bar, as tall as the bar less
+    LOGO_INSET top and bottom, aspect kept, at most LOGO_MAX_SHARE of the box
+    wide (then shorter, centred). *size* None gives just the target height.
+    """
+    h = max(8.0, header.height() - 2 * LOGO_INSET)
+    if not size or size[1] <= 0:
+        return QRectF(box_width - 8, header.top() + LOGO_INSET, 0, h)
+    w = size[0] * h / size[1]
+    max_w = max(24.0, box_width * LOGO_MAX_SHARE)
+    if w > max_w:
+        w, h = max_w, max_w * size[1] / size[0]
+    y = header.top() + (header.height() - h) / 2
+    return QRectF(box_width - 8 - w, y, w, h)
+
+
 def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
-    """Vendor logo scaled to *height* (at most LOGO_MAX_W wide), from assets/logos."""
+    """Vendor logo scaled to *height* pixels, aspect kept, from assets/logos."""
     path = device_identity.logo_path(vendor)
     if path is None:
         return None
@@ -217,27 +238,58 @@ def _logo_pixmap(vendor: str, height: int) -> QPixmap | None:
     if key in _LOGO_CACHE:
         return _LOGO_CACHE[key]
     pix: QPixmap | None = None
-    if path is not None:
-        if path.suffix.lower() == ".svg":
-            from PySide6.QtSvg import QSvgRenderer
-
-            renderer = QSvgRenderer(str(path))
-            if renderer.isValid():
-                size = renderer.defaultSize()
-                w = max(1, int(size.width() * height / max(1, size.height())))
-                pix = QPixmap(w, height)
-                pix.fill(Qt.GlobalColor.transparent)
-                p = QPainter(pix)
-                renderer.render(p)
-                p.end()
-        else:
-            loaded = QPixmap(str(path))
-            if not loaded.isNull():
-                pix = loaded.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
-    if pix is not None and pix.width() > LOGO_MAX_W:
-        pix = pix.scaledToWidth(int(LOGO_MAX_W), Qt.TransformationMode.SmoothTransformation)
+    img = _load_logo_image(path)
+    if img is not None and not img.isNull():
+        img = trim_logo_margins(img)
+        pix = QPixmap.fromImage(
+            img.scaledToHeight(max(1, height), Qt.TransformationMode.SmoothTransformation)
+        )
     _LOGO_CACHE[key] = pix
     return pix
+
+
+def _load_logo_image(path) -> QImage | None:  # noqa: ANN001
+    """The logo as an image: SVGs are rendered 512px tall first."""
+    if path.suffix.lower() == ".svg":
+        from PySide6.QtSvg import QSvgRenderer
+
+        renderer = QSvgRenderer(str(path))
+        if not renderer.isValid():
+            return None
+        size = renderer.defaultSize()
+        h = 512
+        w = max(1, int(size.width() * h / max(1, size.height())))
+        img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        renderer.render(p)
+        p.end()
+        return img
+    img = QImage(str(path))
+    return None if img.isNull() else img
+
+
+def trim_logo_margins(img: QImage) -> QImage:
+    """Crop transparent or plain-white margins so the visible logo, not its
+    canvas, fills the title bar. Sampled on a grid (fast on large files),
+    then widened by one grid step so no edge of the logo is lost.
+    """
+    w, h = img.width(), img.height()
+    step = max(1, max(w, h) // 300)
+    left, top, right, bottom = w, h, -1, -1
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+            c = img.pixelColor(x, y)
+            if c.alpha() > 24 and not (c.red() > 242 and c.green() > 242 and c.blue() > 242):
+                left, right = min(left, x), max(right, x)
+                top, bottom = min(top, y), max(bottom, y)
+    if right < 0:
+        return img
+    left, top = max(0, left - step), max(0, top - step)
+    right, bottom = min(w - 1, right + step), min(h - 1, bottom + step)
+    if (left, top, right, bottom) == (0, 0, w - 1, h - 1):
+        return img
+    return img.copy(left, top, right - left + 1, bottom - top + 1)
 
 
 # Port classes: fill / edge colours, and left-to-right group order.
@@ -743,15 +795,22 @@ class ChassisItem(QGraphicsObject):
         # Vendor logo (assets/logos/<vendor>.svg|png) or wordmark badge, top-right.
         name_width = rect.width() - 16
         ident = device_identity.identity_for(self.device)
-        logo = _logo_pixmap(ident.vendor or (self.device.kind or "").lower(), 20)
+        logo_rect = logo_target(hdr, rect.width(), None)
+        logo = _logo_pixmap(
+            ident.vendor or (self.device.kind or "").lower(),
+            int(round(logo_rect.height() * LOGO_SUPERSAMPLE)),
+        )
         badge = None if logo is not None else _vendor_badge(
             self.device.kind if self.device.kind in _VENDOR_BADGES else ident.vendor or self.device.kind,
             ident.model or self.device.model,
         )
         if logo is not None:
-            lx = rect.width() - logo.width() - 8
-            painter.drawPixmap(int(lx), 5, logo)
-            name_width = max(40.0, lx - 14)
+            target = logo_target(hdr, rect.width(), (logo.width(), logo.height()))
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.drawPixmap(target, logo, QRectF(logo.rect()))
+            painter.restore()
+            name_width = max(40.0, target.left() - 14)
         if badge:
             label, bg, fg = badge
             bfont = QFont()
@@ -789,10 +848,12 @@ class ChassisItem(QGraphicsObject):
         sub = type_text
         if extra and extra.lower() not in type_text.lower():
             sub = f"{type_text} · {extra}" if type_text else extra
+        # With a logo filling the title bar, stop the type line short of it.
+        sub_width = name_width if logo is not None else rect.width() - 16
         painter.drawText(
-            QRectF(8, 22, rect.width() - 16, 16),
+            QRectF(8, 22, sub_width, 16),
             Qt.AlignmentFlag.AlignLeft,
-            sub,
+            QFontMetrics(font2).elidedText(sub, Qt.TextElideMode.ElideRight, int(sub_width)),
         )
 
         painter.setPen(QColor("#78909c"))

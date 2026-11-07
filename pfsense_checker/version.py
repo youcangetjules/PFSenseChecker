@@ -72,6 +72,16 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.100",
+        date="2026-11-07",
+        notes=(
+            "Topology: the vendor logo fills the chassis title bar (4px inset), aspect "
+            "ratio kept, at most 40% of the box wide; empty transparent / white margins "
+            "in the image are trimmed first, rendered at 2x for zoom. The type line stops "
+            "short of the logo.",
+        ),
+    ),
+    Change(
         version="1.3.99",
         date="2026-11-07",
         notes=(
