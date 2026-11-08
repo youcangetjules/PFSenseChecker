@@ -245,16 +245,33 @@ def _freebsd_result(text: str) -> InventoryResult:
 _TERSE_LINE = re.compile(r"^\s*(\d+)\s+([A-Z ]*?)\s*(?=[a-z0-9\-.]+=)")
 
 
+_TERSE_KEY = re.compile(r"\s+(?=[a-z][a-z0-9\-.]*=)")
+
+
+def _terse_pairs(rest: str) -> dict[str, str]:
+    """``key=value key=value`` from ``print terse``. Values are not quoted
+    there, so a value runs up to the next `` key=``: an interface called
+    "Fujitsu PC (VL630)" keeps its whole name."""
+    out: dict[str, str] = {}
+    for token in _TERSE_KEY.split(rest.strip()):
+        key, sep, val = token.partition("=")
+        if not sep:
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] == '"':
+            val = val[1:-1]
+        out[key] = val
+    return out
+
+
 def _terse_rows(text: str) -> list[tuple[str, dict[str, str]]]:
     """RouterOS ``print terse`` → [(flags, {key: value})]."""
-    from pfsense_checker.mikrotik import _parse_pairs
-
     rows = []
     for line in (text or "").splitlines():
         m = _TERSE_LINE.match(line)
         if not m:
             continue
-        rows.append((m.group(2).replace(" ", ""), _parse_pairs(line[m.end():])))
+        rows.append((m.group(2).replace(" ", ""), _terse_pairs(line[m.end():])))
     return rows
 
 

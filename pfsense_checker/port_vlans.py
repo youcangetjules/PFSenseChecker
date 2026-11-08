@@ -12,6 +12,9 @@ MikroTik
     port's PVID for access ports.
 pfSense / OPNsense
   * A NIC is tagged for every VLAN whose parent it is.
+  * Uplinks (WANs and outbound tunnels) are the interfaces named wan, those
+    with an upstream gateway or a DHCP / PPPoE address, OpenVPN clients
+    (ovpncN) and ones described as WAN or EVL (external VLAN).
 
 Qt-free; colours are plain hex strings. (added 2026-11-07)
 """
@@ -74,13 +77,38 @@ class DeviceVlans:
     identity: str = ""  # device identity / hostname from its config
     radios: dict[str, str] = field(default_factory=dict)  # wlan name (lower) → radio-name
     capsman: list[CapsmanIface] = field(default_factory=list)  # set on a CAPsMAN controller
+    uplinks: set[str] = field(default_factory=set)  # lower port / NIC names that face upstream
+    # Bridges of VLAN interfaces (pfSense): bridge → [(port, VLAN id)]. The
+    # bridge joins one VLAN segment of each port, not the whole port.
+    segments: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+
+    def key(self, name: str) -> str:
+        """The config's (lower-case) name for a port. An older inventory cut
+        names at the first space ("Fujitsu" for "Fujitsu PC (VL630)"): such a
+        name maps to the one config name it starts, if there is just one."""
+        low = (name or "").lower()
+        known = set(self.ports) | {m for ms in self.bridges.values() for m in ms} | self.uplinks
+        if not low or low in known:
+            return low
+        longer = [k for k in known if k.startswith(low + " ")]
+        return longer[0] if len(longer) == 1 else low
 
     def port(self, name: str) -> PortVlans | None:
-        return self.ports.get((name or "").lower())
+        return self.ports.get(self.key(name))
 
     def bridge_of(self, port: str) -> str:
-        low = (port or "").lower()
+        low = self.key(port)
         return next((b for b, members in self.bridges.items() if low in members), "")
+
+    def segments_of(self, port: str) -> list[tuple[str, str]]:
+        """[(bridge, VLAN id)] for each VLAN segment of *port* that a bridge joins."""
+        low = self.key(port)
+        return [(b, vid) for b, segs in self.segments.items() for p, vid in segs if p == low]
+
+    def bridge_group(self, port: str) -> str:
+        """The bridge a port is drawn with: as a member, or through a VLAN segment."""
+        segs = self.segments_of(port)
+        return self.bridge_of(port) or (segs[0][0] if segs else "")
 
 
 def _vid_key(v: str) -> tuple:
@@ -263,6 +291,8 @@ def _mikrotik_wireless(raw: dict, info: DeviceVlans) -> None:
         mode = c.get(".vlan-mode") or c.get("datapath.vlan-mode") or dp.get("vlan-mode", "use-tag")
         configs[c.get("name", "")] = (_tagged_vid(mode, str(vid)), c.get("ssid", ""))
     for ci in raw.get("caps-man interface", []):
+        if ci.get("name"):  # a CAP's radio as the controller sees it: not a port here
+            info.hidden.add(ci["name"].lower())
         if _off(ci) or not ci.get("name"):
             continue
         vid, ssid = configs.get(ci.get("configuration", ""), ("", ""))
@@ -310,6 +340,25 @@ def link_capsman(devices: list[tuple[str, DeviceVlans, list[str]]]) -> None:
                     info.bridges[bridge].append(virt)  # virtual APs join the same bridge
 
 
+UPLINK_V4 = {"dhcp", "pppoe", "pptp", "l2tp"}
+UPLINK_V6 = {"dhcp6", "slaac", "pppoe", "6rd", "6to4"}
+UPLINK_WORD = re.compile(r"(?<![a-z])(wan|evl)\d*(?![a-z])", re.IGNORECASE)
+
+
+def is_pfsense_uplink(iface) -> bool:  # noqa: ANN001
+    """A pfSense interface that faces upstream: WAN-type or an outbound tunnel."""
+    raw = getattr(iface, "raw", {}) or {}
+    dev = (iface.device or "").lower()
+    return (
+        iface.name.lower() == "wan"
+        or (iface.ipaddr or "").lower() in UPLINK_V4
+        or (iface.ipaddrv6 or "").lower() in UPLINK_V6
+        or bool(raw.get("gateway") or raw.get("gatewayv6"))
+        or dev.startswith("ovpnc")
+        or bool(UPLINK_WORD.search((iface.descr or "").replace("_", " ")))
+    )
+
+
 def _pfsense(result) -> DeviceVlans:  # noqa: ANN001
     info = DeviceVlans()
     by_device: dict[str, list[str]] = {}
@@ -326,6 +375,10 @@ def _pfsense(result) -> DeviceVlans:  # noqa: ANN001
         assigned[i.name.lower()] = dev
         if "." in dev or i.kind == "vlan":
             info.vlan_ifaces.add(i.name.lower())
+        elif is_pfsense_uplink(i):
+            info.uplinks.add(i.name.lower())
+            if dev:
+                info.uplinks.add(dev)
     port_of_device = {dev: iface for iface, dev in assigned.items() if "." not in dev}
     for b in result.bridges:
         name = b.bridgeif
@@ -336,19 +389,24 @@ def _pfsense(result) -> DeviceVlans:  # noqa: ANN001
             if (i.device or "").lower() == name.lower():
                 info.hidden.add(i.name.lower())
         members: list[str] = []
+        segments: list[tuple[str, str]] = []
         vlans_bridged: list[str] = []
         for m in b.members:
             low = m.lower()
             dev = assigned.get(low, low)
-            if "." in dev:  # a VLAN interface: draw the bridge round the port it rides on
+            if "." in dev:  # a VLAN interface: the bridge joins that VLAN segment of its port
                 parent, _, tag = dev.partition(".")
-                low = port_of_device.get(parent, parent)
+                seg = (port_of_device.get(parent, parent), tag)
                 if tag not in vlans_bridged:
                     vlans_bridged.append(tag)
-            if low not in members:
+                if seg not in segments:
+                    segments.append(seg)
+            elif low not in members:
                 members.append(low)
         label = f"{name} (VLAN {', '.join(vlans_bridged)})" if vlans_bridged else name
         info.bridges[label] = members
+        if segments:
+            info.segments[label] = segments
     for iface, dev in assigned.items():
         tags = by_device.get(dev)
         if tags and iface not in info.vlan_ifaces:

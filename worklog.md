@@ -2,6 +2,16 @@
 
 Daily record of work done on NetCheck. Newest day first. Append a day; do not rewrite a past day except to correct a factual error.
 
+## 2026-11-08
+
+- Port right-click → Uplink: any port can be moved into the title bar for northbound cables; saved per device (1.3.115).
+- The two empty "Pfsense · host" boxes were guardian again: a network scan found its web GUI at 100.48.64.1 (LAN, igb1) and 222.10.50.1 (VLAN 630 gateway, also this PC's default gateway) and added each as a device with no config. They are no longer drawn; host-222-10-50-1 was also marked ignored and was drawn anyway (1.3.115).
+- CRS109-2 (Lounge): ether1 is named "Fujitsu PC (VL630)"; the RouterOS inventory cut it to "Fujitsu", so it showed outside its bridge (1.3.115, BUG-049). Reconnecting the CRS109 stores the full name.
+- CRS328: front panel now sfp1-20, combo1-4, sfp-sfpplus1-4; its six CAPsMAN interfaces are no longer drawn as ports (1.3.114).
+- guardian's bridge0 joins VLAN 710 on igb0 and mce1: now drawn as a chip with lines to the 710 stripe on each port (1.3.113).
+- Uplinks in the chassis title bar (1.3.112). guardian: WAN, OPT1 (WAN2), OPT2 (WAN1_main) and the three EVL OpenVPN clients.
+- Suite: 418 passed. `test_log_pipeline::test_pipeline_page_port_defaults_to_59000` failed once in the full suite and passed on rerun (child-process timing).
+
 ## 2026-11-07
 
 - Topology Add Device with a device library (9 built-in vendor files + data/device_library) (1.3.111). Port lists in the starter library are from known models; worth checking against real units.

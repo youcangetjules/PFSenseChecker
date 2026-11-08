@@ -81,3 +81,13 @@ def test_pfsense_pull_tries_keys_before_asking_for_a_password(fake, monkeypatch)
     result = s.export_pfsense_config_ssh(dev, password=None)
     assert fake.calls and fake.calls[0]["allow_agent"]  # it tried the keys
     assert not result.ok and result.needs_ssh_password  # and only then asks
+
+
+def test_routeros_terse_names_with_spaces_stay_whole() -> None:
+    from pfsense_checker.ssh_inventory import _terse_rows
+
+    rows = _terse_rows(' 0  R  name=Fujitsu PC (VL630) default-name=ether1 type=ether comment=lounge desk\n'
+                       ' 1  X  name="ether2" type=ether')
+    assert rows[0] == ("R", {"name": "Fujitsu PC (VL630)", "default-name": "ether1", "type": "ether",
+                             "comment": "lounge desk"})
+    assert rows[1] == ("X", {"name": "ether2", "type": "ether"})

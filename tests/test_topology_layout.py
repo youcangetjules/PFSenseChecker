@@ -54,15 +54,17 @@ def test_router_is_one_row_grouped_by_type() -> None:
     _app()
     ch = sc.ChassisItem(_pf())
     items = ch.port_items
-    ys = {round(i.pos().y()) for i in items.values()}
+    assert items["WAN"].pos().y() + items["WAN"].h <= sc.HEADER_H  # the uplink sits in the title bar
+    rest = [i for n, i in items.items() if not ch.is_uplink(n)]
+    ys = {round(i.pos().y()) for i in rest}
     assert len(ys) == 1  # one row
-    order = sorted(items.values(), key=lambda i: i.pos().x())
+    order = sorted(rest, key=lambda i: i.pos().x())
     classes = [i.port_cls for i in order]
     assert classes == sorted(classes, key=lambda c: sc._CLASS_ORDER[c])  # grouped physical → … → virtual
     # VLAN interfaces and bridges are not ports: they colour / wrap the ports instead.
     assert "OPT18" not in items and "mce1.630" not in items and "OPT22" not in items
     assert items["OPT4"].disabled
-    assert all(i.w == sc.NIC_W == 72.0 for i in order)
+    assert len({round(i.w) for i in order}) == 1 and order[0].w >= sc.NIC_W  # one shared cell width
     assert ch.boundingRect().width() > ch.boundingRect().height()  # one horizontal row (3 real ports left)
 
 
@@ -80,11 +82,14 @@ def test_cable_enters_lower_device_from_the_top() -> None:
     sw_port = view._chassis["sw"].port_items["sfp5"]
     fw_port = view._chassis["fw"].port_items["WAN"]
     assert abs(start.y - sw_port.mapToScene(0, 0).y()) < 0.5  # leaves the top of sfp5 (device below)
-    assert abs(end.y - fw_port.mapToScene(0, fw_port.h).y()) < 0.5  # reaches the bottom of WAN
+    # WAN is an uplink: its cable leaves the top of the port and goes round the box.
+    assert abs(end.y - fw_port.mapToScene(0, 0).y()) < 0.5
     fw_bottom = view._chassis["fw"].sceneBoundingRect().bottom()
     sw_top = view._chassis["sw"].sceneBoundingRect().top()
+    fw_top = view._chassis["fw"].sceneBoundingRect().top()
     runs = [path.elementAt(i).y for i in range(1, path.elementCount() - 1)]
-    assert all(fw_bottom <= y <= sw_top for y in runs)  # stays in the gap
+    assert runs[-1] < fw_top and runs[-2] < fw_top  # climbs out above the firewall…
+    assert all(fw_bottom <= y <= sw_top for y in runs[:-2])  # …after crossing the gap
 
 
 def test_drag_loaded_config_onto_config_check(tmp_path, monkeypatch) -> None:

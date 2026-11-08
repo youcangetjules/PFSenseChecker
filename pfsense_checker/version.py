@@ -72,6 +72,51 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.115",
+        date="2026-11-08",
+        notes=(
+            "Right-click a port → Uplink: the port moves into the title bar and its "
+            "cables leave northwards; untick it to put it back. Automatic uplinks can be "
+            "turned off the same way. Saved with the topology.",
+            "Empty boxes found by a network scan at another device's interface address "
+            "(guardian's LAN and VLAN 630 gateway) are no longer drawn as extra devices; "
+            "devices marked ignored are left off the canvas.",
+            "RouterOS inventory keeps interface names with spaces whole (\"Fujitsu PC "
+            "(VL630)\" was cut to \"Fujitsu\" and fell out of its bridge); names saved by "
+            "the old inventory are matched to the config's full name (BUG-049).",
+        ),
+    ),
+    Change(
+        version="1.3.114",
+        date="2026-11-08",
+        notes=(
+            "Front-panel order: copper, then SFP, then combo, then SFP+ (then SFP28 / "
+            "QSFP), each group set apart.",
+            "CAPsMAN interfaces on the controller are not drawn as ports: the radios "
+            "belong to the CAPs.",
+        ),
+    ),
+    Change(
+        version="1.3.113",
+        date="2026-11-08",
+        notes=(
+            "A pfSense bridge of VLAN interfaces is drawn as a bridge chip with a line "
+            "to the VLAN stripe it joins on each port, and that stripe outlined, instead "
+            "of a box round the whole ports.",
+        ),
+    ),
+    Change(
+        version="1.3.112",
+        date="2026-11-08",
+        notes=(
+            "Uplinks sit in the middle of the chassis title bar, between the name and "
+            "the logo, and their cables leave from the top. pfSense uplinks: the WAN "
+            "interface, interfaces with a gateway or a DHCP / PPPoE address, OpenVPN "
+            "clients (ovpncN) and interfaces described as WAN or EVL. Ports named wan, "
+            "wan1… count on any vendor. The box widens to fit name, uplinks and logo.",
+        ),
+    ),
+    Change(
         version="1.3.111",
         date="2026-11-07",
         notes=(

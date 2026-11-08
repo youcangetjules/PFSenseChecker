@@ -78,6 +78,10 @@ BRIDGE_PAD = 3.0
 BRIDGE_LABEL_H = 14.0  # the bridge name chip, fully below the title bar
 BRIDGE_LABEL_STRIP = BRIDGE_LABEL_H + BRIDGE_PAD + 6.0  # title bar → ports when a bridge is drawn
 PORTS_GAP_BELOW_TITLE = 6.0  # title bar → ports otherwise
+# Uplinks (WANs, outbound tunnels) sit in the middle of the title bar,
+# between the device name and the logo, and their cables leave upwards.
+UPLINK_GAP = 12.0  # clear space either side of the uplink row
+UPLINK_NAME = re.compile(r"^wan\d*$", re.IGNORECASE)  # wan, wan1… on any vendor
 BRIDGE_EDGE = "#00838f"
 BRIDGE_FILL = "#1400838f"  # ARGB: faint teal wash
 # Port labels sit on a white chip so they read over any VLAN colour.
@@ -168,6 +172,28 @@ def plan_ports(
         places.append((CHASSIS_PAD + c * (cell_w + PORT_GAP) + cum[c], top + r * (cell_h + ROW_GAP)))
     body_h = top + rows * cell_h + (rows - 1) * ROW_GAP + CHASSIS_PAD + 12
     return body_w, body_h, cell_w, places
+
+
+def drawn_devices(site) -> list:  # noqa: ANN001
+    """Devices the canvas draws. Left out: ones marked ignored, and empty
+    entries (no ports) whose address belongs to another device's interface
+    — a network scan finds a router once per address, e.g. its LAN and its
+    VLAN gateways, but it is one box."""
+    owned: dict[str, str] = {}
+    for dev in site.devices:
+        for comp in dev.components:
+            ip = (comp.address or "").split("/")[0].strip()
+            if ip:
+                owned.setdefault(ip, dev.name)
+    out = []
+    for dev in site.devices:
+        if getattr(dev, "ignored", False):
+            continue
+        ip = (dev.mgmt_ip or (dev.ssh.host if dev.ssh else "") or "").strip()
+        if not dev.components and not dev.ports and owned.get(ip, dev.name) != dev.name:
+            continue
+        out.append(dev)
+    return out
 
 
 def _is_switch_like(device) -> bool:  # noqa: ANN001
@@ -442,6 +468,24 @@ def port_display(device, comp) -> tuple[str, str]:  # noqa: ANN001
     return name, address
 
 
+def cage_rank(comp) -> int:  # noqa: ANN001
+    """Front-panel order of a physical port: copper 0, SFP 1, combo 2, SFP+ 3,
+    SFP28 4, QSFP 5 (by name, or the library's media tags)."""
+    name = (comp.name or "").lower()
+    tags = {t.lower() for t in _media_tokens(getattr(comp, "media", ""))}
+    if "qsfp" in name or tags & {"qsfp", "qsfp+", "qsfp28"}:
+        return 5
+    if "sfp28" in name or "sfp28" in tags:
+        return 4
+    if "sfpplus" in name or "sfp+" in name or "sfp+" in tags or name.startswith("xe-"):
+        return 3
+    if name.startswith("combo") or "combo" in tags:
+        return 2
+    if _is_sfp_name(name) or "sfp" in tags:
+        return 1
+    return 0
+
+
 def _natural_key(text: str) -> list:
     import re as _re
 
@@ -547,12 +591,14 @@ class PortItem(QGraphicsObject):
         vlan_names: dict[str, str] | None = None,
         bridge: str = "",
         palette: dict[str, str] | None = None,
+        segments: list[tuple[str, str]] | None = None,
     ) -> None:
         super().__init__()
         self.device_name = device_name
         self.port_name = port_name
         self.vlans = vlans
         self.bridge = bridge
+        self.segments = list(segments or [])  # [(bridge, VLAN id)] joined by a bridge
         # Access port: its VLAN's colour. Trunk: the colours of every VLAN it carries.
         self.vlan_colors = [port_vlans.vlan_color(v, palette) for v in vlans.vlans] if vlans else []
         self.media = media
@@ -586,6 +632,8 @@ class PortItem(QGraphicsObject):
         tip_bits += port_vlan_tip(vlans, vlan_names or {})
         if bridge:
             tip_bits.append(f"In bridge {bridge}")
+        for seg_bridge, vid in self.segments:
+            tip_bits.append(f"VLAN {vid} segment in bridge {seg_bridge}")
         if self.address:
             tip_bits.append(self.address)
         if media:
@@ -595,6 +643,16 @@ class PortItem(QGraphicsObject):
 
     def boundingRect(self) -> QRectF:  # noqa: N802
         return QRectF(0, 0, self.w, self.h)
+
+    def stripe_rect(self, vid: str) -> QRectF | None:
+        """Where VLAN *vid*'s colour stripe is on this port (local coordinates)."""
+        vids = self.vlans.vlans if self.vlans else []
+        if vid not in vids:
+            return None
+        r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
+        n = len(vids)
+        i = vids.index(vid)
+        return QRectF(r.left() + r.width() * i / n, r.top(), r.width() / n, r.height())
 
     def paint(self, painter, option, widget=None) -> None:  # noqa: ANN001, N802
         del option, widget
@@ -632,6 +690,15 @@ class PortItem(QGraphicsObject):
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
         painter.drawRoundedRect(r, 2, 2)
+        # A bridged VLAN segment is outlined in the bridge colour.
+        for _bridge, vid in self.segments:
+            stripe = self.stripe_rect(vid)
+            if stripe is not None:
+                seg_pen = QPen(QColor(BRIDGE_EDGE))
+                seg_pen.setWidthF(2.0)
+                painter.setPen(seg_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(stripe.adjusted(1, 1, -1, -1))
 
         # Discrete "jack" line for faceplate RJ45
         if self.faceplate and not self.sfp:
@@ -888,6 +955,8 @@ class ChassisItem(QGraphicsObject):
             cls = port_class(c)[0]
             if cls in ("vlan", "bridge") or low in info.vlan_ifaces or low in info.hidden:
                 continue
+            if "cap" in {t.lower() for t in _media_tokens(c.media)}:
+                continue  # CAPsMAN interface: the radio belongs to the CAP, not the controller
             out.append(c)
         return out
 
@@ -927,27 +996,34 @@ class ChassisItem(QGraphicsObject):
             return "sfp" if cls == "physical" and sfp else cls
 
         def key(c: PortComponent) -> tuple:
+            # Front-panel order: copper, SFP, combo, SFP+, then faster cages.
             # Bridged ports sit together (the bridge is drawn around them),
             # then the rest; within each, copper → SFP → wireless → tunnels.
-            bridge = info.bridge_of(c.name)
+            bridge = info.bridge_group(c.name)
             cls = port_class(c)[0]
             return (0 if bridge else 1, bridge.lower(), _CLASS_ORDER.get(cls, 9),
-                    1 if kind_of(c) == "sfp" else 0, _natural_key(c.name))
+                    cage_rank(c), _natural_key(c.name))
 
-        ordered = sorted(self._components(), key=key)
+        everything = sorted(self._components(), key=key)
+        uplinks = [c for c in everything if self.is_uplink(c.name)]
+        ordered = [c for c in everything if c not in uplinks]
         kinds = [kind_of(c) for c in ordered]
-        groups = [f"{info.bridge_of(c.name)}|{k}" for c, k in zip(ordered, kinds)]
+        groups = [f"{info.bridge_group(c.name)}|{k}|{cage_rank(c)}" for c, k in zip(ordered, kinds)]
         if self._faceplate:
             min_cell = SFP_W if "sfp" in kinds else RJ45_W
             cell_h = SFP_H
             min_body = FACEPLATE_MIN_W
             self._row_tall = False
         else:
-            tall = any(port_display(self.device, c)[1] for c in ordered)
+            tall = any(port_display(self.device, c)[1] for c in everything)
             self._row_tall = tall
             min_cell = NIC_W
             cell_h = NIC_H_WITH_ADDR if tall else NIC_H
             min_body = MIN_CHASSIS_W
+        left_res, right_res = self._header_reserve() if uplinks else (0.0, 0.0)
+        if uplinks:  # the title bar must hold name + uplinks + logo
+            up_need = len(uplinks) * min_cell + (len(uplinks) - 1) * PORT_GAP
+            min_body = max(min_body, left_res + right_res + up_need)
         body_w, natural_h, cell_w, places = plan_ports(
             groups,
             min_cell,
@@ -962,12 +1038,98 @@ class ChassisItem(QGraphicsObject):
             (comp, x, y, self._faceplate and k == "sfp", cell_w)
             for comp, k, (x, y) in zip(ordered, kinds, places)
         ]
+        self._uplink_span: tuple[float, float] | None = None
+        if uplinks:
+            n = len(uplinks)
+            room = body_w - left_res - right_res
+            up_w = cell_w if ordered else MAX_CELL_W
+            up_w = max(min_cell, min(up_w, (room - (n - 1) * PORT_GAP) / n))
+            total = n * up_w + (n - 1) * PORT_GAP
+            x0 = (body_w - total) / 2  # centred on the title bar…
+            x0 = max(left_res, min(x0, body_w - right_res - total))  # …clear of name and logo
+            y0 = max(2.0, (HEADER_H - 2 - cell_h) / 2)
+            for i, comp in enumerate(uplinks):
+                k = kind_of(comp)
+                placed.append((comp, x0 + i * (up_w + PORT_GAP), y0, self._faceplate and k == "sfp", up_w))
+            self._uplink_span = (x0, x0 + total)
         body_h = max(natural_h, self._user_h or 0.0)
         return body_w, body_h, placed
 
+    def is_uplink(self, port: str) -> bool:
+        """Uplink port: set by hand (right-click the port), else a WAN /
+        outbound tunnel from the config, or a port named wan, wan1…."""
+        low = (port or "").lower()
+        override = (getattr(self.device, "uplink_overrides", None) or {}).get(low)
+        if override is not None:
+            return override
+        return self.auto_uplink(low)
+
+    def auto_uplink(self, port: str) -> bool:
+        """Uplink by the config or the port's name; a bridged port stays with its bridge."""
+        low = (port or "").lower()
+        if self._vlans.bridge_group(low):
+            return False
+        return self._vlans.key(low) in self._vlans.uplinks or bool(UPLINK_NAME.match(low))
+
+    def set_uplink(self, port: str, on: bool) -> None:
+        """Move a port into the title bar (uplink) or back to the port rows."""
+        low = (port or "").lower()
+        overrides = self.device.uplink_overrides
+        if on == self.auto_uplink(low):
+            overrides.pop(low, None)  # back to what the config says
+        else:
+            overrides[low] = on
+        self.prepareGeometryChange()
+        self._user_h = None
+        self.device.h = None
+        self._rebuild_ports()
+        self._place_handle()
+        self.update()
+        w, h = self._content_size()
+        self.resized.emit(self.device_name, w, h)  # cables re-route
+        self.edit_finished.emit(self.device_name)
+
+    def _header_logo(self) -> tuple[QPixmap | None, tuple[str, str, str] | None]:
+        """The vendor logo for the title bar, else a wordmark badge."""
+        ident = device_identity.identity_for(self.device)
+        hdr = QRectF(0, 0, 100, HEADER_H - 2)
+        logo = _logo_pixmap(
+            ident.vendor or (self.device.kind or "").lower(),
+            int(round(logo_target(hdr, 100, None).height() * LOGO_SUPERSAMPLE)),
+        )
+        if logo is not None:
+            return logo, None
+        return None, _vendor_badge(
+            self.device.kind if self.device.kind in _VENDOR_BADGES else ident.vendor or self.device.kind,
+            ident.model or self.device.model,
+        )
+
+    def _header_reserve(self) -> tuple[float, float]:
+        """Title-bar width kept for the name (left) and the logo (right)."""
+        bold = QFont()
+        bold.setBold(True)
+        bold.setPointSize(9)
+        small = QFont()
+        small.setPointSize(7)
+        title_w = QFontMetrics(bold).horizontalAdvance(self.device.chassis_title())
+        sub_w = QFontMetrics(small).horizontalAdvance(device_identity.type_line(self.device))
+        left = 8 + max(title_w, min(sub_w, 240)) + UPLINK_GAP
+        logo, badge = self._header_logo()
+        if logo is not None:
+            h = logo_target(QRectF(0, 0, 100, HEADER_H - 2), 100, None).height()
+            right = 8 + logo.width() * h / max(1, logo.height()) + UPLINK_GAP
+        elif badge:
+            bfont = QFont()
+            bfont.setBold(True)
+            bfont.setPointSize(7)
+            right = 8 + QFontMetrics(bfont).horizontalAdvance(badge[0]) + 14 + UPLINK_GAP
+        else:
+            right = UPLINK_GAP
+        return left, right
+
     def _ports_top(self, ports: list[PortComponent]) -> float:
         """Ports sit clear of the title bar; a bridge gets a strip for its name."""
-        bridged = any(self._vlans.bridge_of(c.name) for c in ports)
+        bridged = any(self._vlans.bridge_group(c.name) for c in ports)
         return HEADER_H + (BRIDGE_LABEL_STRIP if bridged else PORTS_GAP_BELOW_TITLE)
 
     def _content_size(self) -> tuple[float, float]:
@@ -984,6 +1146,7 @@ class ChassisItem(QGraphicsObject):
         _w, _h, placed = self._layout_metrics()
         info = self._vlans
         members: dict[str, list[QRectF]] = {}
+        stripes: dict[str, list[QRectF]] = {}
         for comp, x, y, is_sfp, cell_w in placed:
             cls, disabled = port_class(comp)
             label, second = port_display(self.device, comp)
@@ -1005,12 +1168,19 @@ class ChassisItem(QGraphicsObject):
                 vlan_names=info.names,
                 bridge=bridge,
                 palette=self._palette,
+                segments=info.segments_of(comp.name),
             )
             item.setParentItem(self)
             item.setPos(x, y)
             self.port_items[comp.name] = item
             if bridge:
                 members.setdefault(bridge, []).append(QRectF(x, y, item.w, item.h))
+            for seg_bridge, vid in item.segments:
+                stripe = item.stripe_rect(vid)
+                if stripe is not None:
+                    stripes.setdefault(seg_bridge, []).append(stripe.translated(x, y))
+        # Bridges of VLAN segments: a chip with a line to each segment it joins.
+        self._segment_links: list[tuple[str, list[QRectF]]] = list(stripes.items())
         # One outline per bridge per row of ports it wraps.
         self._bridge_rects: list[tuple[str, QRectF]] = []
         for bridge, rects in members.items():
@@ -1058,16 +1228,7 @@ class ChassisItem(QGraphicsObject):
 
         # Vendor logo (assets/logos/<vendor>.svg|png) or wordmark badge, top-right.
         name_width = rect.width() - 16
-        ident = device_identity.identity_for(self.device)
-        logo_rect = logo_target(hdr, rect.width(), None)
-        logo = _logo_pixmap(
-            ident.vendor or (self.device.kind or "").lower(),
-            int(round(logo_rect.height() * LOGO_SUPERSAMPLE)),
-        )
-        badge = None if logo is not None else _vendor_badge(
-            self.device.kind if self.device.kind in _VENDOR_BADGES else ident.vendor or self.device.kind,
-            ident.model or self.device.model,
-        )
+        logo, badge = self._header_logo()
         if logo is not None:
             target = logo_target(hdr, rect.width(), (logo.width(), logo.height()))
             painter.save()
@@ -1091,6 +1252,9 @@ class ChassisItem(QGraphicsObject):
             painter.setPen(QColor(fg))
             painter.drawText(QRectF(bx, by, bw, bh), Qt.AlignmentFlag.AlignCenter, label)
             name_width = max(40.0, bx - 8 - 6)
+        span = getattr(self, "_uplink_span", None)
+        if span:  # name and type line end where the uplinks begin
+            name_width = max(40.0, min(name_width, span[0] - 8 - 6))
 
         painter.setPen(QColor("#212121"))
         font = QFont()
@@ -1113,7 +1277,7 @@ class ChassisItem(QGraphicsObject):
         if extra and extra.lower() not in type_text.lower():
             sub = f"{type_text} · {extra}" if type_text else extra
         # With a logo filling the title bar, stop the type line short of it.
-        sub_width = name_width if logo is not None else rect.width() - 16
+        sub_width = name_width if (logo is not None or span) else rect.width() - 16
         painter.drawText(
             QRectF(8, 22, sub_width, 16),
             Qt.AlignmentFlag.AlignLeft,
@@ -1132,6 +1296,7 @@ class ChassisItem(QGraphicsObject):
 
     def _paint_bridges(self, painter) -> None:  # noqa: ANN001
         """A bridge is drawn around the ports it joins, with its name on the edge."""
+        self._paint_segment_bridges(painter)
         if not self._bridge_rects:
             return
         painter.save()
@@ -1161,6 +1326,52 @@ class ChassisItem(QGraphicsObject):
             painter.setFont(font)
             painter.setPen(QColor(BRIDGE_EDGE))
             painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
+
+    def segment_links(self) -> list[tuple[str, QRectF, list[QPointF]]]:
+        """For each VLAN-segment bridge: its chip and where its lines end
+        (the top middle of each joined segment), in chassis coordinates."""
+        out = []
+        font = QFont()
+        font.setPointSize(7)
+        font.setBold(True)
+        metrics = QFontMetrics(font)
+        for bridge, rects in getattr(self, "_segment_links", []):
+            top = min(r.top() for r in rects)
+            row = [r for r in rects if abs(r.top() - top) < 1]
+            ends = [QPointF(r.center().x(), r.top()) for r in rects]
+            text = f"bridge {bridge}"
+            w = metrics.horizontalAdvance(text) + 12
+            mid = (min(r.left() for r in row) + max(r.right() for r in row)) / 2
+            x = max(4.0, min(mid - w / 2, self.boundingRect().width() - w - 4))
+            chip = QRectF(x, top - BRIDGE_LABEL_STRIP + 2, w, BRIDGE_LABEL_H)
+            out.append((bridge, chip, ends))
+        return out
+
+    def _paint_segment_bridges(self, painter) -> None:  # noqa: ANN001
+        """Bridge chip above the ports, joined by a line to each VLAN segment."""
+        links = self.segment_links()
+        if not links:
+            return
+        painter.save()
+        line = QPen(QColor(BRIDGE_EDGE))
+        line.setWidthF(1.6)
+        font = QFont()
+        font.setPointSize(7)
+        font.setBold(True)
+        for bridge, chip, ends in links:
+            bus_y = chip.bottom() + (min(e.y() for e in ends) - chip.bottom()) / 2
+            painter.setPen(line)
+            xs = [e.x() for e in ends] + [chip.center().x()]
+            painter.drawLine(QPointF(chip.center().x(), chip.bottom()), QPointF(chip.center().x(), bus_y))
+            painter.drawLine(QPointF(min(xs), bus_y), QPointF(max(xs), bus_y))
+            for e in ends:
+                painter.drawLine(QPointF(e.x(), bus_y), e)
+            painter.setBrush(QBrush(QColor("#ffffff")))
+            painter.drawRoundedRect(chip, 3, 3)
+            painter.setFont(font)
+            painter.setPen(QColor(BRIDGE_EDGE))
+            painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, f"bridge {bridge}")
         painter.restore()
 
     def itemChange(self, change, value):  # noqa: ANN001, N802
@@ -1273,18 +1484,42 @@ class LinkItem(QGraphicsPathItem):
             a_face, b_face, gap_top, gap_bottom = "top", "bottom", br.bottom(), ar.top()
         else:  # side by side: corridor below both
             a_face = b_face = "bottom"
-        start = self.a.port_anchor(self.a_port, facing=a_face)
-        end = self.b.port_anchor(self.b_port, facing=b_face)
+        a_up = self.a_port in self.a.port_items and self.a.is_uplink(self.a_port)
+        b_up = self.b_port in self.b.port_items and self.b.is_uplink(self.b_port)
+        start = self.a.port_anchor(self.a_port, facing="top" if a_up else a_face)
+        end = self.b.port_anchor(self.b_port, facing="top" if b_up else b_face)
         if gap_top is not None:
             room = max(4.0, gap_bottom - gap_top - 16)
             mid_y = gap_top + 8 + (self.lane * 8) % room
         else:
             mid_y = max(ar.bottom(), br.bottom()) + 16 + self.lane * 8
-        path = QPainterPath(start)
-        path.lineTo(QPointF(start.x(), mid_y))
-        path.lineTo(QPointF(end.x(), mid_y))
+        if a_up and b_up and gap_top is None:  # both uplinks, side by side: run above
+            mid_y = min(ar.top(), br.top()) - 16 - self.lane * 8
+        # An uplink cable that has to head down climbs out of its box first
+        # and goes round the side nearer the other end.
+        head = [start] + self._round_box(start, ar, a_up and mid_y > ar.top(), end)
+        tail = self._round_box(end, br, b_up and mid_y > br.top(), start)
+        path = QPainterPath(head[0])
+        for pt in head[1:]:
+            path.lineTo(pt)
+        path.lineTo(QPointF(head[-1].x(), mid_y))
+        far = tail[-1] if tail else end
+        path.lineTo(QPointF(far.x(), mid_y))
+        for pt in reversed(tail):
+            path.lineTo(pt)
         path.lineTo(end)
         self.setPath(path)
+
+    def _round_box(self, port: QPointF, box: QRectF, needed: bool, other: QPointF) -> list[QPointF]:
+        """Waypoints from a top-facing port up and over to the side of its box."""
+        if not needed:
+            return []
+        above = box.top() - 12 - self.lane * 6
+        if other.x() < box.center().x():
+            side = box.left() - 12 - self.lane * 6
+        else:
+            side = box.right() + 12 + self.lane * 6
+        return [QPointF(port.x(), above), QPointF(side, above)]
 
 
 PAN_MARGIN = 800.0  # empty canvas kept around the devices, so there is room to pan
@@ -1575,12 +1810,16 @@ class SiteTopologyView(QGraphicsView):
         if chassis is None:
             super().contextMenuEvent(event)
             return
-        on_title = chassis.mapFromScene(sp).y() < HEADER_H
-        self._popup_chassis_menu(chassis.device, event.globalPos(), chassis=chassis if on_title else None)
+        port = self._port_item_at(sp)
+        on_title = chassis.mapFromScene(sp).y() < HEADER_H and port is None
+        self._popup_chassis_menu(chassis.device, event.globalPos(), chassis=chassis if on_title else None,
+                                 port=(chassis, port.port_name) if port is not None else None)
         event.accept()
 
-    def _popup_chassis_menu(self, device, global_pos, *, chassis: "ChassisItem | None" = None) -> None:  # noqa: ANN001
-        """Chassis menu; right-clicking the title also offers the port layouts."""
+    def _popup_chassis_menu(self, device, global_pos, *, chassis: "ChassisItem | None" = None,  # noqa: ANN001
+                            port: "tuple[ChassisItem, str] | None" = None) -> None:
+        """Chassis menu; right-clicking the title also offers the port layouts,
+        right-clicking a port offers to make it an uplink."""
         from pfsense_checker.chassis_actions import CHASSIS_MENU_ITEMS, perform_chassis_action
 
         menu = QMenu(self)
@@ -1591,6 +1830,16 @@ class SiteTopologyView(QGraphicsView):
         )
         title_act.setEnabled(False)
         menu.addSeparator()
+        uplink_act = None
+        if port is not None:
+            owner, port_name = port
+            head = menu.addAction(f"Port {port_name}" + (" (canvas locked)" if self._locked else ""))
+            head.setEnabled(False)
+            uplink_act = menu.addAction("Uplink — in the title bar, cables go north")
+            uplink_act.setCheckable(True)
+            uplink_act.setChecked(owner.is_uplink(port_name))
+            uplink_act.setEnabled(not self._locked)
+            menu.addSeparator()
         layouts = {}
         if chassis is not None:
             head = menu.addAction("Port layout" + (" (canvas locked)" if self._locked else ""))
@@ -1606,6 +1855,9 @@ class SiteTopologyView(QGraphicsView):
         for action_id, label in CHASSIS_MENU_ITEMS:
             actions[menu.addAction(label)] = action_id
         chosen = menu.exec(global_pos)
+        if uplink_act is not None and chosen is uplink_act and port is not None:
+            port[0].set_uplink(port[1], uplink_act.isChecked())
+            return
         if chosen in layouts and chassis is not None:
             chassis.set_port_layout(layouts[chosen])
             return
@@ -1918,7 +2170,8 @@ class SiteTopologyView(QGraphicsView):
         # Wireless interfaces get their SSID's VLAN from the CAPsMAN controller
         # (another device's config), and join their CAP's bridge.
         linked = []
-        for dev in site.devices:
+        shown = drawn_devices(site)
+        for dev in shown:
             dev.ensure_components()
             names = [c.name for c in dev.components] or list(dev.ports)
             linked.append((dev.name, port_vlans.for_device(dev), names))
@@ -1929,7 +2182,7 @@ class SiteTopologyView(QGraphicsView):
             for pv in info.ports.values():
                 vids.update(pv.vlans)
         self._palette = port_vlans.assign_palette(vids)
-        for dev in site.devices:
+        for dev in shown:
             dev.ensure_components()
             if not (dev.model or "").strip():
                 # Hardware model from the device's config (# model = …), so the

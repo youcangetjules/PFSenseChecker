@@ -57,3 +57,33 @@ def test_port_layout_is_saved_with_the_device() -> None:
     back = Device.from_dict(d.to_dict())
     assert back.port_layout == "flat"
     assert Device.from_dict({"name": "old"}).port_layout == ""
+
+
+def test_front_panel_order_copper_sfp_combo_sfpplus() -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker.topology_site import PortComponent
+
+    QApplication.instance() or QApplication([])
+    names = ["sfp-sfpplus2", "combo2", "sfp10", "ether1", "sfp-sfpplus1", "sfp2", "combo1", "sfp1"]
+    comps = [PortComponent(name=n, media="ether") for n in names]
+    comps.append(PortComponent(name="CRS109-W-1", media="cap"))  # CAPsMAN interface on the controller
+    dev = Device(name="sw", kind="mikrotik", model="CRS328-4C-20S-4S+", role="core-switch", components=comps)
+    ch = sc.ChassisItem(dev, snap=False)
+    order = sorted(ch.port_items, key=lambda n: ch.port_items[n].pos().x())
+    assert order == ["ether1", "sfp1", "sfp2", "sfp10", "combo1", "combo2", "sfp-sfpplus1", "sfp-sfpplus2"]
+    assert "CRS109-W-1" not in ch.port_items
+    assert [sc.cage_rank(PortComponent(name=n)) for n in ("ether1", "sfp1", "combo1", "sfp-sfpplus1", "qsfp28-1-1")] \
+        == [0, 1, 2, 3, 5]
+
+
+def test_scan_aliases_and_ignored_devices_are_not_drawn() -> None:
+    from pfsense_checker.topology_site import PortComponent, SiteTopology
+
+    fw = Device(name="guardian", kind="pfsense", components=[
+        PortComponent(name="LAN", address="100.48.64.1/24"), PortComponent(name="OPT18", address="222.10.50.1/24")])
+    lan_alias = Device(name="host-100-48-64-1", kind="pfsense", mgmt_ip="100.48.64.1")  # same box, other address
+    ignored = Device(name="host-9-9-9-9", kind="pfsense", mgmt_ip="9.9.9.9", ignored=True)
+    lone = Device(name="host-10-0-0-1", kind="router", mgmt_ip="10.0.0.1")  # nobody else owns this address
+    site = SiteTopology(devices=[fw, lan_alias, ignored, lone])
+    assert [d.name for d in sc.drawn_devices(site)] == ["guardian", "host-10-0-0-1"]

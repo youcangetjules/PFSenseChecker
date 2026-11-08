@@ -56,6 +56,7 @@ def test_capsman_gives_cap_wlans_their_ssid_vlans_and_bridge(tmp_path) -> None:
     ctrl = _info(tmp_path, "core.rsc", CONTROLLER)
     cap = _info(tmp_path, "cap.rsc", CAP)
     assert [c.vid for c in ctrl.capsman] == ["630", "710"]
+    assert {"cap-1", "cap-1-1"} <= ctrl.hidden  # not ports on the controller
     assert ctrl.port("CAP-1").ssid == "Home-LAN"
     assert cap.bridge_of("wlan1") == "OfficeBR"  # the CAP puts its radio on its bridge
     assert cap.port("wlan1") is None  # local config says no-tag: needs the controller

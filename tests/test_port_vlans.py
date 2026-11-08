@@ -89,7 +89,11 @@ def test_pfsense_nic_trunks_and_vlan_bridge(tmp_path) -> None:
     info = pv.from_result(check_file(xml))
     assert info.port("lan").tagged == ["30"]
     assert "opt1" in info.vlan_ifaces and "opt4" in info.hidden
-    assert info.bridges == {"bridge0 (VLAN 30)": ["lan", "opt3"]}  # drawn round the NICs
+    # The bridge joins the VLAN 30 segment of each NIC, not the whole NIC.
+    assert info.bridges == {"bridge0 (VLAN 30)": []}
+    assert info.segments == {"bridge0 (VLAN 30)": [("lan", "30"), ("opt3", "30")]}
+    assert info.bridge_of("lan") == "" and info.bridge_group("lan") == "bridge0 (VLAN 30)"
+    assert info.segments_of("OPT3") == [("bridge0 (VLAN 30)", "30")]
 
 
 def test_palette_distinct_in_vlan_order() -> None:
@@ -130,3 +134,13 @@ def test_canvas_hides_vlans_and_bridges_colours_ports_and_shows_legend(tmp_path,
     assert bridges and all(b == "BR" for b, _ in bridges)
     assert view.vlan_legend.isVisible() and "630" in view.vlan_legend.label.text()
     view.close()
+
+
+def test_cut_off_inventory_name_matches_the_config_name() -> None:
+    info = pv.DeviceVlans(bridges={"BR": ["fujitsu pc (vl630)", "ether2", "fujitsu laptop"]},
+                          ports={"fujitsu pc (vl630)": pv.PortVlans(untagged=["630"])})
+    info.bridges["BR"].remove("fujitsu laptop")
+    assert info.key("Fujitsu") == "fujitsu pc (vl630)"  # older inventory cut it at the space
+    assert info.bridge_of("Fujitsu") == "BR" and info.port("Fujitsu").untagged == ["630"]
+    info.bridges["BR"].append("fujitsu laptop")
+    assert info.key("Fujitsu") == "fujitsu"  # two candidates: no guessing

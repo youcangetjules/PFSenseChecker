@@ -606,6 +606,9 @@ class Device:
     # Port layout on the canvas: "row" (one row), "flat" (two rows, switch
     # style), "rect" (rows to fit the box). "" = row.
     port_layout: str = ""
+    # Port (lower name) → True: set as an uplink by hand, False: not one
+    # (overrides what the config says).
+    uplink_overrides: dict[str, bool] = field(default_factory=dict)
     # Operator chose to ignore this device on Login to Routers (for example
     # the same box reached through another VLAN). Greyed out, never probed.
     ignored: bool = False
@@ -676,6 +679,7 @@ class Device:
             "w": self.w,
             "h": self.h,
             "port_layout": self.port_layout,
+            "uplink_overrides": dict(self.uplink_overrides),
             "ignored": self.ignored,
             "inventory": dict(self.inventory),
         }
@@ -715,6 +719,9 @@ class Device:
             w=float(w) if w is not None else None,
             h=float(h) if h is not None else None,
             port_layout=str(d.get("port_layout", "") or ""),
+            uplink_overrides={
+                str(k).lower(): bool(v) for k, v in (d.get("uplink_overrides") or {}).items()
+            },
             ignored=bool(d.get("ignored", False)),
             inventory=dict(d.get("inventory") or {}),
         )
