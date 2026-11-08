@@ -4,6 +4,8 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-07
 
+- Topology Add Device with a device library (9 built-in vendor files + data/device_library) (1.3.111). Port lists in the starter library are from known models; worth checking against real units.
+- SSH pulls share one login with Connect (keys / agent, key-only retry); fixes Load Config on guardian asking for a password (1.3.110, BUG-048). Not run live against guardian (sshguard).
 - Right-drag pans the topology canvases; room to pan round the devices; redraws keep the view (1.3.109).
 - Map pick switches the Devices subnet tab; subnet tabs repainted with their colours and a highlighted selected tab (1.3.108, BUG-047).
 - Linksys support and logo background clearing (1.3.106); linksys.jpg moved into assets/logos.

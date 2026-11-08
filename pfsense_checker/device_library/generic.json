@@ -1,0 +1,16 @@
+{
+  "vendor": "Generic",
+  "kind": "switch",
+  "models": [
+    {"model": "8-port switch", "type": "Switch", "role": "access-switch",
+     "ports": [{"name": "port{n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "24-port switch + 4 SFP+", "type": "Switch", "role": "access-switch",
+     "ports": [{"name": "port{n}", "count": 24, "media": "1G · copper"},
+               {"name": "sfp{n}", "count": 4, "media": "10G · sfp+"}]},
+    {"model": "Router (4 ports)", "kind": "router", "type": "Router", "role": "router",
+     "ports": [{"name": "wan", "media": "1G · copper"},
+               {"name": "lan{n}", "count": 3, "media": "1G · copper"}]},
+    {"model": "Server (2 NICs)", "kind": "server", "type": "Server",
+     "ports": [{"name": "eth{n}", "count": 2, "start": 0, "media": "1G · copper"}]}
+  ]
+}

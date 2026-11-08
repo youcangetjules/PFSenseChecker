@@ -72,6 +72,34 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.3.111",
+        date="2026-11-07",
+        notes=(
+            "Topology → Add Device…: pick Manufacturer and Model from the device library "
+            "and the device is created with its ports (names as its OS shows them, and "
+            "copper / SFP / SFP+ / Wi-Fi), placed in view and selected. Optional name and "
+            "management IP.",
+            "Device library (`device_library.py`): built-in JSON per vendor — MikroTik, "
+            "Netgate (pfSense), Juniper, Ubiquiti, Netgear, Fortinet, Linksys, Cisco and "
+            "Generic — plus your own files in data/device_library (same format; they add "
+            "models or replace built-in ones).",
+            "Canvas: ports tagged sfp / sfp+ in their media count as SFP; igc1-igc3 are no "
+            "longer mistaken for SFP cages; pfSense ports from the library keep their own "
+            "names as labels.",
+        ),
+    ),
+    Change(
+        version="1.3.110",
+        date="2026-11-07",
+        notes=(
+            "Load Config / Pull Config / SSH commands log in the way Connect does: "
+            "with no password they use the key file, the SSH agent and ~/.ssh keys, and "
+            "when a key-only server rejects a password they retry with the keys. Before, "
+            "they turned keys off, so a key-only firewall (guardian) always asked for a "
+            "password it could never accept (BUG-048).",
+        ),
+    ),
+    Change(
         version="1.3.109",
         date="2026-11-07",
         notes=(

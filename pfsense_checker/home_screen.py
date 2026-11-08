@@ -1314,6 +1314,27 @@ class HomeScreen(QWidget):
             self.session.map_view.render_site(site)
         self.site_changed.emit()
 
+    def _topology_add_device(self) -> None:
+        """Add Device: Manufacturer / Model from the device library, placed in view."""
+        from pfsense_checker.add_device_dialog import AddDeviceDialog
+
+        site = self._topology_site
+        if site is None:
+            QMessageBox.information(self, "Add Device", "Load or start a topology first.")
+            return
+        dlg = AddDeviceDialog({d.name for d in site.devices}, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.device() is None:
+            return
+        dev = dlg.device()
+        view = self.topo_preview
+        centre = view.mapToScene(view.viewport().rect().center())
+        dev.x, dev.y = site.snap(centre.x() - 200), site.snap(centre.y() - 40)
+        site.devices.append(dev)
+        view.render_site(site)
+        view.select_device(dev.name)
+        self._on_topology_edited()
+        app_log.get_logger("topology").info("Added device %s (%s)", dev.name, dev.hardware)
+
     def _set_topology_locked(self, locked: bool) -> None:
         self.topo_preview.set_locked(locked)
 
@@ -1391,6 +1412,10 @@ class HomeScreen(QWidget):
         btn_logic = QPushButton("Open Logical Topology")
         btn_logic.clicked.connect(lambda: self.open_workspace.emit("Topology"))
         actions.addWidget(btn_logic)
+        btn_add_dev = QPushButton("Add Device…")
+        btn_add_dev.setToolTip("Pick a manufacturer and model from the device library")
+        btn_add_dev.clicked.connect(self._topology_add_device)
+        actions.addWidget(btn_add_dev)
         self.topo_lock = QCheckBox("Lock layout")
         self.topo_lock.setToolTip("Freeze the map: no moving chassis or drawing / deleting cables")
         self.topo_lock.toggled.connect(self._set_topology_locked)

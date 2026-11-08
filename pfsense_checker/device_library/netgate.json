@@ -1,0 +1,20 @@
+{
+  "vendor": "Netgate (pfSense)",
+  "kind": "pfsense",
+  "models": [
+    {"model": "Netgate 1100", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "WAN", "media": "1G · copper"},
+               {"name": "LAN", "media": "1G · copper"},
+               {"name": "OPT", "media": "1G · copper"}],
+     "notes": "Three front ports on a built-in switch (mvneta0)."},
+    {"model": "Netgate 4200", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "igc{n}", "count": 4, "start": 0, "media": "2.5G · copper"}]},
+    {"model": "Netgate 6100", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "ix{n}", "count": 2, "start": 0, "media": "10G · sfp+"},
+               {"name": "ix{n}", "count": 2, "start": 2, "media": "1G · combo"},
+               {"name": "igc{n}", "count": 4, "start": 0, "media": "2.5G · copper"}]},
+    {"model": "pfSense on a PC (4 x igb)", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "igb{n}", "count": 4, "start": 0, "media": "1G · copper"}],
+     "notes": "A typical self-built box; rename the ports to match its NICs."}
+  ]
+}

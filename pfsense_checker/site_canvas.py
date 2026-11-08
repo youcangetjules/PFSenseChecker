@@ -7,6 +7,7 @@ cables can land on individual ports (CRS326/CRS328, Netgear, etc.).
 from __future__ import annotations
 
 import math
+import re
 import time
 from html import escape as html_escape
 
@@ -424,7 +425,10 @@ def port_display(device, comp) -> tuple[str, str]:  # noqa: ANN001
     address = (getattr(comp, "address", "") or "").split("/")[0]
     kind = (getattr(device, "kind", "") or "").lower()
     tokens = _media_tokens(getattr(comp, "media", ""))
-    if kind in ("pfsense", "opnsense") and tokens:
+    # Device-library ports carry "speed · medium" (e.g. "2.5G · copper"), not
+    # "NIC · description": keep their own name as the label.
+    library_media = bool(tokens) and re.fullmatch(r"\d+(\.\d+)?[GM]", tokens[0]) is not None
+    if kind in ("pfsense", "opnsense") and tokens and not library_media:
         flags = {"vlan", "bridge", "disabled", "openvpn", "ipsec", "wireguard", "ppp", "gif", "gre"}
         words = [x for x in tokens if x.lower() not in flags and not x.lower().startswith("tag ")]
         if tokens[0].lower().startswith("tag ") and words:
@@ -446,9 +450,10 @@ def _natural_key(text: str) -> list:
 
 def _is_sfp_name(name: str) -> bool:
     n = name.lower()
-    return any(
-        tok in n
-        for tok in ("sfp", "sfpplus", "sfp+", "qsfp", "xe-", "c1", "c2", "c3", "c4")
+    # "c1".."c4" (combo cages) only as the whole name: as a substring it also
+    # matched igc1 / igc2 / igc3 (Intel NICs on pfSense).
+    return any(tok in n for tok in ("sfp", "sfpplus", "sfp+", "qsfp", "xe-")) or n in (
+        "c1", "c2", "c3", "c4"
     ) or n.startswith("s") and n[1:].isdigit() and int(n[1:]) <= 8 and "slot" not in n
 
 
@@ -916,7 +921,10 @@ class ChassisItem(QGraphicsObject):
 
         def kind_of(c: PortComponent) -> str:
             cls = port_class(c)[0]
-            return "sfp" if cls == "physical" and _is_sfp_name(c.name) else cls
+            # SFP by name (sfp1, sfp-sfpplus1…) or by the library's media tag.
+            tags = {t.lower() for t in _media_tokens(getattr(c, "media", ""))}
+            sfp = _is_sfp_name(c.name) or bool(tags & {"sfp", "sfp+", "sfp28", "qsfp"})
+            return "sfp" if cls == "physical" and sfp else cls
 
         def key(c: PortComponent) -> tuple:
             # Bridged ports sit together (the bridge is drawn around them),

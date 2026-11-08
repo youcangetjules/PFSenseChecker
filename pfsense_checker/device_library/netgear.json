@@ -1,0 +1,10 @@
+{
+  "vendor": "Netgear",
+  "kind": "netgear-managed",
+  "models": [
+    {"model": "GS108E", "type": "Switch (smart)", "role": "access-switch",
+     "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS308", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch",
+     "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "vendor": "Fortinet",
+  "kind": "fortinet",
+  "models": [
+    {"model": "FortiGate 40F", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "wan", "media": "1G · copper"},
+               {"name": "lan{n}", "count": 3, "media": "1G · copper"},
+               {"name": "a", "media": "1G · copper · FortiLink"}]},
+    {"model": "FortiGate 60F", "type": "Firewall", "role": "firewall",
+     "ports": [{"name": "wan1", "media": "1G · copper"},
+               {"name": "wan2", "media": "1G · copper"},
+               {"name": "dmz", "media": "1G · copper"},
+               {"name": "internal{n}", "count": 5, "media": "1G · copper"},
+               {"name": "a", "media": "1G · copper · FortiLink"},
+               {"name": "b", "media": "1G · copper · FortiLink"}]}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "vendor": "Cisco",
+  "kind": "cisco",
+  "models": [
+    {"model": "Catalyst 1000-8T-2G-L", "type": "Switch", "role": "access-switch",
+     "ports": [{"name": "Gi1/0/{n}", "count": 8, "media": "1G · copper"},
+               {"name": "Gi1/0/{n}", "count": 2, "start": 9, "media": "1G · sfp"}]}
+  ]
+}

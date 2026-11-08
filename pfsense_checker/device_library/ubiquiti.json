@@ -1,0 +1,11 @@
+{
+  "vendor": "Ubiquiti",
+  "kind": "ubiquiti",
+  "models": [
+    {"model": "EdgeRouter X", "type": "Router", "role": "router",
+     "ports": [{"name": "eth{n}", "count": 5, "start": 0, "media": "1G · copper"}]},
+    {"model": "EdgeRouter 4", "type": "Router", "role": "router",
+     "ports": [{"name": "eth{n}", "count": 3, "start": 0, "media": "1G · copper"},
+               {"name": "eth3", "media": "1G · sfp"}]}
+  ]
+}

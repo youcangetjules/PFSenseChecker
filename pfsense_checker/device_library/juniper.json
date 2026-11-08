@@ -1,0 +1,9 @@
+{
+  "vendor": "Juniper",
+  "kind": "juniper",
+  "models": [
+    {"model": "SRX300", "type": "Firewall", "role": "egress",
+     "ports": [{"name": "ge-0/0/{n}", "count": 6, "start": 0, "media": "1G · copper"},
+               {"name": "ge-0/0/{n}", "count": 2, "start": 6, "media": "1G · sfp"}]}
+  ]
+}

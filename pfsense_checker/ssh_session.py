@@ -174,6 +174,59 @@ def probe_device(device: Device, *, timeout: float = 8.0) -> SshProbeResult:
     return result
 
 
+def connect_client(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str | None,
+    key_path: str = "",
+    timeout: float = 20.0,
+):  # noqa: ANN201 - paramiko.SSHClient
+    """Open an SSH session the way Connect does, so every pull logs in alike.
+
+    * No password: the key file, the SSH agent and ~/.ssh keys (as Connect).
+    * Password: password (plus the key file, if set) only — no agent or default
+      keys, so a password device is not hit with several key attempts
+      (sshguard counts each one). If the server answers that it takes keys
+      only, retry once with the key file / agent / default keys.
+
+    Raises paramiko.AuthenticationException when nothing is accepted.
+    """
+    import paramiko
+
+    def attempt(pwd: str | None, use_keys: bool):  # noqa: ANN202
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                hostname=host,
+                port=int(port or 22),
+                username=username,
+                password=pwd or None,
+                key_filename=key_path or None,
+                timeout=timeout,
+                auth_timeout=timeout,
+                banner_timeout=timeout,
+                allow_agent=use_keys,
+                look_for_keys=use_keys,
+            )
+        except Exception:
+            client.close()
+            raise
+        return client
+
+    if not password:
+        return attempt(None, True)
+    try:
+        return attempt(password, False)
+    except paramiko.BadAuthenticationType as exc:
+        allowed = [str(t).lower() for t in (getattr(exc, "allowed_types", None) or [])]
+        if "publickey" not in allowed:
+            raise
+        return attempt(None, True)  # key-only server (e.g. pfSense with keys only)
+
+
 def save_ssh_credentials(device: Device, password: str) -> SshAccess:
     """Store an SSH password in the OS keyring and record the ref."""
     ssh = device.ensure_ssh()
@@ -240,27 +293,18 @@ def export_mikrotik_verbose_ssh(
     if not username:
         return SshExportResult(ok=False, error="No SSH username set")
 
-    pwd = resolve_ssh_password(ssh, username, password)
-    if not pwd and not ssh.key_path:
-        return SshExportResult(
-            ok=False,
-            error="No SSH password or key — Connect with credentials first",
-        )
+    pwd = resolve_ssh_password(ssh, username, password)  # None: keys / agent (as Connect)
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = paramiko.SSHClient()  # replaced by the logged-in client below
     try:
-        client.connect(
-            hostname=host,
+        client.close()
+        client = connect_client(
+            host=host,
             port=int(ssh.port or 22),
             username=username,
-            password=pwd or None,
-            key_filename=ssh.key_path or None,
+            password=pwd,
+            key_path=ssh.key_path or "",
             timeout=timeout,
-            auth_timeout=timeout,
-            banner_timeout=timeout,
-            allow_agent=False,
-            look_for_keys=False,
         )
         # RouterOS: print a full verbose export to the SSH channel.
         _stdin, stdout, stderr = client.exec_command(
@@ -425,28 +469,19 @@ def run_ssh_commands(
     username = (ssh.username or "").strip()
     if not username:
         return SshRunResult(ok=False, error="No SSH username set")
-    pwd = resolve_ssh_password(ssh, username, password)
-    if not pwd and not ssh.key_path:
-        return SshRunResult(
-            ok=False,
-            error="No SSH password or key — Connect with credentials first",
-        )
+    pwd = resolve_ssh_password(ssh, username, password)  # None: keys / agent (as Connect)
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = paramiko.SSHClient()  # replaced by the logged-in client below
     chunks: list[str] = []
     try:
-        client.connect(
-            hostname=host,
+        client.close()
+        client = connect_client(
+            host=host,
             port=int(ssh.port or 22),
             username=username,
-            password=pwd or None,
-            key_filename=ssh.key_path or None,
+            password=pwd,
+            key_path=ssh.key_path or "",
             timeout=timeout,
-            auth_timeout=timeout,
-            banner_timeout=timeout,
-            allow_agent=False,
-            look_for_keys=False,
         )
         for command in commands:
             out, err, status = _ssh_exec_text(client, command, timeout=timeout)
@@ -610,29 +645,19 @@ def export_pfsense_config_ssh(
     if not username:
         return SshExportResult(ok=False, error="No SSH username set")
 
-    pwd = resolve_ssh_password(ssh, username, password)
-    if not pwd and not ssh.key_path:
-        return SshExportResult(
-            ok=False,
-            error="No SSH password or key — enter credentials to connect",
-            needs_ssh_password=True,
-        )
+    pwd = resolve_ssh_password(ssh, username, password)  # None: keys / agent (as Connect)
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = paramiko.SSHClient()  # replaced by the logged-in client below
     last_err = ""
     try:
-        client.connect(
-            hostname=host,
+        client.close()
+        client = connect_client(
+            host=host,
             port=int(ssh.port or 22),
             username=username,
-            password=pwd or None,
-            key_filename=ssh.key_path or None,
+            password=pwd,
+            key_path=ssh.key_path or "",
             timeout=timeout,
-            auth_timeout=timeout,
-            banner_timeout=timeout,
-            allow_agent=False,
-            look_for_keys=False,
         )
 
         text = ""
