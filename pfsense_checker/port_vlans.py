@@ -78,6 +78,7 @@ class DeviceVlans:
     radios: dict[str, str] = field(default_factory=dict)  # wlan name (lower) → radio-name
     capsman: list[CapsmanIface] = field(default_factory=list)  # set on a CAPsMAN controller
     uplinks: set[str] = field(default_factory=set)  # lower port / NIC names that face upstream
+    comments: dict[str, str] = field(default_factory=dict)  # lower port name → the name given on the device
     # Bridges of VLAN interfaces (pfSense): bridge → [(port, VLAN id)]. The
     # bridge joins one VLAN segment of each port, not the whole port.
     segments: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
@@ -186,6 +187,14 @@ def _mikrotik(raw: dict) -> DeviceVlans:
             info.vlan_ifaces.add(name.lower())
             if v.get("vlan-id"):
                 info.names.setdefault(str(v["vlan-id"]), name)
+    # Names the operator gave ports on the device (RouterOS comments).
+    for section in ("interface ethernet", "interface wireless", "interface wifi"):
+        for row in raw.get(section, []):
+            comment = str(row.get("comment") or "").strip()
+            if comment:
+                for key in (row.get("name"), row.get("default-name")):
+                    if key:
+                        info.comments.setdefault(str(key).lower(), comment)
     bridge_names = [b.get("name", "") for b in raw.get("interface bridge", []) if b.get("name")]
     info.hidden |= {b.lower() for b in bridge_names}
     pvid: dict[str, str] = {}

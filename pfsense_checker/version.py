@@ -72,6 +72,44 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.6.2",
+        date="2026-11-15",
+        notes=(
+            "Topology: a switch port's name (the comment set on the device, e.g. \"Growatt LAN\") "
+            "is shown in its pill, above the port id; pills are a little taller on switches that "
+            "have named ports.",
+            "Right-click a port → Rename port… gives it a name on the map (saved with the "
+            "topology; the device is not changed). An empty name goes back to the device's own.",
+        ),
+    ),
+    Change(
+        version="1.6.1",
+        date="2026-11-15",
+        notes=(
+            "Rainbow connectors: the colours fade into each other instead of meeting in sharp "
+            "lines, corners are mitred, and the ribbon is drawn faintly where it runs behind a "
+            "device box to reach its port.",
+            "Cables keep clear of device edges (a ribbon by its half-width plus a margin).",
+            "The long horizontal bar of any cable can be dragged up or down; the position is "
+            "saved with the topology.",
+        ),
+    ),
+    Change(
+        version="1.6.0",
+        date="2026-11-15",
+        notes=(
+            "Topology: right-click a port → Add VLAN to this port…. Pick a VLAN used elsewhere on "
+            "the map or type an id, tagged or untagged. It is kept with the topology as a planned "
+            "VLAN and drawn as a hatched stripe; it can be cabled like any other VLAN, and "
+            "removed from the same menu.",
+            "Show commands for planned VLANs writes out what to enter on that device "
+            "(`vlan_plan.py`): switch-chip tables on MikroTik switches that forward in hardware, "
+            "the bridge VLAN table where vlan-filtering is on, and the menu steps on pfSense. "
+            "NetCheck does not change the device.",
+            "Bridged-VLAN markers are now drawn on switch-style ports too (they were skipped).",
+        ),
+    ),
+    Change(
         version="1.5.9",
         date="2026-11-15",
         notes=(

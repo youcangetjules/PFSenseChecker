@@ -18,11 +18,13 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QImage,
+    QLinearGradient,
     QPainter,
     QPainterPath,
     QPixmap,
     QPainterPathStroker,
     QPen,
+    QPolygonF,
     QTransform,
 )
 from PySide6.QtWidgets import (
@@ -37,6 +39,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QSlider,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -44,7 +47,7 @@ HANDLE_SIZE = 12.0
 MIN_CHASSIS_W = 160.0
 MIN_CHASSIS_H = 80.0
 
-from pfsense_checker import device_identity, port_vlans
+from pfsense_checker import device_identity, port_vlans, vlan_plan
 from pfsense_checker.topology_site import Link, PortComponent
 from pfsense_checker.viz import DEVICE_KIND_COLORS, LINK_KIND_COLORS
 
@@ -53,6 +56,8 @@ RJ45_W = 16.0
 RJ45_H = 26.0
 SFP_W = 22.0
 SFP_H = 26.0
+NAMED_PORT_H = 38.0  # a front-panel port with a given name: name above, port id below
+NAMED_PORT_MIN_W = 46.0  # and wide enough to read some of it
 PORT_GAP = 3.0
 GROUP_GAP = 10.0  # gap every 8 copper ports
 CHASSIS_PAD = 12.0
@@ -184,6 +189,10 @@ def link_vid(link) -> str:  # noqa: ANN001
 
 
 BUNDLE_WIDTH = 25.0  # one rainbow connector for every VLAN between two ports
+BUNDLE_BLEND = 0.55  # share of each stripe's width that fades into its neighbours
+BUNDLE_INSIDE_OPACITY = 0.3  # a ribbon runs faintly behind a device box to reach its port
+CABLE_CLEARANCE = 6.0  # a thin cable's long run stays this far from a device's edge
+DRAG_GRAB = 6.0  # how near the long run a press must be to pick it up
 
 
 def vlan_bundles(links: list, port_vids) -> dict[int, list[int]]:  # noqa: ANN001
@@ -652,11 +661,16 @@ class PortItem(QGraphicsObject):
         bridge: str = "",
         palette: dict[str, str] | None = None,
         segments: list[tuple[str, str]] | None = None,
+        planned: set[str] | None = None,
+        given_name: str = "",
+        height: float | None = None,
     ) -> None:
         super().__init__()
         self.device_name = device_name
         self.port_name = port_name
+        self.given_name = (given_name or "").strip()  # the name the operator gave this port
         self.vlans = vlans
+        self.planned = set(planned or ())  # VLAN ids planned here, not on the device yet
         self.bridge = bridge
         self.segments = list(segments or [])  # [(bridge, VLAN id)] joined by a bridge
         self.selected_vid = ""  # the VLAN stripe picked for a per-VLAN cable
@@ -674,7 +688,7 @@ class PortItem(QGraphicsObject):
         if width:
             self.w = float(width)
         if faceplate:
-            self.h = SFP_H
+            self.h = float(height) if height else SFP_H
         elif tall or self.second:
             self.h = NIC_H_WITH_ADDR
         else:
@@ -687,6 +701,8 @@ class PortItem(QGraphicsObject):
         self.setZValue(3)
         kind = "SFP" if sfp else ("RJ45" if faceplate else "NIC")
         tip_bits = [f"{device_name} · {port_name} ({kind})"]
+        if self.given_name:
+            tip_bits.append(f"Name: {self.given_name}")
         if self.label != port_name:
             tip_bits.append(self.label)
         tip_bits.append(f"{port_cls} port" + (" · disabled" if disabled else ""))
@@ -695,6 +711,10 @@ class PortItem(QGraphicsObject):
             tip_bits.append(f"In bridge {bridge}")
         for seg_bridge, vid in self.segments:
             tip_bits.append(f"VLAN {vid} segment in bridge {seg_bridge}")
+        if self.planned:
+            tip_bits.append("Planned (hatched, not on the device yet): VLAN "
+                            + ", ".join(sorted(self.planned, key=port_vlans._vid_key))  # noqa: SLF001
+                            + " — right-click → Show commands for planned VLANs")
         if self.address:
             tip_bits.append(self.address)
         if media:
@@ -719,6 +739,8 @@ class PortItem(QGraphicsObject):
         if self.vlans is not None:
             how = "untagged (access)" if vid in self.vlans.untagged else "tagged"
         head = f"VLAN {vid}" + (f" — {name}" if name and name != vid else "") + (f" · {how}" if how else "")
+        if vid in self.planned:
+            head += " · PLANNED (not on the device yet)"
         return head + "\n" + self._base_tip
 
     def hoverMoveEvent(self, event) -> None:  # noqa: ANN001, N802
@@ -821,8 +843,8 @@ class PortItem(QGraphicsObject):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(picked.adjusted(1.3, 1.3, -1.3, -1.3))
 
-        # Discrete "jack" line for faceplate RJ45
-        if self.faceplate and not self.sfp:
+        # Discrete "jack" line for faceplate RJ45 (a named port shows its name there instead)
+        if self.faceplate and not self.sfp and not self.given_name:
             painter.setPen(QPen(QColor("#78909c")))
             mid = self.w / 2
             # Wide cells carry the whole name: keep the jack above it.
@@ -837,6 +859,14 @@ class PortItem(QGraphicsObject):
         font.setBold(True)
         painter.setFont(font)
         if self.faceplate:
+            if self.given_name:  # the operator's name for the port, on the top line
+                nfont = QFont(font)
+                nfont.setPointSizeF(6.5)
+                painter.setFont(nfont)
+                shown = QFontMetrics(nfont).elidedText(self.given_name, Qt.TextElideMode.ElideRight, int(self.w - 4))
+                self._text(painter, self.boundingRect().adjusted(2, 2, -2, -2),
+                           Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, shown)
+                painter.setFont(font)
             metrics = QFontMetrics(font)
             label = self.port_name
             if metrics.horizontalAdvance(label) > self.w - 2:
@@ -850,6 +880,8 @@ class PortItem(QGraphicsObject):
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
                 label,
             )
+            self._paint_planned(painter)  # switch ports get the overlays too
+            self._paint_bridged_segments(painter)
             return
         # Router/firewall NIC tile: name (elided) + second line (IP or OPTn · NIC).
         if self.disabled:
@@ -880,7 +912,24 @@ class PortItem(QGraphicsObject):
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 name_txt,
             )
+        self._paint_planned(painter)
         self._paint_bridged_segments(painter)
+
+    def _paint_planned(self, painter) -> None:  # noqa: ANN001
+        """Planned VLANs: white diagonal hatching and a dashed frame over the stripe."""
+        for vid in self.planned:
+            stripe = self.stripe_rect(vid)
+            if stripe is None:
+                continue
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(255, 255, 255, 190), Qt.BrushStyle.BDiagPattern))
+            painter.drawRect(stripe)
+            dash = QPen(QColor("#263238"), 1.4, Qt.PenStyle.DashLine)
+            painter.setPen(dash)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(stripe.adjusted(1, 1, -1, -1))
+            painter.restore()
 
     def _paint_bridged_segments(self, painter) -> None:  # noqa: ANN001
         """Mark the VLAN stripe(s) a bridge joins — and only those: a teal frame
@@ -1168,6 +1217,10 @@ class ChassisItem(QGraphicsObject):
         if self._faceplate:
             min_cell = SFP_W if "sfp" in kinds else RJ45_W
             cell_h = SFP_H
+            if any(self.port_given_name(c.name) for c in everything):
+                cell_h = NAMED_PORT_H  # room for the name above the port id
+                min_cell = max(min_cell, NAMED_PORT_MIN_W)
+            self._cell_h = cell_h
             min_body = FACEPLATE_MIN_W
             self._row_tall = False
         else:
@@ -1210,6 +1263,15 @@ class ChassisItem(QGraphicsObject):
             self._uplink_span = (x0, x0 + total)
         body_h = max(natural_h, self._user_h or 0.0)
         return body_w, body_h, placed
+
+    def port_given_name(self, port: str) -> str:
+        """The operator's name for a port: set on the map (Rename), else the one
+        given on the device (a RouterOS comment)."""
+        low = (port or "").lower()
+        labels = getattr(self.device, "port_labels", None) or {}
+        if low in labels:
+            return labels[low]
+        return self._vlans.comments.get(self._vlans.key(low), "") or self._vlans.comments.get(low, "")
 
     def is_uplink(self, port: str) -> bool:
         """Uplink port: set by hand (right-click the port), else a WAN /
@@ -1307,10 +1369,18 @@ class ChassisItem(QGraphicsObject):
             cls, disabled = port_class(comp)
             label, second = port_display(self.device, comp)
             bridge = info.bridge_of(comp.name)
+            # The port's VLANs from its config, plus any the operator has planned.
+            port_plan = vlan_plan.merged(info.port(comp.name),
+                                         vlan_plan.plan_of(self.device).get(comp.name.lower()))
+            given = self.port_given_name(comp.name)
+            if given and not self._faceplate and comp.name.lower() in (getattr(self.device, "port_labels", None) or {}):
+                label = given  # a NIC tile's label is its name: Rename replaces it
             item = PortItem(
                 self.device_name,
                 comp.name,
                 comp.media,
+                given_name=given,
+                height=getattr(self, "_cell_h", None) if self._faceplate else None,
                 address=getattr(comp, "address", "") or "",
                 faceplate=self._faceplate,
                 sfp=is_sfp,
@@ -1320,11 +1390,12 @@ class ChassisItem(QGraphicsObject):
                 second=second,
                 tall=getattr(self, "_row_tall", False),
                 width=cell_w,
-                vlans=info.port(comp.name),
+                vlans=port_plan[0],
                 vlan_names=info.names,
                 bridge=bridge,
                 palette=self._palette,
                 segments=info.segments_of(comp.name),
+                planned=port_plan[1],
             )
             item.setParentItem(self)
             item.setPos(x, y)
@@ -1645,6 +1716,20 @@ def find_hops(links: list) -> dict[int, dict[int, list[float]]]:  # noqa: C901
     return out
 
 
+def ribbon_stops(colours: list[str], blend: float = BUNDLE_BLEND) -> list[tuple[float, str]]:
+    """Gradient stops across a ribbon: each colour keeps a solid core and fades
+    into its neighbours over *blend* of its width (0 = razor-sharp bands)."""
+    n = len(colours)
+    if n == 0:
+        return []
+    core = max(0.0, min(1.0, 1.0 - blend)) / 2  # half-width of the solid part, in stripes
+    stops: list[tuple[float, str]] = []
+    for k, colour in enumerate(colours):
+        stops.append((max(0.0, (k + 0.5 - core) / n), colour))
+        stops.append((min(1.0, (k + 0.5 + core) / n), colour))
+    return stops
+
+
 class LinkItem(QGraphicsPathItem):
     """Orthogonal cable between two chassis ports (or chassis edges)."""
 
@@ -1739,15 +1824,63 @@ class LinkItem(QGraphicsPathItem):
             super().paint(painter, option, widget)
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        width = BUNDLE_WIDTH / max(1, len(self.bundle))
-        edge = QPen(QColor(38, 50, 56, 160), BUNDLE_WIDTH + 2, Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(edge)
-        painter.drawPolyline(self.points)
-        for color, line in zip(self.bundle_colors, self.ribbon()):
-            painter.setPen(QPen(QColor(color), width + 0.4, Qt.PenStyle.SolidLine,
-                                Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin))
-            painter.drawPolyline(line)
+        quads = self.ribbon_quads()
+        if not quads:
+            return
+        stops = ribbon_stops(self.bundle_colors)
+        boxes = QPainterPath()
+        for ch in (self.a, self.b):
+            boxes.addRect(ch.sceneBoundingRect())
+        everywhere = QPainterPath()
+        everywhere.addRect(self.boundingRect())
+        edge = QPen(QColor(38, 50, 56, 110), 1.0)
+        # Full strength in the open; faint where it runs behind a device box to its port.
+        for clip, opacity in ((everywhere.subtracted(boxes), 1.0), (boxes, BUNDLE_INSIDE_OPACITY)):
+            painter.save()
+            painter.setClipPath(clip, Qt.ClipOperation.IntersectClip)
+            painter.setOpacity(opacity)
+            for poly, g0, g1 in quads:
+                grad = QLinearGradient(g0, g1)
+                for pos, colour in stops:
+                    grad.setColorAt(pos, QColor(colour))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(grad))
+                painter.drawPolygon(poly)
+                painter.setPen(edge)
+                painter.drawLine(poly[0], poly[1])
+                painter.drawLine(poly[3], poly[2])
+            painter.restore()
+
+    def ribbon_quads(self) -> list[tuple[QPolygonF, QPointF, QPointF]]:
+        """The ribbon as one four-cornered piece per run, mitred where it turns, each
+        with the two ends of its colour gradient (first VLAN's side → last VLAN's side)."""
+        pts = self.points
+        if len(pts) < 2:
+            return []
+        half = BUNDLE_WIDTH / 2
+        normals = []
+        for a, b in zip(pts, pts[1:]):
+            if abs(a.x() - b.x()) < 0.01:
+                normals.append((1.0, 0.0) if b.y() > a.y() else (-1.0, 0.0))
+            else:
+                normals.append((0.0, -1.0) if b.x() > a.x() else (0.0, 1.0))
+
+        def corner(j: int) -> QPointF:
+            if j == 0:
+                n = normals[0]
+            elif j == len(pts) - 1:
+                n = normals[-1]
+            else:
+                p_, q_ = normals[j - 1], normals[j]
+                n = q_ if p_ == q_ else (p_[0] + q_[0], p_[1] + q_[1])
+            return QPointF(n[0] * half, n[1] * half)
+
+        quads = []
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            ca, cb = corner(i), corner(i + 1)
+            n = QPointF(normals[i][0] * half, normals[i][1] * half)
+            quads.append((QPolygonF([a + ca, b + cb, b - cb, a - ca]), a - n, a + n))
+        return quads
 
     def hoverEnterEvent(self, event) -> None:  # noqa: ANN001, N802
         pen = self.pen()
@@ -1771,13 +1904,113 @@ class LinkItem(QGraphicsPathItem):
             self.route = None  # a device moved: back to our own routing
         self.set_points(self.points_for(self.lane_offset))
 
+    def clearance(self) -> float:
+        """How far the long run stays from a device's edge (a ribbon needs its half-width)."""
+        return BUNDLE_WIDTH / 2 + CABLE_CLEARANCE if self.bundle else CABLE_CLEARANCE
+
+    def lane_frame(self) -> tuple[str, float, float, float]:
+        """Where the long run may sit: (kind, reference y, smallest offset, largest offset).
+
+        kind "gap": between the two boxes, offsets measured down from the upper box's
+        bottom edge. "below" / "above": side-by-side boxes, the run goes under both
+        (or over both, for two uplinks), offsets measured away from them."""
+        ar, br = self.a.sceneBoundingRect(), self.b.sceneBoundingRect()
+        margin = self.clearance()
+        for upper, lower in ((ar, br), (br, ar)):
+            if upper.bottom() + 12 < lower.top():
+                gap = lower.top() - upper.bottom()
+                lo, hi = margin, gap - margin
+                if hi < lo:  # too tight for the margins: the middle of the gap
+                    lo = hi = gap / 2
+                return "gap", upper.bottom(), lo, hi
+        a_up = self.a_port in self.a.port_items and self.a.is_uplink(self.a_port)
+        b_up = self.b_port in self.b.port_items and self.b.is_uplink(self.b_port)
+        if a_up and b_up:
+            return "above", min(ar.top(), br.top()), margin + 4, margin + 400
+        return "below", max(ar.bottom(), br.bottom()), margin + 4, margin + 400
+
+    def run_y(self, lane_offset: float | None) -> float:
+        """The y of the long run for *lane_offset* (None: this cable's default lane)."""
+        kind, ref, lo, hi = self.lane_frame()
+        if lane_offset is None:
+            lane_offset = lo + (self.lane * 8) % max(4.0, hi - lo) if kind == "gap" else lo + 6 + self.lane * 8
+        off = min(max(lane_offset, lo), hi)
+        return ref - off if kind == "above" else ref + off
+
+    def offset_for_y(self, y: float) -> float:
+        """The lane offset that puts the long run at scene y (kept within its limits)."""
+        kind, ref, lo, hi = self.lane_frame()
+        off = (ref - y) if kind == "above" else (y - ref)
+        return min(max(off, lo), hi)
+
     def lane_options(self) -> list[float]:
         """Every lane Re-arrange cable may try for the long horizontal run."""
-        ar, br = self.a.sceneBoundingRect(), self.b.sceneBoundingRect()
-        if ar.bottom() + 12 < br.top() or br.bottom() + 12 < ar.top():
-            gap = (br.top() - ar.bottom()) if ar.bottom() < br.top() else (ar.top() - br.bottom())
-            return [float(v) for v in range(8, max(9, int(gap) - 7), 6)]
-        return [float(14 + 8 * k) for k in range(14)]
+        kind, _ref, lo, hi = self.lane_frame()
+        if kind == "gap":
+            return [lo + 6.0 * k for k in range(int(max(0.0, hi - lo) // 6) + 1)]
+        return [lo + 8.0 * k for k in range(14)]
+
+    def long_run(self) -> tuple[float, float, float] | None:
+        """(y, x from, x to) of the cable's longest horizontal run: the bar that can be dragged."""
+        best = None
+        for _i, a, b in self.segments():
+            if abs(a.y() - b.y()) < 0.01:
+                length = abs(a.x() - b.x())
+                if best is None or length > best[0]:
+                    best = (length, a.y(), min(a.x(), b.x()), max(a.x(), b.x()))
+        return best[1:] if best else None
+
+    def on_long_run(self, scene_pos: QPointF) -> bool:
+        run = self.long_run()
+        if run is None:
+            return False
+        y, x0, x1 = run
+        grab = BUNDLE_WIDTH / 2 + 2 if self.bundle else DRAG_GRAB
+        return abs(scene_pos.y() - y) <= grab and x0 - grab <= scene_pos.x() <= x1 + grab
+
+    def _view(self):  # noqa: ANN202
+        scene = self.scene()
+        return next((v for v in (scene.views() if scene else []) if isinstance(v, SiteTopologyView)), None)
+
+    def hoverMoveEvent(self, event) -> None:  # noqa: ANN001, N802
+        view = self._view()
+        if view is not None and not view._locked and self.on_long_run(event.scenePos()):  # noqa: SLF001
+            self.setCursor(Qt.CursorShape.SizeVerCursor)  # this bar can be dragged up / down
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
+        view = self._view()
+        if (event.button() == Qt.MouseButton.LeftButton and view is not None and not view._locked  # noqa: SLF001
+                and self.on_long_run(event.scenePos())):
+            self._dragging_run = True
+            event.accept()
+            return
+        event.ignore()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: ANN001, N802
+        if getattr(self, "_dragging_run", False):
+            self.move_long_run(event.scenePos().y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: ANN001, N802
+        if getattr(self, "_dragging_run", False):
+            self._dragging_run = False
+            view = self._view()
+            if view is not None:
+                view.cable_lane_changed(self)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def move_long_run(self, scene_y: float) -> None:
+        """Put the long run at *scene_y* (within its limits); the route becomes ours."""
+        self.route = None
+        self.lane_offset = self.offset_for_y(scene_y)
+        self.set_points(self.points_for(self.lane_offset))
 
     def points_for(self, lane_offset: float | None) -> list[QPointF]:  # noqa: C901
         """The cable's corners with its long run in lane *lane_offset* (None: default)."""
@@ -1794,16 +2027,7 @@ class LinkItem(QGraphicsPathItem):
         b_up = self.b_port in self.b.port_items and self.b.is_uplink(self.b_port)
         start = self.a.port_anchor(self.a_port, facing="top" if a_up else a_face, vid=self.vid)
         end = self.b.port_anchor(self.b_port, facing="top" if b_up else b_face, vid=self.vid)
-        if gap_top is not None:
-            room = max(4.0, gap_bottom - gap_top - 16)
-            mid_y = gap_top + 8 + (self.lane * 8) % room
-            if lane_offset is not None and 4 <= lane_offset <= gap_bottom - gap_top - 4:
-                mid_y = gap_top + lane_offset
-        else:
-            mid_y = max(ar.bottom(), br.bottom()) + (lane_offset if lane_offset is not None
-                                                        else 16 + self.lane * 8)
-        if a_up and b_up and gap_top is None:  # both uplinks, side by side: run above
-            mid_y = min(ar.top(), br.top()) - (lane_offset if lane_offset is not None else 16 + self.lane * 8)
+        mid_y = self.run_y(lane_offset)  # clear of both boxes, in the chosen lane
         # An uplink cable that has to head down climbs out of its box first
         # and goes round the side nearer the other end.
         head = [start] + self._round_box(start, ar, a_up and mid_y > ar.top(), end)
@@ -2220,6 +2444,7 @@ class SiteTopologyView(QGraphicsView):
         title_act.setEnabled(False)
         menu.addSeparator()
         uplink_act = None
+        vlan_acts: dict = {}
         if port is not None:
             owner, port_name = port
             head = menu.addAction(f"Port {port_name}" + (" (canvas locked)" if self._locked else ""))
@@ -2228,6 +2453,18 @@ class SiteTopologyView(QGraphicsView):
             uplink_act.setCheckable(True)
             uplink_act.setChecked(owner.is_uplink(port_name))
             uplink_act.setEnabled(not self._locked)
+            rename_act = menu.addAction("Rename port…")
+            rename_act.setEnabled(not self._locked)
+            vlan_acts[rename_act] = ("rename", "")
+            add_vlan_act = menu.addAction("Add VLAN to this port…")
+            add_vlan_act.setEnabled(not self._locked)
+            vlan_acts[add_vlan_act] = ("add", "")
+            for vid, tagged in vlan_plan.planned_on(owner.device, port_name):
+                act = menu.addAction(f"Remove planned VLAN {vid} ({'tagged' if tagged else 'untagged'})")
+                act.setEnabled(not self._locked)
+                vlan_acts[act] = ("remove", vid)
+            if vlan_plan.plan_of(owner.device):
+                vlan_acts[menu.addAction("Show commands for planned VLANs…")] = ("commands", "")
             menu.addSeparator()
         layouts = {}
         if chassis is not None:
@@ -2246,6 +2483,17 @@ class SiteTopologyView(QGraphicsView):
         chosen = menu.exec(global_pos)
         if uplink_act is not None and chosen is uplink_act and port is not None:
             port[0].set_uplink(port[1], uplink_act.isChecked())
+            return
+        if chosen in vlan_acts and port is not None:
+            what, vid = vlan_acts[chosen]
+            if what == "rename":
+                self.rename_port(port[0], port[1])
+            elif what == "add":
+                self.add_vlan_to_port(port[0], port[1])
+            elif what == "remove":
+                self.remove_planned_vlan(port[0], port[1], vid)
+            else:
+                self.show_planned_commands(port[0].device)
             return
         if chosen in layouts and chassis is not None:
             chassis.set_port_layout(layouts[chosen])
@@ -2545,6 +2793,116 @@ class SiteTopologyView(QGraphicsView):
         dev.w = w
         dev.h = h  # live resize: recorded; announced on edit_finished (BUG-046)
 
+    # -- Port names --------------------------------------------------------------- #
+
+    def rename_port(self, chassis: "ChassisItem", port: str, name: str | None = None) -> bool:
+        """Give a port a name on the map (asks when *name* is None). An empty name goes
+        back to the one on the device, if it has one. The device itself is not changed."""
+        if self._site is None or self._locked:
+            return False
+        device = chassis.device
+        if name is None:
+            from PySide6.QtWidgets import QInputDialog
+
+            current = chassis.port_given_name(port)
+            name, ok = QInputDialog.getText(
+                self, f"Rename {port}",
+                f"Name for {device.name} · {port}\n(shown in the port; leave empty to use the device's own name)",
+                text=current)
+            if not ok:
+                return False
+        name = (name or "").strip()
+        labels = device.port_labels
+        if name:
+            labels[port.lower()] = name
+        else:
+            labels.pop(port.lower(), None)
+        self.render_site(self._site)
+        self.positions_changed.emit()  # saved with the topology
+        self.cable_message.emit(f"{device.name} {port}: named '{name}' on the map" if name
+                                else f"{device.name} {port}: map name removed")
+        return True
+
+    # -- Planned VLANs on ports -------------------------------------------------- #
+
+    def known_vlans(self) -> dict[str, str]:
+        """VLAN id → name for every VLAN on the canvas (configs and plans)."""
+        out: dict[str, str] = {}
+        for ch in self._live_chassis():
+            for item in ch.port_items.values():
+                for vid in (item.vlans.vlans if item.vlans else []):
+                    out.setdefault(vid, "")
+            for vid, name in ch._vlans.names.items():  # noqa: SLF001
+                if name and not out.get(vid):
+                    out[vid] = name
+        return out
+
+    def add_vlan_to_port(self, chassis: "ChassisItem", port: str, *, vid: str = "", tagged: bool = True) -> str:
+        """Plan a VLAN on a port. With no *vid*, asks (Add VLAN dialog). Returns
+        "" when it was added, else why not."""
+        if self._site is None or self._locked:
+            return "The layout is locked." if self._locked else "No site."
+        device = chassis.device
+        existing = chassis._vlans.port(port)  # noqa: SLF001
+        if vid:
+            problem = vlan_plan.add(device, port, vid, tagged, existing)
+            if problem:
+                return problem
+        else:
+            from PySide6.QtWidgets import QDialog
+
+            from pfsense_checker.add_vlan_dialog import AddVlanDialog
+
+            dlg = AddVlanDialog(device, port, existing, self.known_vlans(), self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return "cancelled"
+        self.render_site(self._site)
+        self.positions_changed.emit()  # saved with the topology
+        self.cable_message.emit(f"{device.name} {port}: VLAN planned. Right-click the port → "
+                                "Show commands for planned VLANs.")
+        return ""
+
+    def remove_planned_vlan(self, chassis: "ChassisItem", port: str, vid: str) -> bool:
+        if self._site is None or self._locked or not vlan_plan.remove(chassis.device, port, vid):
+            return False
+        # A cable drawn for that VLAN from this port has nothing to stand on now.
+        name = chassis.device_name
+        self._site.links = [
+            ln for ln in self._site.links
+            if not (link_vid(ln) == vid and ((ln.a_device, ln.a_port) == (name, port)
+                                             or (ln.b_device, ln.b_port) == (name, port)))
+        ]
+        self.render_site(self._site)
+        self.links_changed.emit()
+        self.positions_changed.emit()
+        return True
+
+    def planned_commands_text(self, device) -> str:  # noqa: ANN001
+        return "\n".join(vlan_plan.commands(device))
+
+    def show_planned_commands(self, device) -> None:  # noqa: ANN001
+        from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QPlainTextEdit
+
+        text = self.planned_commands_text(device)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Planned VLANs — what to enter on {device.name}")
+        dlg.resize(900, 420)
+        lay = QVBoxLayout(dlg)
+        note = QLabel("NetCheck has not changed the device. Check each line, enter it on the device, then pull "
+                      "its config again: the planned stripes become real ones.")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        box = QPlainTextEdit(text)
+        box.setReadOnly(True)
+        box.setFont(QFont("Consolas", 10))
+        lay.addWidget(box)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        copy = buttons.addButton("Copy", QDialogButtonBox.ButtonRole.ActionRole)
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(text))
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        dlg.exec()
+
     # -- Same size for the same type --------------------------------------------- #
 
     def set_uniform_sizes(self, on: bool) -> None:
@@ -2577,6 +2935,17 @@ class SiteTopologyView(QGraphicsView):
                     ch.device.w, ch.device.h = w, h
                     changed += 1
         return changed
+
+    def cable_lane_changed(self, item: "LinkItem") -> None:
+        """The operator dragged a cable's long run: remember the lane on its link(s)."""
+        if self._site is None:
+            return
+        for idx in item.bundle_links:
+            if 0 <= idx < len(self._site.links):
+                self._site.links[idx].lane = item.lane_offset
+        self.update_hops()
+        self.links_changed.emit()
+        self.positions_changed.emit()
 
     # -- Re-arrange cable ------------------------------------------------------- #
 
@@ -2787,6 +3156,10 @@ class SiteTopologyView(QGraphicsView):
         for _name, info, _names in linked:
             for pv in info.ports.values():
                 vids.update(pv.vlans)
+        for dev in shown:  # planned VLANs are coloured like any other
+            for entry in (getattr(dev, "planned_vlans", None) or {}).values():
+                vids.update(entry.get("tagged", []))
+                vids.update(entry.get("untagged", []))
         self._palette = port_vlans.assign_palette(vids)
         for dev in shown:
             dev.ensure_components()

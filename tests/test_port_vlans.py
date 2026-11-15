@@ -144,3 +144,12 @@ def test_cut_off_inventory_name_matches_the_config_name() -> None:
     assert info.bridge_of("Fujitsu") == "BR" and info.port("Fujitsu").untagged == ["630"]
     info.bridges["BR"].append("fujitsu laptop")
     assert info.key("Fujitsu") == "fujitsu"  # two candidates: no guessing
+
+
+def test_mikrotik_port_comments_are_kept(tmp_path) -> None:
+    rsc = tmp_path / "sw.rsc"
+    rsc.write_text('/interface ethernet\nset [ find default-name=ether3 ] comment="Mavenir E72 (VL630)"\n'
+                   'set [ find default-name=ether1 ] name="Fujitsu PC (VL630)" comment="desk"\n', encoding="utf-8")
+    info = pv.from_result(check_file(rsc))
+    assert info.comments["ether3"] == "Mavenir E72 (VL630)"
+    assert info.comments["fujitsu pc (vl630)"] == "desk" and info.comments["ether1"] == "desk"

@@ -121,3 +121,38 @@ def test_same_device_types_share_the_largest_size(monkeypatch) -> None:
     from pfsense_checker.topology_site import SiteTopology as ST
 
     assert ST.from_dict(site.to_dict()).uniform_sizes  # saved with the topology
+
+
+def test_port_names_show_in_the_pill_and_can_be_renamed(monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker import port_vlans as pv
+    from pfsense_checker.topology_site import PortComponent, SiteTopology
+
+    QApplication.instance() or QApplication([])
+    info = pv.DeviceVlans(comments={"ether3": "Mavenir E72 (VL630)", "sfp1": ">> Uplink"})
+    monkeypatch.setattr(pv, "for_device", lambda d: info)
+    comps = [PortComponent(name=n, media="ether") for n in ("ether1", "ether3", "sfp1")]
+    site = SiteTopology(devices=[Device(name="sw", kind="mikrotik", model="CRS109-8G-1S-2HnD",
+                                        role="access-switch", components=comps)])
+    view = sc.SiteTopologyView()
+    view.render_site(site)
+    ch = view._chassis["sw"]  # noqa: SLF001
+    assert ch.port_items["ether3"].given_name == "Mavenir E72 (VL630)" and ch.port_items["ether1"].given_name == ""
+    assert all(p.h == sc.NAMED_PORT_H for p in ch.port_items.values())  # taller, to fit the name line
+    assert "Name: Mavenir E72 (VL630)" in ch.port_items["ether3"].toolTip()
+    saved = []
+    view.positions_changed.connect(lambda: saved.append(1))
+    assert view.rename_port(ch, "ether1", "Printer")  # a name given on the map
+    ch = view._chassis["sw"]  # noqa: SLF001
+    assert ch.port_items["ether1"].given_name == "Printer" and saved
+    assert Device.from_dict(site.devices[0].to_dict()).port_labels == {"ether1": "Printer"}
+    assert view.rename_port(ch, "ether3", "E72")  # overrides the device's own name on the map
+    assert view._chassis["sw"].port_items["ether3"].given_name == "E72"  # noqa: SLF001
+    assert view.rename_port(view._chassis["sw"], "ether3", "")  # noqa: SLF001 - empty: back to the device's
+    assert view._chassis["sw"].port_items["ether3"].given_name == "Mavenir E72 (VL630)"  # noqa: SLF001
+    # A switch with no named ports keeps the normal pill height.
+    monkeypatch.setattr(pv, "for_device", lambda d: pv.DeviceVlans())
+    plain = sc.ChassisItem(Device(name="p", kind="mikrotik", model="CRS109-8G-1S-2HnD", role="access-switch",
+                                  components=[PortComponent(name="ether1", media="ether")]), snap=False)
+    assert plain.port_items["ether1"].h == sc.SFP_H

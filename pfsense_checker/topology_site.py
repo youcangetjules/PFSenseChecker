@@ -616,6 +616,11 @@ class Device:
     # Port (lower name) → True: set as an uplink by hand, False: not one
     # (overrides what the config says).
     uplink_overrides: dict[str, bool] = field(default_factory=dict)
+    # Port names given on the map (right-click a port → Rename): port (lower name) → name.
+    port_labels: dict[str, str] = field(default_factory=dict)
+    # VLANs the operator plans to add to ports (vlan_plan.py): port (lower name)
+    # → {"tagged": [ids], "untagged": [ids]}. Not on the device until entered there.
+    planned_vlans: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     # Operator chose to ignore this device on Login to Routers (for example
     # the same box reached through another VLAN). Greyed out, never probed.
     ignored: bool = False
@@ -687,6 +692,8 @@ class Device:
             "h": self.h,
             "port_layout": self.port_layout,
             "uplink_overrides": dict(self.uplink_overrides),
+            "port_labels": dict(self.port_labels),
+            "planned_vlans": {p: {k: list(v) for k, v in e.items()} for p, e in self.planned_vlans.items()},
             "ignored": self.ignored,
             "inventory": dict(self.inventory),
         }
@@ -728,6 +735,12 @@ class Device:
             port_layout=str(d.get("port_layout", "") or ""),
             uplink_overrides={
                 str(k).lower(): bool(v) for k, v in (d.get("uplink_overrides") or {}).items()
+            },
+            port_labels={str(k).lower(): str(v) for k, v in (d.get("port_labels") or {}).items() if str(v).strip()},
+            planned_vlans={
+                str(p).lower(): {"tagged": [str(v) for v in (e or {}).get("tagged", [])],
+                                 "untagged": [str(v) for v in (e or {}).get("untagged", [])]}
+                for p, e in (d.get("planned_vlans") or {}).items()
             },
             ignored=bool(d.get("ignored", False)),
             inventory=dict(d.get("inventory") or {}),

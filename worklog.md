@@ -4,6 +4,9 @@ Daily record of work done on NetCheck. Newest day first. Append a day; do not re
 
 ## 2026-11-15
 
+- Port names in switch pills (from RouterOS comments) and Rename port on the map (1.6.2). CRS109-1 shows Mavenir E72 (VL630), Phillips Hue (VL710), Growatt LAN, Netgear LL Wireless (VL710), >> Uplink.
+- Rainbow connector: blended colours, clear of device edges, faint behind boxes; any cable's long bar can be dragged (1.6.1).
+- Topology: planned VLANs on ports, with the commands to apply them (1.6.0). Tried on the saved site: VLAN 662 tagged on CRS109-1 sfp1 gives switch-chip commands (switch vlan + egress-vlan-tag), noting the uplink / CPU port must be added for a VLAN new to the switch. Nothing entered on any device.
 - Login to Routers: Load All (1.5.9). Faked-SSH test only; not run against the real devices.
 - guardian's bridge0 drawing corrected: only VLAN 710 on igb0 and mce1 is bridged (1.5.8, BUG-053).
 - MikroTik parser no longer registers interface lists / profiles / the switch chip as interfaces (BUG-051); CRS109-1 goes from 28 "interfaces" to 15. Logical map rebuilt on that, with port VLAN notes and right-click (1.5.7).

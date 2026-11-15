@@ -67,3 +67,41 @@ def test_deleting_one_vlan_cable_keeps_the_others(monkeypatch) -> None:
     assert len(view._links) == 2 and not view._links[0].bundle  # noqa: SLF001
     view.delete_link("core", "sfp7", "office", "sfp1", "600")
     assert [ln.vlans for ln in view._site.links] == [["630"]]  # noqa: SLF001
+
+
+def test_ribbon_colours_blend_into_each_other() -> None:
+    stops = sc.ribbon_stops(["#111111", "#222222", "#333333"])
+    assert [c for _p, c in stops] == ["#111111", "#111111", "#222222", "#222222", "#333333", "#333333"]
+    pos = [p for p, _c in stops]
+    assert pos == sorted(pos) and pos[0] > 0 and pos[-1] < 1
+    # Between one colour's solid core and the next there is room to fade.
+    assert pos[2] - pos[1] > 0.1
+    sharp = sc.ribbon_stops(["#111111", "#222222"], blend=0.0)
+    assert sharp[1][0] == sharp[2][0] == 0.5  # no blend: the bands meet in a line
+
+
+def test_ribbon_keeps_clear_of_both_boxes_and_bar_can_be_dragged(monkeypatch) -> None:
+    view = _view(monkeypatch, [_vlink(v) for v in VIDS])
+    [item] = view._links  # noqa: SLF001
+    assert item.long_run() is None  # ports straight above each other: no bar to drag
+    view._chassis["office"].setPos(-300, 400)  # noqa: SLF001 - off to the side: now it has one
+    top = view._chassis["core"].sceneBoundingRect()  # noqa: SLF001
+    bottom = view._chassis["office"].sceneBoundingRect()  # noqa: SLF001
+    y, x0, x1 = item.long_run()
+    half = sc.BUNDLE_WIDTH / 2
+    assert y - half >= top.bottom() + sc.CABLE_CLEARANCE - 0.01  # the band does not touch the upper box
+    assert y + half <= bottom.top() - sc.CABLE_CLEARANCE + 0.01
+    saved = []
+    view.positions_changed.connect(lambda: saved.append(1))
+    item.move_long_run(y + 60)  # drag the bar down
+    assert abs(item.long_run()[0] - (y + 60)) < 0.01
+    item.move_long_run(bottom.top() + 500)  # past the lower box: stops at the limit
+    assert item.long_run()[0] + half <= bottom.top() - sc.CABLE_CLEARANCE + 0.01
+    view.cable_lane_changed(item)
+    assert saved and all(ln.lane == item.lane_offset for ln in view._site.links)  # noqa: SLF001 - every strand
+    quads = item.ribbon_quads()
+    assert len(quads) == len(item.points) - 1
+    from PySide6.QtCore import QPointF
+
+    assert item.on_long_run(QPointF((x0 + x1) / 2, item.long_run()[0]))
+    assert not item.on_long_run(QPointF((x0 + x1) / 2, item.long_run()[0] + 40))
