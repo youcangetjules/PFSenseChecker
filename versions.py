@@ -13,7 +13,7 @@ Do not set ``core.hooksPath``.
 
 from __future__ import annotations
 
-SEMVER = "1.9.1"
-SEQUENCE = 25
+SEMVER = "1.10.0"
+SEQUENCE = 26
 def full_version() -> str:
     return f"{SEMVER}+{SEQUENCE}"

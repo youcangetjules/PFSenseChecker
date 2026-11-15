@@ -150,7 +150,7 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "logs.logins": "Who signed in · from which address · for how long · failed attempts",
     "logs.devices": "Router logs downloaded over SSH · on a schedule and after Connect",
     "logs.analysis": "Drop log files in · failed logins, blocks, link drops, Wi-Fi, DHCP, VPN, errors",
-    "security_holes": "Known weaknesses across loaded configs and seen devices",
+    "security_holes": "Open services · firewall gaps · known vulnerabilities · old software · weak logins",
     "pentesting": "Authorised testing of your own devices · scope before tests",
     "dns_leakage": "Where DNS queries really go · bypass and leak checks",
     "speed": "Ping & download checks from chosen source",
@@ -2695,25 +2695,15 @@ class HomeScreen(QWidget):
         return page
 
     def _build_security_holes(self) -> QWidget:
-        return self._security_page(
-            "Security Holes",
-            [
-                (
-                    "What this section is for",
-                    "One list of known weaknesses across every loaded config and "
-                    "every device seen on Login to Routers: exposed management "
-                    "(Telnet, plain-HTTP GUIs, Winbox / API reachable from user "
-                    "VLANs), weak VPN crypto, any-to-any rules, default or shared "
-                    "credentials, outdated firmware.",
-                ),
-                (
-                    "Status",
-                    "Not built yet — tell NetCheck's maintainer what to include "
-                    "first. Today the Config Check attack-surface assessment and "
-                    "the Seen devices on Login to Routers hold these findings.",
-                ),
-            ],
-        )
+        """Security Holes: open services, firewall gaps, known vulnerabilities, old software, weak logins."""
+        from pfsense_checker.security_holes_page import SecurityHolesPage
+
+        def seen() -> list:
+            session = getattr(self, "session", None)  # the Login to Routers screen, once it has been opened
+            return session.seen_devices() if session is not None else []
+
+        self.security_holes = SecurityHolesPage(site=lambda: self._live_site, seen=seen)
+        return self.security_holes
 
     def _build_pentesting(self) -> QWidget:
         return self._security_page(

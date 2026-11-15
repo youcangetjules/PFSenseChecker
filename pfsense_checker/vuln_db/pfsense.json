@@ -1,0 +1,14 @@
+{
+  "product": "pfsense-ce",
+  "name": "pfSense CE",
+  "entries": [
+    {
+      "id": "CVE-2023-42325 / 42326 / 42327",
+      "title": "The web interface can be made to run commands",
+      "severity": "high",
+      "affected": [{"lt": "2.7.1"}],
+      "fixed": "2.7.1",
+      "detail": "Two cross-site scripting faults and a command injection in the web interface. Together they let someone who gets a logged-in administrator to open a link run commands on the firewall."
+    }
+  ]
+}

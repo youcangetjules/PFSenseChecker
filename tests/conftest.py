@@ -41,6 +41,9 @@ def _isolate_receiver_settings(tmp_path, monkeypatch):
     from pfsense_checker import log_pipeline, syslog_recv
 
     monkeypatch.setattr(log_pipeline, "SETTINGS_PATH", tmp_path / "log_pipeline.json")
+    from pfsense_checker import security_holes
+
+    monkeypatch.setattr(security_holes, "SETTINGS_PATH", tmp_path / "security_holes.json")
     real_load, real_save = syslog_recv.load_settings, syslog_recv.save_settings
     monkeypatch.setattr(syslog_recv, "load_settings",
                         lambda path=None: real_load(path or tmp_path / "syslog.json"))

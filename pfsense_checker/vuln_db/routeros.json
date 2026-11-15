@@ -1,0 +1,58 @@
+{
+  "product": "routeros",
+  "name": "MikroTik RouterOS",
+  "entries": [
+    {
+      "id": "CVE-2018-14847",
+      "title": "Winbox gives away the user database without a login",
+      "severity": "high",
+      "affected": [{"lt": "6.42.1"}],
+      "fixed": "6.42.1 (6.40.8 on the long-term channel)",
+      "needs": "winbox",
+      "detail": "Anyone who can reach the Winbox port can read files from the router, including the file that holds its user names and passwords. This was used widely to take routers over."
+    },
+    {
+      "id": "CVE-2019-3924",
+      "title": "Winbox can be used without a login to reach other hosts",
+      "severity": "medium",
+      "affected": [{"lt": "6.43.12"}],
+      "fixed": "6.43.12 (6.42.12 on the long-term channel)",
+      "needs": "winbox",
+      "detail": "Someone who can reach the Winbox port can make the router send requests to other addresses for them, which gets round firewall rules that trust the router."
+    },
+    {
+      "id": "CVE-2023-30799",
+      "title": "A logged-in admin can take full control of the operating system",
+      "severity": "high",
+      "affected": [{"lt": "6.49.7"}],
+      "fixed": "6.49.7 (6.49.8 on the long-term channel)",
+      "detail": "Through Winbox or the web interface, an account with admin rights can become super-admin and run its own code on the router. It needs a working admin login, so default or guessed passwords make it serious."
+    },
+    {
+      "id": "CVE-2023-32154",
+      "title": "Code can be run on the router through IPv6 router advertisements",
+      "severity": "high",
+      "affected": [{"lt": "6.49.8"}, {"ge": "7.0", "lt": "7.9.1"}],
+      "fixed": "7.9.1 (6.49.8 on the long-term channel)",
+      "detail": "A device on the same network can run code on the router with a crafted IPv6 router advertisement. It only applies when IPv6 is switched on and the router is set to accept router advertisements."
+    },
+    {
+      "id": "CVE-2022-45315",
+      "title": "SNMP can be made to read memory it should not",
+      "severity": "medium",
+      "affected": [{"ge": "7.0", "lt": "7.6"}],
+      "fixed": "7.6",
+      "needs": "snmp",
+      "detail": "A crafted SNMP packet makes the SNMP service read outside its own memory, which may let an attacker run code. It only applies while SNMP is switched on."
+    },
+    {
+      "id": "CVE-2023-41570",
+      "title": "The REST API ignores its access restrictions",
+      "severity": "medium",
+      "affected": [{"ge": "7.1", "lt": "7.12"}],
+      "fixed": "7.12",
+      "needs": "www",
+      "detail": "The address limits set on the web service are not applied to the REST API, so a login can be used from addresses that should be refused."
+    }
+  ]
+}

@@ -3927,6 +3927,10 @@ class SessionScreen(QWidget):
             worker.deleteLater()
         self._run_discovery_queue()
 
+    def seen_devices(self) -> list:
+        """Every host the subnet sweeps have seen in this run (Security Holes reads their open ports)."""
+        return [dev for devices in self._seen.values() for dev in devices]
+
     def _seen_device(self, ip: str):  # noqa: ANN202
         for devices in self._seen.values():
             for dev in devices:

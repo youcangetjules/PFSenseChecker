@@ -72,6 +72,38 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.10.0",
+        date="2026-11-15",
+        notes=(
+            "Security Holes is built. One list of weaknesses across the devices on Login to "
+            "Routers, worst first, each with what it means and how to close it (Copy). Areas: "
+            "known vulnerabilities, open ports and services, firewall rules, VPN and encryption, "
+            "logins and passwords, software versions. Filters by severity, device and words; "
+            "Copy list. It reads saved configs and what the Login to Routers sweep saw. It "
+            "contacts no device and changes nothing (`security_holes.py`).",
+            "Open ports and services: on a MikroTik, Telnet / FTP / plain HTTP / the API left on, "
+            "encrypted services with no address limit, MAC Telnet / MAC Winbox on every "
+            "interface, SNMP with the community name public, a SOCKS or web proxy, UPnP, DNS "
+            "answering any network; on pfSense, its attack-surface findings; on hosts with no "
+            "config, the management ports the sweep found open. Firewall: a MikroTik whose input "
+            "chain drops nothing (with the drop rules that are switched off), any-to-any rules, "
+            "flat segmentation. The MikroTik parser now keeps /ip service, /ip ssh, /snmp, "
+            "/tool mac-server and the proxy sections.",
+            "Known vulnerabilities: each device's software version is checked against a list "
+            "NetCheck carries (`vuln_db`: 10 entries for RouterOS, OpenSSH and pfSense, with the "
+            "affected versions and the fixed one), and so is the OpenSSH version a host "
+            "announces. A fault that needs a service is left out when the config shows that "
+            "service off. It is not a live feed: add entries as JSON in data/vuln_db.",
+            "Old software: type the vendor's current release on the page and older devices are "
+            "listed; devices of one kind on different releases and RouterOS 6 are listed too. "
+            "pfSense configs hold only their format version, so pfSense is listed as not checked.",
+            "Logins: logins as the built-in admin account. With Compare saved passwords ticked "
+            "(off by default): a saved password that is a factory default, and one password saved "
+            "for several devices. Passwords are compared on this PC and never shown, stored or "
+            "logged; no user name is shown except admin / root.",
+        ),
+    ),
+    Change(
         version="1.9.1",
         date="2026-11-15",
         notes=(

@@ -1,0 +1,23 @@
+{
+  "product": "openssh",
+  "name": "OpenSSH",
+  "caveat": "The version comes from the greeting the server sends. Some systems fix a fault without changing that version, so check the vendor's advisory before treating this as certain.",
+  "entries": [
+    {
+      "id": "CVE-2024-6387",
+      "title": "regreSSHion: code can be run as root without a login",
+      "severity": "high",
+      "affected": [{"lt": "4.4"}, {"ge": "8.5", "lt": "9.8"}],
+      "fixed": "9.8",
+      "detail": "A timing fault in the SSH server lets an attacker who keeps trying run code as root without logging in. It was shown on Linux systems that use glibc; other systems are thought to be much harder or impossible to exploit."
+    },
+    {
+      "id": "CVE-2023-48795",
+      "title": "Terrapin: parts of the SSH handshake can be removed in transit",
+      "severity": "low",
+      "affected": [{"lt": "9.6"}],
+      "fixed": "9.6",
+      "detail": "Someone who sits between the client and the server can remove messages at the start of a connection and so weaken it. Both ends need the fix for it to take effect."
+    }
+  ]
+}

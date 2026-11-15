@@ -145,6 +145,17 @@ RAW_SECTIONS = frozenset(
         "interface bonding",
         "queue simple",
         "queue tree",
+        # What the device itself offers on the network (security_holes.py).
+        "ip service",
+        "ip ssh",
+        "ip proxy",
+        "ip socks",
+        "ip upnp",
+        "ip cloud",
+        "ip neighbor discovery-settings",
+        "snmp",
+        "tool mac-server",
+        "tool mac-server mac-winbox",
     }
 )
 
@@ -220,7 +231,15 @@ def parse_routeros(text: str, path: Path | str | None = None) -> CheckResult:
             # typed model above drops some (connection-state, local-address…).
             raw = dict(pairs)
             raw["_verb"] = verb
+            # "set telnet disabled=no": the row is named by a bare first word, not a key.
+            first = rest.split(None, 1)[0] if rest.strip() else ""
+            if verb == "set" and first and "=" not in first and not first.startswith("["):
+                raw["_name"] = first
             result.summary.setdefault("raw", {}).setdefault(section, []).append(raw)
+        elif section == "snmp community" and pairs.get("name", "").strip('"').lower() == "public" \
+                and str(pairs.get("disabled", "no")).lower() != "yes":
+            # Only the fact is kept. Community names are passwords and stay out of the summary.
+            result.summary["snmp_public_community"] = True
 
         _dispatch(
             section,
