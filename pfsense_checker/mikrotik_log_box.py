@@ -11,6 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -70,19 +71,30 @@ class MikrotikLogBox(QGroupBox):
         row.addStretch(1)
         v.addLayout(row)
 
+        self.wifi_clients = QCheckBox(
+            "Also send Wi-Fi clients connecting and disconnecting (for the CAPsMAN controller)"
+        )
+        self.wifi_clients.setToolTip(
+            "Adds a rule for topics caps,debug. A CAPsMAN controller logs every client that "
+            "connects or disconnects there, and nowhere else. Leave it off for a switch that is "
+            "only a CAP: there the same topics repeat “no suitable CAPsMAN” while it has no controller."
+        )
+        self.wifi_clients.toggled.connect(self._show_commands)
+        v.addWidget(self.wifi_clients)
+
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.text.setFont(QFont("Consolas", 10))
-        self.text.setFixedHeight(self.text.fontMetrics().lineSpacing() * 10 + 16)
+        self.text.setFixedHeight(self.text.fontMetrics().lineSpacing() * 11 + 16)
         v.addWidget(self.text)
 
         note = QLabel(
             "Paste into a terminal on each MikroTik (RouterOS 7). NetCheck does not change the "
             "router. Start the listener first, or the lines go nowhere. With “Only accept packets "
             "from attached routers” on, the switch has to be on Login to Routers or inside Also "
-            "accept from. Debug topics are left out on purpose: caps,debug alone can send a line "
-            "every few seconds."
+            "accept from. Debug topics are left out unless you tick the box above: on a CAP, "
+            "caps,debug alone can send a line every few seconds."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: #555;")
@@ -145,9 +157,10 @@ class MikrotikLogBox(QGroupBox):
     # -- commands ----------------------------------------------------------- #
 
     def commands(self) -> list[str]:
-        return log_pipeline.mikrotik_commands(self.chosen_address(), self._port)
+        return log_pipeline.mikrotik_commands(self.chosen_address(), self._port,
+                                              wifi_clients=self.wifi_clients.isChecked())
 
-    def _show_commands(self) -> None:
+    def _show_commands(self, *_args) -> None:  # noqa: ANN002
         lines = self.commands()
         self.btn_copy.setEnabled(bool(lines))
         if not lines:

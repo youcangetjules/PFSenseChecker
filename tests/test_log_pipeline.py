@@ -130,6 +130,11 @@ def test_mikrotik_commands_and_undo() -> None:
         "/system logging remove [find action=netcheck]",
         "/system logging action remove [find name=netcheck]",
     ]
+    # A CAPsMAN controller logs Wi-Fi clients connecting / disconnecting as caps,debug: one extra rule.
+    wifi = log_pipeline.mikrotik_commands("222.10.50.25", 59000, wifi_clients=True)
+    assert wifi[:-1] == lines and wifi[-1] == "/system logging add action=netcheck topics=caps,debug"
+    assert sum("debug" in line for line in wifi) == 1  # no other debug topic
+    assert log_pipeline.mikrotik_commands("nope", 59000, wifi_clients=True) == []
 
 
 def test_pick_address_prefers_the_routers_network() -> None:
@@ -196,6 +201,18 @@ def test_mikrotik_box(monkeypatch) -> None:
     assert said[-1] == "Copied 5 MikroTik commands for 222.10.50.25:5514."
     box.copy_undo()
     assert QGuiApplication.clipboard().text().splitlines() == log_pipeline.mikrotik_undo_commands()
+
+    # Wi-Fi client events are opt-in: off to start with, one more command when ticked.
+    assert not box.wifi_clients.isChecked() and "caps" not in box.text.toPlainText()
+    box.wifi_clients.setChecked(True)
+    assert "topics=caps,debug" in box.text.toPlainText()
+    assert box.text.toPlainText().index("topics=caps,debug") < box.text.toPlainText().index("# To stop sending")
+    box.copy_commands()
+    assert said[-1] == "Copied 6 MikroTik commands for 222.10.50.25:5514."
+    assert QGuiApplication.clipboard().text().splitlines()[-1] == "/system logging add action=netcheck topics=caps,debug"
+    box.wifi_clients.setChecked(False)
+    assert "caps" not in box.text.toPlainText()
+    box.copy_undo()  # the clipboard holds the undo lines again for the check below
 
     # A typed address is used; anything that is not an IPv4 address gives nothing to copy.
     box.address.setEditText("10.9.8.7")

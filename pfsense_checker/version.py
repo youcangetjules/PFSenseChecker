@@ -72,6 +72,17 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.9.1",
+        date="2026-11-15",
+        notes=(
+            "Logs → Syslog → Send logs here: a tick box adds a rule for Wi-Fi clients connecting "
+            "and disconnecting (topics caps,debug) to the MikroTik commands. A CAPsMAN controller "
+            "logs those lines only under caps,debug, so the standard info / warning / error / "
+            "critical rules never sent them. Off by default: on a switch that is only a CAP the "
+            "same topics repeat \"no suitable CAPsMAN\".",
+        ),
+    ),
+    Change(
         version="1.9.0",
         date="2026-11-15",
         notes=(

@@ -183,8 +183,13 @@ def _filter_fields(text: str) -> tuple[str, str, str, str, str, str] | None:
 # --------------------------------------------------------------------------- #
 
 MIKROTIK_ACTION = "netcheck"
-# Debug topics are left out on purpose: caps,debug alone can log every few seconds.
+# Debug topics are left out on purpose: on a CAP, caps,debug alone can log every few seconds.
 MIKROTIK_TOPICS = ("info", "warning", "error", "critical")
+# A CAPsMAN controller logs each Wi-Fi client connecting / disconnecting as caps,debug
+# (seen on CRS328-MASTER: 976 of 1,000 log lines). Offered as an extra rule. caps,info
+# lines ("reassociating") already go out through the info rule, so this does not send
+# anything twice.
+MIKROTIK_WIFI_CLIENT_TOPICS = "caps,debug"
 
 
 def ipv4(text: object) -> str:
@@ -204,10 +209,13 @@ def mikrotik_commands(
     *,
     topics: tuple[str, ...] = MIKROTIK_TOPICS,
     action: str = MIKROTIK_ACTION,
+    wifi_clients: bool = False,
 ) -> list[str]:
     """RouterOS 7 commands that send a device's log to *address*:*port* over UDP.
 
-    Empty when *address* is not an IPv4 address, so nothing half-formed is copied.
+    *wifi_clients* adds the rule for Wi-Fi client connects / disconnects on a
+    CAPsMAN controller. Empty when *address* is not an IPv4 address, so nothing
+    half-formed is copied.
     """
     target = ipv4(address)
     if not target:
@@ -217,6 +225,8 @@ def mikrotik_commands(
         f"remote-port={clamp_port(port)} remote-protocol=udp remote-log-format=syslog"
     ]
     lines.extend(f"/system logging add action={action} topics={t}" for t in topics)
+    if wifi_clients:
+        lines.append(f"/system logging add action={action} topics={MIKROTIK_WIFI_CLIENT_TOPICS}")
     return lines
 
 
