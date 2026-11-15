@@ -1,0 +1,8 @@
+{
+  "vendor": "Valve",
+  "kind": "game-console",
+  "models": [
+    {"model": "Steam Deck", "type": "Handheld game console", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Steam Deck with Docking Station", "type": "Handheld game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

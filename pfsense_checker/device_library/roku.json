@@ -1,0 +1,9 @@
+{
+  "vendor": "Roku",
+  "kind": "video-box",
+  "models": [
+    {"model": "Express", "type": "Streaming box", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Streaming Stick 4K", "type": "Streaming stick", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Ultra", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

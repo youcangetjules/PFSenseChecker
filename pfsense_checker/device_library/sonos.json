@@ -1,0 +1,18 @@
+{
+  "vendor": "Sonos",
+  "kind": "av-receiver",
+  "models": [
+    {"model": "Amp", "type": "Network amplifier", "role": "av-receiver", "ports": [{"name": "LAN {n}", "count": 2, "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Port", "type": "Network streamer", "role": "av-receiver", "ports": [{"name": "LAN {n}", "count": 2, "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Boost", "type": "Wireless bridge", "role": "av-receiver", "ports": [{"name": "LAN {n}", "count": 2, "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Arc", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Beam", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Five", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "One", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Sub", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Era 100", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Era 300", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Move", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Roam", "type": "Network speaker", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

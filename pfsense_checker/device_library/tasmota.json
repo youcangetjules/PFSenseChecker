@@ -1,0 +1,26 @@
+{
+  "vendor": "Tasmota (ESP8266 / ESP32)",
+  "kind": "iot",
+  "models": [
+    {"model": "Sonoff Basic R2", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff Basic R3", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff Mini R2", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff S26 plug", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff TH10 / TH16", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff Pow R2", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff Dual R2", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff 4CH Pro", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Sonoff Touch", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Athom Smart Plug V2", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly 1 (Tasmota)", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly 2.5 (Tasmota)", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Plug S (Tasmota)", "type": "Smart switch / plug (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Wemos D1 mini", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "NodeMCU (ESP8266)", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "ESP-01", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "ESP32 DevKit", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Olimex ESP32-POE", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "eth0", "media": "100M · copper · PoE"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "WT32-ETH01", "type": "Development board (Tasmota)", "role": "iot", "ports": [{"name": "eth0", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Tasmota device (Wi-Fi)", "type": "Smart device (Tasmota)", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}], "notes": "Any ESP8266 / ESP32 device flashed with Tasmota. They are 2.4 GHz only."}
+  ]
+}

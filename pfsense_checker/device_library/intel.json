@@ -1,0 +1,13 @@
+{
+  "vendor": "Intel (NUC)",
+  "kind": "sff",
+  "models": [
+    {"model": "NUC7i5BNH", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC8i5BEH", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC10i5FNH", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC10i7FNH", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC11TNHi5 (NUC 11 Pro)", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "2.5G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC12WSHi5 (NUC 12 Pro)", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "2.5G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "NUC13ANHi5 (NUC 13 Pro)", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "2.5G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

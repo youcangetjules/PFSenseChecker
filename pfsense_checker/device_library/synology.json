@@ -1,0 +1,18 @@
+{
+  "vendor": "Synology",
+  "kind": "nas",
+  "models": [
+    {"model": "DS120j", "type": "NAS", "role": "nas", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "DS218", "type": "NAS", "role": "nas", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "DS218+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "DS223j", "type": "NAS", "role": "nas", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "DS220+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "DS224+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "DS423+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "DS720+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "DS920+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "DS923+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}], "notes": "A 10G card is optional."},
+    {"model": "DS1621+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 4, "media": "1G · copper"}]},
+    {"model": "DS1821+", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 4, "media": "1G · copper"}]}
+  ]
+}

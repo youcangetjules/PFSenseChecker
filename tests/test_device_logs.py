@@ -143,3 +143,35 @@ def test_script_is_one_shell_command_with_markers() -> None:
     assert "o=120" in script and "/var/log/filter.log" in script and dl.MARK in script
     parsed = dl.parse_pfsense(f"{dl.MARK} system 10 4\nabc\n\n{dl.MARK} auth DENIED 0\n".encode())
     assert parsed["system"] == ("ok", 10, 4, b"abc\n") and parsed["auth"][0] == "denied"
+
+
+def test_failed_login_pauses_the_device_until_a_login_by_hand(tmp_path) -> None:
+    """One refused login, then no more attempts: firewalls block addresses that keep failing (BUG-054)."""
+    attempts = []
+
+    def refuse(_d, **_k):  # noqa: ANN001, ANN003, ANN202
+        attempts.append(1)
+        raise PermissionError("Authentication failed.")
+
+    state = tmp_path / "state.json"
+    kw = dict(root=tmp_path, state_path=state, session_factory=refuse)
+    r1 = dl.download_device_logs(_pf(), **kw)
+    assert not r1.ok and "now paused" in r1.error and len(attempts) == 1
+    assert "Authentication failed" in dl.paused("guardian", state)
+    r2 = dl.download_device_logs(_pf(), **kw)  # the next scheduled run
+    assert not r2.ok and "paused since" in r2.error and len(attempts) == 1  # no second login attempt
+    assert dl.resume("guardian", state) and dl.paused("guardian", state) == ""
+    box = FakePfSense({"system": b"a\n"})
+    r3 = dl.download_device_logs(_pf(), root=tmp_path, state_path=state, session_factory=lambda d, **k: box)
+    assert r3.ok
+
+
+def test_timeouts_do_not_pause(tmp_path) -> None:
+    def unreachable(_d, **_k):  # noqa: ANN001, ANN003, ANN202
+        raise TimeoutError("[WinError 10060] A connection attempt failed")
+
+    state = tmp_path / "state.json"
+    r = dl.download_device_logs(_pf(), root=tmp_path, state_path=state, session_factory=unreachable)
+    assert not r.ok and dl.paused("guardian", state) == ""
+    assert dl.is_auth_failure("Bad authentication type; allowed types: ['publickey']")
+    assert not dl.is_auth_failure("[WinError 10060] timed out")

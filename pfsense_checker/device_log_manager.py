@@ -77,15 +77,30 @@ class DeviceLogManager(QObject):
         self.run_all("schedule")
 
     def run_all(self, source: str = "manual") -> int:
-        names = [d.name for d in self._devices() if dl.eligible(d)]
+        eligible = [d.name for d in self._devices() if dl.eligible(d)]
+        names = [n for n in eligible if not dl.paused(n)]
+        held = [n for n in eligible if n not in names]
         for name in names:
             self.enqueue(name, source)
-        if not names:
+        if held:  # a login failed there: never retried on its own
+            self.status.emit("Device logs: not trying " + ", ".join(held)
+                             + " (a login failed; Connect to it on Login to Routers to resume)")
+        elif not names:
             self.status.emit("Device logs: no pfSense / MikroTik device has SSH set up")
         return len(names)
 
+    def paused_devices(self) -> dict[str, str]:
+        """Device → why automatic logins to it are paused."""
+        out = {}
+        for d in self._devices():
+            why = dl.paused(d.name)
+            if why:
+                out[d.name] = why
+        return out
+
     def on_device_logged_in(self, name: str) -> None:
         """Connect / Load Config succeeded: fetch that device's logs shortly."""
+        dl.resume(name)  # a login by hand worked: automatic logins may run again
         if self.settings.enabled and self.settings.on_connect:
             QTimer.singleShot(CONNECT_DELAY_MS, lambda: self.enqueue(name, "connect"))
 

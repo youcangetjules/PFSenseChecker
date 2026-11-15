@@ -1,0 +1,8 @@
+{
+  "vendor": "Meta",
+  "kind": "game-console",
+  "models": [
+    {"model": "Quest 2", "type": "VR headset", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Quest 3", "type": "VR headset", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 + 6 GHz"}]}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "vendor": "Advantech",
+  "kind": "serial-converter",
+  "models": [
+    {"model": "EKI-1521", "type": "Serial device server (1 port)", "role": "serial-converter", "ports": [{"name": "ETH{n}", "count": 2, "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232/422/485"}]},
+    {"model": "EKI-1522", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH{n}", "count": 2, "media": "100M · copper"}, {"name": "P{n}", "count": 2, "media": "serial · RS-232/422/485"}]},
+    {"model": "EKI-1524", "type": "Serial device server (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH{n}", "count": 2, "media": "100M · copper"}, {"name": "P{n}", "count": 4, "media": "serial · RS-232/422/485"}]}
+  ]
+}

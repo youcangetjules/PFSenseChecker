@@ -1,0 +1,12 @@
+{
+  "vendor": "Amazon",
+  "kind": "video-box",
+  "models": [
+    {"model": "Fire TV Stick", "type": "Streaming stick", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Fire TV Stick 4K / 4K Max", "type": "Streaming stick", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Fire TV Cube (3rd gen)", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Echo / Echo Dot", "kind": "iot", "type": "Smart speaker", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Echo Show", "kind": "iot", "type": "Smart display", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Ring Video Doorbell", "kind": "camera", "type": "Doorbell camera", "role": "camera", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

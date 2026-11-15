@@ -131,3 +131,41 @@ def test_hovering_a_stripe_names_its_vlan(monkeypatch) -> None:
     assert fw.toolTip().startswith("VLAN 710 · tagged")
     fw.hoverLeaveEvent(_Hover(fw.stripe_rect("710").center()))
     assert not fw.toolTip().startswith("VLAN")
+
+
+def test_vlan_cable_on_a_port_without_that_vlan_asks_first(monkeypatch) -> None:
+    """Dropped on a port that carries other VLANs but not this one: no silent cable."""
+    QApplication.instance() or QApplication([])
+    ports = {"opt3": pv.PortVlans(tagged=["710", "800"]), "opt5": pv.PortVlans(tagged=["630", "710"]),
+             "sfp1": pv.PortVlans(tagged=["630", "710"])}
+    monkeypatch.setattr(pv, "for_device", lambda d: pv.DeviceVlans(ports=ports))
+    site = SiteTopology(devices=[
+        Device(name="fw", kind="pfsense", x=0, y=0,
+               components=[PortComponent(name="OPT3"), PortComponent(name="OPT5"), PortComponent(name="LAN")]),
+        Device(name="sw", kind="mikrotik", model="CRS109-8G-1S-2HnD", role="access-switch", x=0, y=300,
+               components=[PortComponent(name="sfp1", media="ether")]),
+    ])
+    view = sc.SiteTopologyView()
+    view.render_site(site)
+    asked: list[tuple] = []
+
+    def start() -> None:
+        sw = view._chassis["sw"].port_items["sfp1"]  # noqa: SLF001
+        view.begin_port_link(sw, sw.mapToScene(sw.stripe_rect("630").center()), vid="630")
+
+    monkeypatch.setattr(view, "confirm_add_missing_vlan", lambda d, p, v, have: asked.append((d, p, v, have)) or False)
+    start()
+    view._complete_port_link("fw", "OPT3")  # noqa: SLF001 - OPT3 has 710 and 800, not 630
+    assert asked == [("fw", "OPT3", "630", ["710", "800"])] and site.links == []  # refused: no cable
+    start()
+    view._complete_port_link("fw", "OPT5")  # noqa: SLF001 - carries 630: no question
+    assert len(asked) == 1 and [(ln.b_port, ln.vlans) for ln in site.links] == [("OPT5", ["630"])]
+    start()
+    view._complete_port_link("fw", "LAN")  # noqa: SLF001 - a plain port takes any cable
+    assert len(asked) == 1 and len(site.links) == 2
+    monkeypatch.setattr(view, "confirm_add_missing_vlan", lambda d, p, v, have: True)
+    start()
+    view._complete_port_link("fw", "OPT3")  # noqa: SLF001 - agreed: planned on OPT3, then connected
+    assert site.devices[0].planned_vlans == {"opt3": {"tagged": ["630"], "untagged": []}}
+    assert ("OPT3", ["630"]) in [(ln.b_port, ln.vlans) for ln in site.links]
+    assert "630" in view._chassis["fw"].port_items["OPT3"].planned  # noqa: SLF001

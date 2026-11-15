@@ -97,6 +97,55 @@ def save_state(state: dict[str, Any], path: Path = STATE_FILE) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Paused devices: never repeat a failed login on a timer
+#
+# A firewall counts failed logins (pfSense's sshguard blocks the address that
+# makes them, SSH and web interface both). So after one failed login NetCheck
+# stops every automatic login to that device — scheduled log downloads and
+# Load All — until a login the operator makes by hand (Connect / Load Config)
+# succeeds. (BUG-054)
+
+PAUSE_KEY = "paused"
+_AUTH_WORDS = ("authentication", "permission denied", "bad authentication type", "auth fail", "password")
+
+
+def is_auth_failure(error: object) -> bool:
+    """True when *error* is a refused login (not a timeout or an unreachable host)."""
+    text = str(error or "").lower()
+    return any(word in text for word in _AUTH_WORDS)
+
+
+def pause(name: str, reason: str, path: Path | None = None) -> None:
+    """Stop automatic logins to device *name* until resume()."""
+    path = path or STATE_FILE
+    state = load_state(path)
+    state.setdefault(name, {})[PAUSE_KEY] = {
+        "reason": str(reason)[:300],
+        "since": datetime.now().isoformat(timespec="seconds"),
+    }
+    save_state(state, path)
+
+
+def resume(name: str, path: Path | None = None) -> bool:
+    """Allow automatic logins again (a login by hand just worked). True if it was paused."""
+    path = path or STATE_FILE
+    state = load_state(path)
+    if PAUSE_KEY not in (state.get(name) or {}):
+        return False
+    state[name].pop(PAUSE_KEY, None)
+    save_state(state, path)
+    return True
+
+
+def paused(name: str, path: Path | None = None) -> str:
+    """Why automatic logins to *name* are paused, or "" when they are not."""
+    entry = (load_state(path or STATE_FILE).get(name) or {}).get(PAUSE_KEY)
+    if not entry:
+        return ""
+    return f"{entry.get('reason', 'a login failed')} (since {entry.get('since', '?')})"
+
+
+# --------------------------------------------------------------------------- #
 # Results
 
 
@@ -348,10 +397,21 @@ def download_device_logs(
     folder = device_dir(device.name, root) / day
     state = load_state(state_path)
     dev_state: dict[str, Any] = state.setdefault(device.name, {})
+    if dev_state.get(PAUSE_KEY):  # a login failed before: no automatic retries (BUG-054)
+        entry = dev_state[PAUSE_KEY]
+        result.error = (f"paused since {entry.get('since', '?')} after a failed login "
+                        f"({entry.get('reason', '')}). Connect to it on Login to Routers to resume.")
+        return result
     try:
         session = session_factory(device, password=password, timeout=timeout)
     except Exception as exc:  # noqa: BLE001
         result.error = f"login failed: {exc}"
+        dev_state["last_run"] = datetime.now().isoformat(timespec="seconds")
+        dev_state["last_result"] = f"error: {result.error[:200]}"
+        if is_auth_failure(exc):  # refused: do not try again until the operator logs in by hand
+            dev_state[PAUSE_KEY] = {"reason": str(exc)[:300], "since": dev_state["last_run"]}
+            result.error += " — automatic logins to this device are now paused."
+        save_state(state, state_path)
         return result
     try:
         if kind == "pfsense":

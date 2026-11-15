@@ -1,0 +1,12 @@
+{
+  "vendor": "QNAP",
+  "kind": "nas",
+  "models": [
+    {"model": "TS-251D", "type": "NAS", "role": "nas", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "TS-253D", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "2.5G · copper"}]},
+    {"model": "TS-453D", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "2.5G · copper"}]},
+    {"model": "TS-264", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "2.5G · copper"}]},
+    {"model": "TS-464", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "2.5G · copper"}]},
+    {"model": "TS-873A", "type": "NAS", "role": "nas", "ports": [{"name": "LAN {n}", "count": 2, "media": "2.5G · copper"}]}
+  ]
+}

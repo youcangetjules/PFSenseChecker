@@ -2,9 +2,21 @@
   "vendor": "Netgear",
   "kind": "netgear-managed",
   "models": [
-    {"model": "GS108E", "type": "Switch (smart)", "role": "access-switch",
-     "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
-    {"model": "GS308", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch",
-     "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]}
+    {"model": "GS108E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS308", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS105", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "GS108", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS116", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 16, "media": "1G · copper"}]},
+    {"model": "GS305", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "GS324", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "JGS524", "kind": "netgear-unmanaged", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "GS105E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "GS308E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS116E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 16, "media": "1G · copper"}]},
+    {"model": "GS110TP", "type": "Switch (smart, PoE)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper · PoE"}, {"name": "Port {n}", "count": 2, "start": 9, "media": "1G · sfp"}]},
+    {"model": "GS724T", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}, {"name": "Port {n}", "count": 2, "start": 25, "media": "1G · sfp"}]},
+    {"model": "Nighthawk R7000", "kind": "access-point", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "LAN {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Orbi RBR50 (router)", "kind": "access-point", "type": "Mesh router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "LAN {n}", "count": 3, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Orbi RBS50 (satellite)", "kind": "access-point", "type": "Mesh satellite", "role": "access-point", "ports": [{"name": "LAN {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
   ]
 }

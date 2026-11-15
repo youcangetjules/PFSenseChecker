@@ -1,0 +1,28 @@
+{
+  "vendor": "TP-Link",
+  "kind": "switch",
+  "models": [
+    {"model": "TL-SG105", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "TL-SG108", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "TL-SG116", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 16, "media": "1G · copper"}]},
+    {"model": "TL-SG1024", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "TL-SG105E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "TL-SG108E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "TL-SG108PE", "type": "Switch (smart, PoE)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 4, "media": "1G · copper · PoE"}, {"name": "Port {n}", "count": 4, "start": 5, "media": "1G · copper"}]},
+    {"model": "TL-SG2008", "type": "Switch (managed)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "TL-SG2210P", "type": "Switch (managed, PoE)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper · PoE"}, {"name": "Port {n}", "count": 2, "start": 9, "media": "1G · sfp"}]},
+    {"model": "TL-SG3428", "type": "Switch (managed)", "role": "core-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}, {"name": "Port {n}", "count": 4, "start": 25, "media": "1G · sfp"}]},
+    {"model": "ER605", "kind": "router", "type": "Router", "role": "router", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "WAN/LAN {n}", "count": 3, "start": 2, "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}]},
+    {"model": "ER7206", "kind": "router", "type": "Router", "role": "router", "ports": [{"name": "WAN (SFP)", "media": "1G · sfp"}, {"name": "WAN", "media": "1G · copper"}, {"name": "WAN/LAN {n}", "count": 2, "start": 3, "media": "1G · copper"}, {"name": "LAN {n}", "count": 2, "start": 5, "media": "1G · copper"}]},
+    {"model": "Archer C7", "kind": "access-point", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "LAN {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Archer AX50", "kind": "access-point", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "LAN {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Deco M5", "kind": "access-point", "type": "Mesh Wi-Fi", "role": "access-point", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Deco X20", "kind": "access-point", "type": "Mesh Wi-Fi", "role": "access-point", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "EAP225", "kind": "access-point", "type": "Access point", "role": "access-point", "ports": [{"name": "LAN", "media": "1G · copper · PoE"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "EAP610", "kind": "access-point", "type": "Access point", "role": "access-point", "ports": [{"name": "LAN", "media": "1G · copper · PoE"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "EAP650", "kind": "access-point", "type": "Access point", "role": "access-point", "ports": [{"name": "LAN", "media": "2.5G · copper · PoE"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Kasa smart plug (HS100 / HS110 / KP115)", "kind": "iot", "type": "Smart plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Tapo smart plug (P100 / P110)", "kind": "iot", "type": "Smart plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Tapo camera (C200 / C210)", "kind": "camera", "type": "Camera", "role": "camera", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "vendor": "Sky",
+  "kind": "video-box",
+  "models": [
+    {"model": "Sky Q box (1TB / 2TB)", "type": "Set-top box", "role": "video-box", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Sky Q Mini", "type": "Set-top box", "role": "video-box", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Sky Stream puck", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Sky Glass", "kind": "tv", "type": "Smart TV", "role": "tv", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

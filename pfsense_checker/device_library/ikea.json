@@ -1,0 +1,8 @@
+{
+  "vendor": "IKEA",
+  "kind": "iot",
+  "models": [
+    {"model": "TRADFRI gateway", "type": "Lighting hub", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}]},
+    {"model": "DIRIGERA hub", "type": "Smart home hub", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "vendor": "Home Assistant (Nabu Casa)",
+  "kind": "iot",
+  "models": [
+    {"model": "Home Assistant Green", "type": "Home automation hub", "role": "iot", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Home Assistant Yellow", "type": "Home automation hub", "role": "iot", "ports": [{"name": "LAN", "media": "1G · copper"}]}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "vendor": "Sony",
+  "kind": "game-console",
+  "models": [
+    {"model": "PlayStation 5", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "PlayStation 5 Digital Edition", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "PlayStation 5 Pro", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "PlayStation 4 Slim", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "PlayStation 4 Pro", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "PlayStation 4", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "PlayStation 3", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Bravia TV (LAN + Wi-Fi)", "kind": "tv", "type": "Smart TV", "role": "tv", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

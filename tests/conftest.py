@@ -34,6 +34,21 @@ def _isolate_app_log(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_receiver_settings(tmp_path, monkeypatch):
+    # Opening Logs → Syslog moves the old Log Pipeline port into the Syslog
+    # settings (once). A test that builds the page must not do that to the
+    # operator's data/log_pipeline.json and data/syslog.json.
+    from pfsense_checker import log_pipeline, syslog_recv
+
+    monkeypatch.setattr(log_pipeline, "SETTINGS_PATH", tmp_path / "log_pipeline.json")
+    real_load, real_save = syslog_recv.load_settings, syslog_recv.save_settings
+    monkeypatch.setattr(syslog_recv, "load_settings",
+                        lambda path=None: real_load(path or tmp_path / "syslog.json"))
+    monkeypatch.setattr(syslog_recv, "save_settings",
+                        lambda settings, path=None: real_save(settings, path or tmp_path / "syslog.json"))
+
+
+@pytest.fixture(autouse=True)
 def _fresh_login_throttle(monkeypatch):
     monkeypatch.setattr(auth, "LOGIN_THROTTLE", auth.LoginThrottle())
 

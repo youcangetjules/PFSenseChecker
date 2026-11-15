@@ -1,0 +1,7 @@
+{
+  "vendor": "Unblock Tech",
+  "kind": "video-box",
+  "models": [
+    {"model": "UBox", "type": "IPTV box", "role": "video-box", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

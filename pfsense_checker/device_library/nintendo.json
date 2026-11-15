@@ -1,0 +1,11 @@
+{
+  "vendor": "Nintendo",
+  "kind": "game-console",
+  "models": [
+    {"model": "Switch", "type": "Game console", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Switch Lite", "type": "Game console", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Switch OLED (with dock)", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN (dock)", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Switch 2 (with dock)", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN (dock)", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Wii U", "type": "Game console", "role": "game-console", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

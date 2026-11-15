@@ -1,0 +1,13 @@
+{
+  "vendor": "Marantz",
+  "kind": "av-receiver",
+  "models": [
+    {"model": "NR1711", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "SR5015", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "SR6015", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Cinema 70s", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Cinema 60", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Cinema 50", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Cinema 40", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

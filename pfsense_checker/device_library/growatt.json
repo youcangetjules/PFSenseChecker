@@ -1,0 +1,9 @@
+{
+  "vendor": "Growatt",
+  "kind": "iot",
+  "models": [
+    {"model": "ShineLAN-X", "type": "Solar inverter logger", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}]},
+    {"model": "ShineWiFi-X", "type": "Solar inverter logger", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "ShineLink-X", "type": "Solar inverter logger", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}]}
+  ]
+}

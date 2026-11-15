@@ -1,0 +1,10 @@
+{
+  "vendor": "Onkyo",
+  "kind": "av-receiver",
+  "models": [
+    {"model": "TX-NR5100", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "TX-NR6100", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "TX-NR7100", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "TX-RZ50", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

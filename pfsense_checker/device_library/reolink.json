@@ -1,0 +1,11 @@
+{
+  "vendor": "Reolink",
+  "kind": "camera",
+  "models": [
+    {"model": "RLC-510A", "type": "IP camera (PoE)", "role": "camera", "ports": [{"name": "LAN", "media": "100M · copper · PoE"}]},
+    {"model": "RLC-810A", "type": "IP camera (PoE)", "role": "camera", "ports": [{"name": "LAN", "media": "100M · copper · PoE"}]},
+    {"model": "E1 Pro", "type": "IP camera (Wi-Fi)", "role": "camera", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RLN8-410", "type": "Network video recorder", "role": "camera", "ports": [{"name": "PoE {n}", "count": 8, "media": "100M · copper · PoE"}, {"name": "LAN", "media": "copper"}]},
+    {"model": "RLN16-410", "type": "Network video recorder", "role": "camera", "ports": [{"name": "PoE {n}", "count": 16, "media": "100M · copper · PoE"}, {"name": "LAN", "media": "copper"}]}
+  ]
+}

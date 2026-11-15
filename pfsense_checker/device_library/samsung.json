@@ -1,0 +1,11 @@
+{
+  "vendor": "Samsung",
+  "kind": "tv",
+  "models": [
+    {"model": "Smart TV (LAN + Wi-Fi)", "type": "Smart TV", "role": "tv", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "The Frame", "type": "Smart TV", "role": "tv", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Smart Monitor (M5 / M7 / M8)", "kind": "monitor", "type": "Smart monitor", "role": "monitor", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}, {"name": "HDMI", "media": "video · HDMI"}]},
+    {"model": "Soundbar (Wi-Fi)", "kind": "av-receiver", "type": "Soundbar", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Galaxy phone / tablet", "kind": "host", "type": "Phone / tablet", "role": "host", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

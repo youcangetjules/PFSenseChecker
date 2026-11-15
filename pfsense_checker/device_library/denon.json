@@ -1,0 +1,22 @@
+{
+  "vendor": "Denon",
+  "kind": "av-receiver",
+  "models": [
+    {"model": "AVR-S760H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-S970H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X1700H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X1800H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X2700H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X2800H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X3700H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X3800H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X4700H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X4800H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AVR-X6700H", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "DRA-800H", "type": "Stereo network receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Home 150", "type": "Network speaker / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Home 250", "type": "Network speaker / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Home 350", "type": "Network speaker / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "HEOS Link", "type": "Network speaker / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "vendor": "Google",
+  "kind": "video-box",
+  "models": [
+    {"model": "Chromecast with Google TV", "type": "Streaming stick", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Chromecast Ultra", "type": "Streaming stick", "role": "video-box", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}], "notes": "The Ethernet port is in the power adapter."},
+    {"model": "Google TV Streamer (4K)", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Nest Hub / Nest Mini", "kind": "iot", "type": "Smart speaker / display", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Nest Cam / Nest Doorbell", "kind": "camera", "type": "Camera", "role": "camera", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Google Wifi", "kind": "access-point", "type": "Mesh Wi-Fi", "role": "access-point", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Nest Wifi router", "kind": "access-point", "type": "Mesh Wi-Fi", "role": "access-point", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Nest Wifi Pro", "kind": "access-point", "type": "Mesh Wi-Fi", "role": "access-point", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 + 6 GHz"}]}
+  ]
+}

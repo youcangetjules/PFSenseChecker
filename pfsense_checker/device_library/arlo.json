@@ -1,0 +1,10 @@
+{
+  "vendor": "Arlo",
+  "kind": "camera",
+  "models": [
+    {"model": "SmartHub VMB4540", "type": "Camera hub", "role": "camera", "ports": [{"name": "LAN", "media": "copper"}]},
+    {"model": "SmartHub VMB5000", "type": "Camera hub", "role": "camera", "ports": [{"name": "LAN", "media": "copper"}]},
+    {"model": "Base Station VMB4000", "type": "Camera hub", "role": "camera", "ports": [{"name": "LAN", "media": "copper"}]},
+    {"model": "Essential / Pro camera (Wi-Fi)", "type": "Camera", "role": "camera", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

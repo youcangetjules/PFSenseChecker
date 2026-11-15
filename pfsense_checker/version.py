@@ -72,6 +72,133 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.9.0",
+        date="2026-11-15",
+        notes=(
+            "Topology → Add Device: a full device library, 733 models from 58 manufacturers (was 31 "
+            "from 9). New: Dell and HP / HPE servers, workstations, Dell OptiPlex USFF / Micro and "
+            "other mini PCs, laptops, NAS, monitors and TVs, AV receivers (Denon, Marantz, Yamaha, "
+            "Onkyo, Sonos), set-top and streaming boxes, game consoles, smart home devices (Tasmota, "
+            "WiZ, Shelly, Hue…), RS485 / serial converters (USR IOT, Waveshare, Moxa, Elfin, "
+            "Advantech), printers and cameras; and far more network gear (Juniper SRX / EX / QFX / "
+            "MX, Cisco, Ubiquiti, MikroTik, Aruba, TP-Link, Netgear, D-Link, Zyxel, Protectli…).",
+            "Add Device has Category and Search above Manufacturer. Category lists 17 groups from "
+            "Firewalls & routers to Cameras; Search takes part of a maker, model or type (optiplex "
+            "9010, rs485, denon). Both narrow the Manufacturer and Model lists. Models sort with "
+            "numbers in order (R230 before R620).",
+            "New device kinds with their own colour and type name on the box: laptop, monitor, "
+            "av-receiver, iot, serial-converter, printer, camera. Your own JSON files in "
+            "data/device_library work as before and may give a model a \"category\".",
+        ),
+    ),
+    Change(
+        version="1.8.3",
+        date="2026-11-15",
+        notes=(
+            "Topology: the bridge name pill sits above the bridge outline, in the strip below the "
+            "title bar. It used to sit on the outline and reach down onto the tops of the port "
+            "pills.",
+        ),
+    ),
+    Change(
+        version="1.8.2",
+        date="2026-11-15",
+        notes=(
+            "Log Pipeline is part of Logs → Syslog: one receiver and one port instead of two pages "
+            "that did nearly the same job. Logs now has five pages. The Syslog page has three tabs "
+            "under its Start / Stop buttons: Messages (filters and the table), Settings, and Send "
+            "logs here (what to enter on pfSense, and the MikroTik commands with Copy and undo, "
+            "which follow the page's UDP port and the adapter it listens on).",
+            "pfSense filter lines are shown in plain words in the Message column (block in igb3 "
+            "tcp a:1 -> b:2), with the line as sent in the tooltip, as Log Pipeline showed them.",
+            "The first time Syslog is opened, the port Log Pipeline was using becomes the Syslog "
+            "UDP and TCP port, and the page says so. data/log_pipeline.json is renamed to "
+            "log_pipeline.json.merged so that this happens once. The other Syslog settings (who "
+            "is accepted, writing to disk) are left as they were.",
+        ),
+    ),
+    Change(
+        version="1.8.1",
+        date="2026-11-15",
+        notes=(
+            "Sections: one Logs entry instead of four. Console, Syslog and Log Pipeline are no "
+            "longer separate sections; they sit under Logs with Log Analysis, Device Logs and "
+            "Login History. Order: Log Analysis, Device Logs, Log Pipeline, Syslog, Console, Login "
+            "History. Logs opens on Log Analysis (or the log page used last). The pages themselves "
+            "are unchanged.",
+        ),
+    ),
+    Change(
+        version="1.8.0",
+        date="2026-11-15",
+        notes=(
+            "Log Analysis: choose which device to analyse. Device lists the devices on Login to "
+            "Routers by the name in their config (with their address, and whether logs or a config "
+            "are missing); Analyse reads only that device's downloaded logs. All devices reads "
+            "every download, as before.",
+            "Compare with: choose a second device. Their logs are read together, and their saved "
+            "configs are compared where the two have to match (`config_match.py`): the two ends of "
+            "each cable drawn between them on Topology (each VLAN tagged or untagged on both ends, "
+            "MTU, speed, a disabled port), the VLANs each knows and their names, the addresses each "
+            "has in a VLAN (same network, same mask, no address used twice), the MikroTik wireless "
+            "controller and the CAP that looks for it, and RouterOS version, spanning tree mode, DNS "
+            "servers and default route. Mismatches come first in the findings; the box that shows "
+            "log lines shows the two ends as the configs have them. Nothing is sent to a device.",
+        ),
+    ),
+    Change(
+        version="1.7.1",
+        date="2026-11-15",
+        notes=(
+            "Log Pipeline: MikroTik block with the RouterOS 7 commands that send a switch's log "
+            "to this PC on the chosen port (remote logging action `netcheck`, topics info / "
+            "warning / error / critical, UDP, syslog format), Copy commands, and the two "
+            "commands that undo it with their own Copy button. NetCheck does not enter them: "
+            "paste them into each MikroTik.",
+            "Send to lists this PC's adapters and starts on the one that shares a network with "
+            "the MikroTiks on Login to Routers (otherwise the first real LAN adapter, not "
+            "Hyper-V); an address can be typed. Anything that is not an IPv4 address gives no "
+            "commands. Debug topics are left out so caps,debug does not flood the stream.",
+        ),
+    ),
+    Change(
+        version="1.7.0",
+        date="2026-11-15",
+        notes=(
+            "Logs → Log Analysis: drop log files or folders in (or open them, or analyse what "
+            "NetCheck has downloaded from the routers). Reads pfSense / OPNsense logs (filter, "
+            "system, auth, DHCP, OpenVPN, gateways), MikroTik logs and plain syslog text, also "
+            ".gz / .bz2 (`log_analysis.py`).",
+            "Findings, worst first: addresses blocked by login protection, failed and successful "
+            "logins, refused management connections, most-blocked sources and ports, links that "
+            "drop, Wi-Fi clients that will not stay connected, CAPsMAN trouble, DHCP refusals and "
+            "full pools, VPN errors, gateway alarms, reboots, configuration changes, errors by "
+            "service. Click a finding for the tally and the log lines behind it; Ask Ollama about "
+            "this explains a finding with your local model. Everything stays on this PC.",
+        ),
+    ),
+    Change(
+        version="1.6.4",
+        date="2026-11-15",
+        notes=(
+            "Topology: a VLAN cable dropped on a port that carries other VLANs but not that one "
+            "is no longer attached silently to the middle of the port. NetCheck says which VLANs "
+            "the port carries and offers to add the VLAN as planned and connect, or cancel.",
+        ),
+    ),
+    Change(
+        version="1.6.3",
+        date="2026-11-15",
+        notes=(
+            "After a refused SSH login to a device, NetCheck makes no more automatic logins to it "
+            "(scheduled log downloads, Load All) until a login made by hand succeeds (BUG-054). "
+            "Firewalls count failed logins: pfSense's Login Protection blocked this PC after the "
+            "6-hourly log download kept failing against a key-only firewall.",
+            "Logs → Device Logs lists the paused devices and why; Load All's summary names the "
+            "devices it left alone.",
+        ),
+    ),
+    Change(
         version="1.6.2",
         date="2026-11-15",
         notes=(

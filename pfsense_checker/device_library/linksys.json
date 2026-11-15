@@ -2,12 +2,12 @@
   "vendor": "Linksys",
   "kind": "linksys",
   "models": [
-    {"model": "LGS308P", "type": "Switch (PoE)", "role": "access-switch",
-     "ports": [{"name": "GE{n}", "count": 8, "media": "1G · copper · PoE"}]},
-    {"model": "Velop MX4200", "type": "Mesh router + Wi-Fi", "role": "access-point",
-     "ports": [{"name": "Internet", "media": "1G · copper"},
-               {"name": "Ethernet {n}", "count": 3, "media": "1G · copper"},
-               {"name": "wlan 2.4", "media": "wlan · 2.4 GHz"},
-               {"name": "wlan 5", "media": "wlan · 5 GHz"}]}
+    {"model": "LGS308P", "type": "Switch (PoE)", "role": "access-switch", "ports": [{"name": "GE{n}", "count": 8, "media": "1G · copper · PoE"}]},
+    {"model": "Velop MX4200", "type": "Mesh router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "Ethernet {n}", "count": 3, "media": "1G · copper"}, {"name": "wlan 2.4", "media": "wlan · 2.4 GHz"}, {"name": "wlan 5", "media": "wlan · 5 GHz"}]},
+    {"model": "LGS108", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "GE{n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "LGS116", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "GE{n}", "count": 16, "media": "1G · copper"}]},
+    {"model": "LGS124", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "GE{n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "WRT3200ACM", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "Ethernet {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan 2.4", "media": "wlan · 2.4 GHz"}, {"name": "wlan 5", "media": "wlan · 5 GHz"}]},
+    {"model": "EA7500", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "Internet", "media": "1G · copper"}, {"name": "Ethernet {n}", "count": 4, "media": "1G · copper"}, {"name": "wlan 2.4", "media": "wlan · 2.4 GHz"}, {"name": "wlan 5", "media": "wlan · 5 GHz"}]}
   ]
 }

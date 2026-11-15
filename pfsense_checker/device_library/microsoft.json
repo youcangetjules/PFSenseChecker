@@ -1,0 +1,13 @@
+{
+  "vendor": "Microsoft",
+  "kind": "game-console",
+  "models": [
+    {"model": "Xbox Series X", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Xbox Series S", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Xbox One", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Xbox One S", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Xbox One X", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Xbox 360 S / E", "type": "Game console", "role": "game-console", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Surface (Wi-Fi only)", "kind": "laptop", "type": "Laptop / tablet", "role": "laptop", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

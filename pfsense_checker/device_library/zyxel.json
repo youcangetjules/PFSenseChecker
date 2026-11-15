@@ -1,0 +1,12 @@
+{
+  "vendor": "Zyxel",
+  "kind": "switch",
+  "models": [
+    {"model": "GS1900-8", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "GS1900-8HP", "type": "Switch (smart, PoE)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper · PoE"}]},
+    {"model": "GS1900-24E", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "GS1900-24", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}, {"name": "Port {n}", "count": 2, "start": 25, "media": "1G · sfp"}]},
+    {"model": "GS1900-48", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 48, "media": "1G · copper"}, {"name": "Port {n}", "count": 2, "start": 49, "media": "1G · sfp"}]},
+    {"model": "XGS1210-12", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}, {"name": "Port {n}", "count": 2, "start": 9, "media": "2.5G · copper"}, {"name": "Port {n}", "count": 2, "start": 11, "media": "10G · sfp+"}]}
+  ]
+}

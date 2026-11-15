@@ -1,0 +1,23 @@
+{
+  "vendor": "Shelly",
+  "kind": "iot",
+  "models": [
+    {"model": "Shelly 1", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly 1PM", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly 2.5", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Plug S", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Plus 1", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Plus 1PM", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Plus 2PM", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Dimmer 2", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly EM", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly 3EM", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly H&T", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly i3", "type": "Smart relay / plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Pro 1", "type": "Smart relay (DIN rail)", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Pro 1PM", "type": "Smart relay (DIN rail)", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Pro 2PM", "type": "Smart relay (DIN rail)", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Pro 4PM", "type": "Smart relay (DIN rail)", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Shelly Pro 3EM", "type": "Smart relay (DIN rail)", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

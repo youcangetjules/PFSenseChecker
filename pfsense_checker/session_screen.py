@@ -1868,7 +1868,22 @@ class SessionScreen(QWidget):
         MikroTik with an SSH host and username."""
         from pfsense_checker import device_logs
 
-        return [d for d in (self._site.devices if self._site else []) if device_logs.eligible(d)]
+        return [d for d in (self._site.devices if self._site else [])
+                if device_logs.eligible(d) and not device_logs.paused(d.name)]
+
+    def load_all_held(self) -> dict[str, str]:
+        """Devices Load All leaves alone because a login to them failed: name → why."""
+        from pfsense_checker import device_logs
+
+        return {d.name: device_logs.paused(d.name) for d in (self._site.devices if self._site else [])
+                if device_logs.eligible(d) and device_logs.paused(d.name)}
+
+    def _note_login_failure(self, name: str, error: object) -> None:
+        """A refused login: stop every automatic login to that device (sshguard, BUG-054)."""
+        from pfsense_checker import device_logs
+
+        if device_logs.is_auth_failure(error):
+            device_logs.pause(name, str(error))
 
     def _load_all_configs(self) -> None:
         from pfsense_checker.module_required import ensure_feature
@@ -1879,10 +1894,14 @@ class SessionScreen(QWidget):
             self.btn_load_all.setEnabled(False)
             return
         devices = self.load_all_devices()
+        held = self.load_all_held()
         if not devices:
             QMessageBox.information(
                 self, "Load All",
-                "No ticked pfSense / OPNsense / MikroTik device has an SSH host and username yet.")
+                "No ticked pfSense / OPNsense / MikroTik device has an SSH host and username yet."
+                if not held else
+                "Nothing to load. Left alone because a login to them failed (use Load Config on the row "
+                "once the login is fixed): " + ", ".join(held))
             return
         if not ensure_feature(self, "ssh", purpose="Pull configs over SSH"):
             return
@@ -1925,6 +1944,7 @@ class SessionScreen(QWidget):
             log.info("Load All: config saved device=%s path=%s", name, getattr(result, "path", ""))
         else:
             log.warning("Load All: failed device=%s error=%s", name, getattr(result, "error", ""))
+            self._note_login_failure(name, getattr(result, "error", ""))
 
     def _on_load_all_finished(self) -> None:
         self._load_all_worker = None
@@ -1946,6 +1966,10 @@ class SessionScreen(QWidget):
             lines += [f"  • {n}: {e}" for n, e in bad]
         if skipped:
             lines.append(f"\nStopped: {skipped} device(s) not tried.")
+        held = self.load_all_held()
+        if held:
+            lines.append("\nNot tried again automatically (a login failed; fix it, then use Load Config "
+                         "on the row): " + ", ".join(held))
         (QMessageBox.warning if bad else QMessageBox.information)(self, "Load All", "\n".join(lines))
 
     def _load_config_from_pfsense(self, row: int, dev: Device) -> None:
@@ -2045,6 +2069,7 @@ class SessionScreen(QWidget):
                 dev.name,
                 result.error,
             )
+            self._note_login_failure(dev.name, result.error)
             if getattr(self, "_config_pull_for_check", False):
                 self._config_pull_for_check = False
             return
@@ -2093,6 +2118,7 @@ class SessionScreen(QWidget):
                 dev.name,
                 result.error,
             )
+            self._note_login_failure(dev.name, result.error)
             if getattr(self, "_config_pull_for_check", False):
                 self._config_pull_for_check = False
             return
@@ -3360,6 +3386,8 @@ class SessionScreen(QWidget):
                 else:
                     reason = self._login_failure_reason(status, detail)
                     self.ssh_summary_changed.emit(f"SSH login failed ({name})")
+                    if status == "auth-fail":  # refused: no automatic logins until one by hand works
+                        self._note_login_failure(name, detail or "authentication failed")
                     ssh = dev.ssh
                     app_log.get_logger("ssh").error(
                         "Login failed device=%s host=%s user=%s status=%s "

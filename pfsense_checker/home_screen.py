@@ -105,9 +105,6 @@ SECTIONS = (
     ("tests", "Tests"),
     ("ollama", "Ollama"),
     ("problems", "Problems/Troubleshooting"),
-    ("console", "Console"),
-    ("syslog", "Syslog"),
-    ("log_pipeline", "Log Pipeline"),
     ("wireshark", "Wireshark"),
     ("logs", "Logs"),
     ("setup", "Setup"),
@@ -123,7 +120,17 @@ SETUP_SUBSECTIONS = (
     ("setup.version", "Version"),
 )
 
-LOGS_SUBSECTIONS = (("logs.logins", "Login History"), ("logs.devices", "Device Logs"))
+# Everything about logs sits under the one Logs entry: router logs first (read,
+# download, receive), then NetCheck's own. Console and Syslog keep the keys they
+# had as top-level sections, so show_section("console") still works. Log Pipeline
+# is part of the Syslog page (one receiver).
+LOGS_SUBSECTIONS = (
+    ("logs.analysis", "Log Analysis"),
+    ("logs.devices", "Device Logs"),
+    ("syslog", "Syslog"),
+    ("console", "Console"),
+    ("logs.logins", "Login History"),
+)
 
 # Config Check: the open/pull page, then one entry per workspace tab
 # ("config.tab:<tab title>"), added once the workspace has been built.
@@ -139,9 +146,10 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "subnet_health": "Local + beacon subnets · ping/speed · Wired/WLAN",
     "config": "Open pfSense/MikroTik configs · findings workspace",
     "config.open": "Open a config file or folder · pull from a connected device",
-    "logs": "Audit records kept by NetCheck",
+    "logs": "Router logs: analyse · download · receive live · NetCheck's own log and logins",
     "logs.logins": "Who signed in · from which address · for how long · failed attempts",
     "logs.devices": "Router logs downloaded over SSH · on a schedule and after Connect",
+    "logs.analysis": "Drop log files in · failed logins, blocks, link drops, Wi-Fi, DHCP, VPN, errors",
     "security_holes": "Known weaknesses across loaded configs and seen devices",
     "pentesting": "Authorised testing of your own devices · scope before tests",
     "dns_leakage": "Where DNS queries really go · bypass and leak checks",
@@ -154,8 +162,7 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "ollama": "Enable local LLM · models · API key · test",
     "problems": "Findings · resiliency · live monitor · AI advisor",
     "console": "Live app logs · failures · debug output",
-    "syslog": "UDP/TCP receiver · attached-router allowlist · live messages",
-    "log_pipeline": "Stream incoming pfSense logs · listen port default 59000",
+    "syslog": "Live logs from pfSense and MikroTik · UDP/TCP receiver · setup commands · allowlist",
     "wireshark": "Lua API bridge · Listener / Field / Proto hooks",
     "setup": "API keys and tool preferences",
     "setup.oui": "RapidAPI MAC/OUI vendor lookup key",
@@ -447,10 +454,10 @@ class HomeScreen(QWidget):
             "problems": self._build_problems,
             "console": self._build_console,
             "syslog": self._build_syslog,
-            "log_pipeline": self._build_log_pipeline,
             "wireshark": self._build_wireshark,
             "logs.logins": self._build_login_history,
             "logs.devices": self._build_device_logs,
+            "logs.analysis": self._build_log_analysis,
             "security_holes": self._build_security_holes,
             "pentesting": self._build_pentesting,
             "dns_leakage": self._build_dns_leakage,
@@ -512,8 +519,6 @@ class HomeScreen(QWidget):
             self._refresh_speed_sources()
         elif key == "users" and hasattr(self, "users_page"):
             self.users_page.set_current_user(self._current_user)
-        elif key == "log_pipeline" and hasattr(self, "log_pipeline"):
-            self.log_pipeline._refresh_hint()
         elif key == "syslog":
             self._syslog_refresh_sources()
             if hasattr(self, "syslog_bind") and isinstance(self.syslog_bind, QComboBox):
@@ -2732,6 +2737,13 @@ class HomeScreen(QWidget):
             ],
         )
 
+    def _build_log_analysis(self) -> QWidget:
+        """Logs → Log Analysis: drop log files in for a summary (log_analysis_page.py)."""
+        from pfsense_checker.log_analysis_page import LogAnalysisPage
+
+        self.log_analysis = LogAnalysisPage(site=lambda: self._live_site)
+        return self.log_analysis
+
     def _build_device_logs(self) -> QWidget:
         """Logs → Device Logs: automatic router log downloads over SSH."""
         from pfsense_checker import device_logs as dl
@@ -2818,7 +2830,13 @@ class HomeScreen(QWidget):
         last = mgr.last_scheduled_run() or "not yet"
         where = ", ".join(devices) if devices else "none yet (set up SSH on Login to Routers)"
         if not self.dlog_status.text() or not mgr.busy():
-            self.dlog_status.setText(f"Devices: {where}. Last scheduled run: {last}.")
+            text = f"Devices: {where}. Last scheduled run: {last}."
+            held = mgr.paused_devices()
+            if held:  # a login failed there: no automatic retries (firewalls block repeated failures)
+                text += ("\nPaused after a failed login, not tried automatically: "
+                         + "; ".join(f"{n} — {why}" for n, why in held.items())
+                         + ". Fix the login, then Connect to it on Login to Routers to resume.")
+            self.dlog_status.setText(text)
         try:
             rows = [(str(r[0])[:19], r[1], r[2], r[3], r[4], r[5], r[6]) for r in dl.recent_index(200)]
         except Exception:  # noqa: BLE001 - database offline: this session's downloads
@@ -3764,12 +3782,6 @@ class HomeScreen(QWidget):
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
-    def _build_log_pipeline(self) -> QWidget:
-        from pfsense_checker.log_pipeline_screen import LogPipelinePage
-
-        self.log_pipeline = LogPipelinePage()
-        return self.log_pipeline
-
     def _build_syslog(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
@@ -3781,16 +3793,28 @@ class HomeScreen(QWidget):
         v.addWidget(title)
         v.addWidget(
             _section_card(
-                "Remote syslog from attached routers",
-                "Listen for RFC 3164 / RFC 5424 syslog from devices on Login to "
-                "Routers (mgmt IP / SSH host). Point pfSense "
-                "(Status → System Logs → Settings → Remote Logging) or MikroTik "
-                "(/system logging action target=remote) at this PC. UDP/514 "
-                "usually needs Administrator on Windows — default port is 5514.",
+                "Live logs from pfSense and MikroTik",
+                "One receiver for everything the routers send: RFC 3164 / RFC 5424 "
+                "syslog over UDP, and a newline-delimited log file over TCP. Send "
+                "logs here has what to enter on pfSense and the commands for a "
+                "MikroTik. pfSense filter lines are shown in plain words. Lines are "
+                "shown, never executed. UDP/514 usually needs Administrator on "
+                "Windows, so use a high port such as 59000 or 5514.",
             )
         )
 
+        from pfsense_checker import log_pipeline
+        from pfsense_checker.mikrotik_log_box import MikrotikLogBox
+
+        # Log Pipeline was a second receiver on its own port: carry that port over, once.
+        merged_note = log_pipeline.merge_into_syslog()
         settings = syslog_recv.load_settings()
+        self.syslog_tabs = QTabWidget()
+        msg_tab, set_tab, send_tab = QWidget(), QWidget(), QWidget()
+        msg_l, set_l, send_l = QVBoxLayout(msg_tab), QVBoxLayout(set_tab), QVBoxLayout(send_tab)
+        self.syslog_tabs.addTab(msg_tab, "Messages")
+        self.syslog_tabs.addTab(set_tab, "Settings")
+        self.syslog_tabs.addTab(send_tab, "Send logs here")
         box = QGroupBox("Syslog settings")
         form = QFormLayout(box)
 
@@ -3847,7 +3871,7 @@ class HomeScreen(QWidget):
         self.syslog_extra_allow.textChanged.connect(self._syslog_refresh_sources)
         form.addRow("Also accept from:", self.syslog_extra_allow)
 
-        v.addWidget(box)
+        set_l.addWidget(box)
 
         dest = QGroupBox("Send from the firewall TO this PC")
         dest_l = QVBoxLayout(dest)
@@ -3867,7 +3891,16 @@ class HomeScreen(QWidget):
         self.syslog_fw_hint.setWordWrap(True)
         self.syslog_fw_hint.setStyleSheet("color: #555;")
         dest_l.addWidget(self.syslog_fw_hint)
-        v.addWidget(dest)
+        send_l.addWidget(dest)
+        self.syslog_mikrotik = MikrotikLogBox(
+            site=lambda: self._live_site,
+            bind=self._syslog_current_bind_host,
+            port=settings.udp_port,
+        )
+        self.syslog_udp_port.valueChanged.connect(self.syslog_mikrotik.set_port)
+        self.syslog_mikrotik.copied.connect(self._syslog_note)
+        send_l.addWidget(self.syslog_mikrotik)
+        send_l.addStretch(1)
 
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("Attached sources:"))
@@ -3875,7 +3908,8 @@ class HomeScreen(QWidget):
         self.syslog_sources.setWordWrap(True)
         self.syslog_sources.setStyleSheet("color: #555;")
         src_row.addWidget(self.syslog_sources, stretch=1)
-        v.addLayout(src_row)
+        set_l.addLayout(src_row)
+        set_l.addStretch(1)
 
         actions = QHBoxLayout()
         self.btn_syslog_start = QPushButton("Start listener")
@@ -3902,6 +3936,9 @@ class HomeScreen(QWidget):
         self.syslog_status.setWordWrap(True)
         self.syslog_status.setStyleSheet("color: #555;")
         v.addWidget(self.syslog_status)
+        if merged_note:
+            self._syslog_note(merged_note)
+        v.addWidget(self.syslog_tabs, stretch=1)
 
         filt = QHBoxLayout()
         filt.addWidget(QLabel("Filter:"))
@@ -3937,7 +3974,7 @@ class HomeScreen(QWidget):
         self.syslog_filter.setPlaceholderText("IP, device, severity, or text…")
         self.syslog_filter.textChanged.connect(self._syslog_apply_filter)
         filt.addWidget(self.syslog_filter, stretch=1)
-        v.addLayout(filt)
+        msg_l.addLayout(filt)
 
         self.syslog_table = QTableWidget(0, 8)
         self.syslog_table.setHorizontalHeaderLabels(
@@ -3966,7 +4003,7 @@ class HomeScreen(QWidget):
         self.syslog_table.customContextMenuRequested.connect(
             self._syslog_context_menu
         )
-        v.addWidget(self.syslog_table, stretch=1)
+        msg_l.addWidget(self.syslog_table, stretch=1)
         self._syslog_ai_workers: list[QThread] = []
 
         self._syslog_receiver: syslog_recv.SyslogReceiver | None = None
@@ -3974,6 +4011,8 @@ class HomeScreen(QWidget):
         self._syslog_saved_bind = settings.bind_host
         self._syslog_fill_iface_combo()
         self.syslog_bind.currentIndexChanged.connect(self._syslog_refresh_listen_hint)
+        self.syslog_bind.currentIndexChanged.connect(lambda _i: self.syslog_mikrotik.refresh())
+        self.syslog_mikrotik.refresh()  # the adapter list is filled now: follow the one it is bound to
         self._syslog_refresh_sources()
         self._syslog_refresh_listen_hint()
         py_footer = QLabel(f"Running on Python {sys.version.split()[0]}")
@@ -3982,6 +4021,14 @@ class HomeScreen(QWidget):
         if settings.auto_start:
             QTimer.singleShot(0, self._syslog_start)
         return page
+
+    def _syslog_note(self, text: str) -> None:
+        """A blue line in the status label (not shown over a running listener's counters)."""
+        recv = getattr(self, "_syslog_receiver", None)
+        if recv is not None and recv.isRunning():
+            return
+        self.syslog_status.setText(text)
+        self.syslog_status.setStyleSheet("color: #1565c0;")
 
     def _syslog_current_bind_host(self) -> str:
         if not hasattr(self, "syslog_bind"):
@@ -4332,9 +4379,13 @@ class HomeScreen(QWidget):
             return
         if not self._syslog_msg_visible(msg):
             return
+        from pfsense_checker import log_pipeline
+
         table = self.syslog_table
         row = table.rowCount()
         table.insertRow(row)
+        # A pfSense filter line is a row of comma-separated fields: show it in plain words.
+        decoded = log_pipeline.filter_text(msg.raw or msg.message) if msg.accepted else ""
         values = [
             msg.received_at,
             msg.source_ip,
@@ -4344,7 +4395,7 @@ class HomeScreen(QWidget):
             msg.hostname or "—",
             msg.app_name or "—",
             (
-                msg.message
+                (decoded or msg.message)
                 if msg.accepted
                 else f"[dropped: {msg.drop_reason}] {msg.message}"
             ),
@@ -4360,6 +4411,8 @@ class HomeScreen(QWidget):
                 item.setForeground(color)
             if not msg.accepted:
                 item.setToolTip(msg.drop_reason or "Source not on allow list")
+            elif decoded and col == len(values) - 1:
+                item.setToolTip(msg.message)  # the line as the firewall sent it
             table.setItem(row, col, item)
         if scroll:
             table.scrollToBottom()

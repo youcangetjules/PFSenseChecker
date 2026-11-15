@@ -81,6 +81,7 @@ PULSE_FRAME_MS = 50
 # Bridges are drawn around their member ports (they are not ports themselves).
 BRIDGE_PAD = 3.0
 BRIDGE_LABEL_H = 14.0  # the bridge name chip, fully below the title bar
+BRIDGE_LABEL_GAP = 2.0  # clear space between the chip and the bridge outline below it
 BRIDGE_LABEL_STRIP = BRIDGE_LABEL_H + BRIDGE_PAD + 6.0  # title bar → ports when a bridge is drawn
 PORTS_GAP_BELOW_TITLE = 6.0  # title bar → ports otherwise
 # Uplinks (WANs, outbound tunnels) sit in the middle of the title bar,
@@ -1521,8 +1522,33 @@ class ChassisItem(QGraphicsObject):
         )
         self._paint_bridges(painter)
 
+    @staticmethod
+    def _bridge_font() -> QFont:
+        font = QFont()
+        font.setPointSize(7)
+        font.setBold(True)
+        return font
+
+    def bridge_chips(self) -> list[tuple[str, str, QRectF, QRectF]]:
+        """(bridge, text, name chip, outline) for each bridge: one chip per bridge, on its
+        top row of ports. The chip sits wholly above the outline, in the strip
+        below the title bar, so it never covers a port."""
+        metrics = QFontMetrics(self._bridge_font())
+        top_box: dict[str, QRectF] = {}
+        for bridge, box in self._bridge_rects:
+            if bridge not in top_box or box.top() < top_box[bridge].top():
+                top_box[bridge] = box
+        out = []
+        for bridge, box in top_box.items():
+            text = metrics.elidedText(f"bridge {bridge}", Qt.TextElideMode.ElideRight,
+                                      int(max(40.0, box.width() - 20)))
+            chip = QRectF(box.left() + 8, box.top() - BRIDGE_LABEL_GAP - BRIDGE_LABEL_H,
+                          metrics.horizontalAdvance(text) + 12, BRIDGE_LABEL_H)
+            out.append((bridge, text, chip, box))
+        return out
+
     def _paint_bridges(self, painter) -> None:  # noqa: ANN001
-        """A bridge is drawn around the ports it joins, with its name on the edge."""
+        """A bridge is drawn around the ports it joins, with its name above the outline."""
         self._paint_segment_bridges(painter)
         if not self._bridge_rects:
             return
@@ -1530,27 +1556,15 @@ class ChassisItem(QGraphicsObject):
         pen = QPen(QColor(BRIDGE_EDGE))
         pen.setWidthF(1.4)
         pen.setStyle(Qt.PenStyle.DashLine)
-        font = QFont()
-        font.setPointSize(7)
-        font.setBold(True)
-        metrics = QFontMetrics(font)
-        labelled: set[str] = set()
-        for bridge, box in self._bridge_rects:
+        for _bridge, box in self._bridge_rects:
             painter.setPen(pen)
             painter.setBrush(QBrush(QColor(BRIDGE_FILL)))
             painter.drawRoundedRect(box, 4, 4)
-            if bridge in labelled:
-                continue
-            labelled.add(bridge)
-            text = metrics.elidedText(f"bridge {bridge}", Qt.TextElideMode.ElideRight,
-                                      int(max(40.0, box.width() - 20)))
-            # Sits on the outline's top edge, in the strip below the title bar.
-            chip = QRectF(box.left() + 8, box.top() - BRIDGE_LABEL_H + 3,
-                          metrics.horizontalAdvance(text) + 12, BRIDGE_LABEL_H)
+        painter.setFont(self._bridge_font())
+        for _bridge, text, chip, _box in self.bridge_chips():
             painter.setPen(QPen(QColor(BRIDGE_EDGE)))
             painter.setBrush(QBrush(QColor("#ffffff")))
             painter.drawRoundedRect(chip, 3, 3)
-            painter.setFont(font)
             painter.setPen(QColor(BRIDGE_EDGE))
             painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, text)
         painter.restore()
@@ -2602,6 +2616,8 @@ class SiteTopologyView(QGraphicsView):
             return  # require another device
         if self._link_exists(a_device, a_port, b_device, b_port, vid):
             return
+        if vid and not self._vlan_fits(b_device, b_port, vid):
+            return  # that port does not carry the VLAN and the operator chose not to add it
         self._site.links.append(
             Link(
                 a_device=a_device,
@@ -2792,6 +2808,42 @@ class SiteTopologyView(QGraphicsView):
             return
         dev.w = w
         dev.h = h  # live resize: recorded; announced on edit_finished (BUG-046)
+
+    # -- A VLAN cable must land on a port that carries the VLAN ------------------- #
+
+    def _vlan_fits(self, device_name: str, port: str, vid: str) -> bool:
+        """True when a cable for VLAN *vid* may end on that port. A port with no VLANs
+        known (a plain port) takes any cable. A port that carries other VLANs but
+        not this one: ask, and add it as a planned VLAN if the operator agrees."""
+        chassis = self._chassis.get(device_name)
+        item = chassis.port_items.get(port) if chassis is not None else None
+        have = list(item.vlans.vlans) if item is not None and item.vlans else []
+        if not have or vid in have:
+            return True
+        if not self.confirm_add_missing_vlan(device_name, port, vid, have):
+            self.cable_message.emit(f"No cable made: {port} on {device_name} does not carry VLAN {vid}.")
+            return False
+        problem = vlan_plan.add(chassis.device, port, vid, True, chassis._vlans.port(port))  # noqa: SLF001
+        if problem:
+            self.cable_message.emit(problem)
+            return False
+        return True
+
+    def confirm_add_missing_vlan(self, device_name: str, port: str, vid: str, have: list[str]) -> bool:
+        """Ask whether to plan VLAN *vid* on a port that does not carry it."""
+        from PySide6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("VLAN not on this port")
+        box.setText(f"{port} on {device_name} does not carry VLAN {vid}.\n\n"
+                    f"It carries: {', '.join(have)}.\n\n"
+                    f"If you meant another port, cancel and drop the cable there. Or add VLAN {vid} to "
+                    f"{port} as a planned (tagged) VLAN and connect it.")
+        add = box.addButton(f"Add VLAN {vid} and connect", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)  # rightmost
+        box.exec()
+        return box.clickedButton() is add
 
     # -- Port names --------------------------------------------------------------- #
 

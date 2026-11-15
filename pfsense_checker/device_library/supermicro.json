@@ -1,0 +1,10 @@
+{
+  "vendor": "Supermicro",
+  "kind": "server",
+  "models": [
+    {"model": "Server (2 x 1G + IPMI)", "type": "Server", "role": "server", "ports": [{"name": "LAN{n}", "count": 2, "media": "1G · copper"}, {"name": "IPMI", "media": "copper · management"}]},
+    {"model": "Server (4 x 1G + IPMI)", "type": "Server", "role": "server", "ports": [{"name": "LAN{n}", "count": 4, "media": "1G · copper"}, {"name": "IPMI", "media": "copper · management"}]},
+    {"model": "Server (2 x 10G copper + IPMI)", "type": "Server", "role": "server", "ports": [{"name": "LAN{n}", "count": 2, "media": "10G · copper"}, {"name": "IPMI", "media": "copper · management"}]},
+    {"model": "Server (2 x 10G SFP+ + IPMI)", "type": "Server", "role": "server", "ports": [{"name": "LAN{n}", "count": 2, "media": "10G · sfp+"}, {"name": "IPMI", "media": "copper · management"}]}
+  ]
+}

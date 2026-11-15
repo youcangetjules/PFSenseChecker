@@ -1,0 +1,15 @@
+{
+  "vendor": "Yamaha",
+  "kind": "av-receiver",
+  "models": [
+    {"model": "RX-V4A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-V6A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-V685", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-A2A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-A4A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-A6A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "RX-A8A", "type": "AV receiver", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "R-N602", "type": "Network amplifier / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "WXA-50", "type": "Network amplifier / streamer", "role": "av-receiver", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

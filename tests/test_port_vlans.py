@@ -132,6 +132,16 @@ def test_canvas_hides_vlans_and_bridges_colours_ports_and_shows_legend(tmp_path,
     assert "Access port" in ch.port_items["ether1"].toolTip()
     bridges = ch._bridge_rects  # noqa: SLF001
     assert bridges and all(b == "BR" for b, _ in bridges)
+    # The bridge name pill sits above the bridge outline: below the title bar, on no port.
+    from PySide6.QtCore import QRectF
+
+    chips = ch.bridge_chips()
+    assert [(b, text) for b, text, _chip, _box in chips] == [("BR", "bridge BR")]  # one pill per bridge
+    _b, _text, chip, box = chips[0]
+    assert chip.bottom() < box.top() and chip.top() >= sc.HEADER_H
+    ports = [QRectF(item.pos().x(), item.pos().y(), item.w, item.h) for item in ch.port_items.values()]
+    assert ports and not any(chip.intersects(p) for p in ports)
+    assert all(chip.bottom() < p.top() for p in ports)
     assert view.vlan_legend.isVisible() and "630" in view.vlan_legend.label.text()
     view.close()
 

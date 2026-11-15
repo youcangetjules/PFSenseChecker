@@ -1,0 +1,19 @@
+{
+  "vendor": "Fujitsu",
+  "kind": "sff",
+  "models": [
+    {"model": "Esprimo Q556", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q557", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q558", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q956", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q957", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q958", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo Q7010", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Esprimo desktop / tower", "kind": "desktop", "type": "Desktop PC", "role": "desktop", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Celsius W580", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Lifebook (Ethernet + Wi-Fi)", "kind": "laptop", "type": "Laptop", "role": "laptop", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Primergy TX1310 M3", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "Primergy TX1320 M4", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}, {"name": "iRMC", "media": "copper · management"}]},
+    {"model": "Primergy RX1330 M4", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}, {"name": "iRMC", "media": "copper · management"}]}
+  ]
+}

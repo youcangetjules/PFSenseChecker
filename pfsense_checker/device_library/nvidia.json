@@ -1,0 +1,8 @@
+{
+  "vendor": "Nvidia",
+  "kind": "video-box",
+  "models": [
+    {"model": "Shield TV", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Shield TV Pro", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

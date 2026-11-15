@@ -143,8 +143,8 @@ def test_logs_section_shows_login_history(monkeypatch) -> None:
     monkeypatch.setattr(lh, "list_sessions", lambda limit=500: list(records))
     home = HomeScreen()
     home.current_login_session_id = 9
-    home.show_section("logs")
-    assert home.current_section_key() == "logs.logins"
+    home.show_section("logs.logins")
+    assert home.current_section_key() == "logs.logins" and home.nav.parent_of("logs.logins") == "logs"
     t = home.login_hist_table
     assert t.rowCount() == 3
     assert t.item(0, 7).text() == "this session · still signed in"

@@ -26,8 +26,11 @@ def _site() -> SiteTopology:
     ])
 
 
-def test_load_all_pulls_each_eligible_device_and_reports_once(monkeypatch) -> None:
+def test_load_all_pulls_each_eligible_device_and_reports_once(monkeypatch, tmp_path) -> None:
     QApplication.instance() or QApplication([])
+    from pfsense_checker import device_logs
+
+    monkeypatch.setattr(device_logs, "STATE_FILE", tmp_path / "state.json")
     calls: list[str] = []
 
     def pf(dev, **_k):  # noqa: ANN001, ANN003, ANN202
@@ -61,4 +64,11 @@ def test_load_all_pulls_each_eligible_device_and_reports_once(monkeypatch) -> No
     assert len(shown) == 1  # one summary, not a box per device
     assert "Loaded 2 of 3" in shown[0] and "crs109: Authentication failed" in shown[0]
     assert screen.btn_load_all.text() == "Load All" and screen.btn_load_all.isEnabled()
+    # The refused login paused crs109: Load All leaves it alone from now on (BUG-054).
+    assert "Authentication failed" in device_logs.paused("crs109")
+    assert [d.name for d in screen.load_all_devices()] == ["guardian", "crs328"]
+    assert list(screen.load_all_held()) == ["crs109"]
+    assert "Not tried again automatically" not in shown[0] or "crs109" in shown[0]
+    device_logs.resume("crs109")
+    assert [d.name for d in screen.load_all_devices()] == ["guardian", "crs328", "crs109"]
     screen.close()

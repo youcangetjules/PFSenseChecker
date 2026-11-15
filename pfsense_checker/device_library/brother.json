@@ -1,0 +1,10 @@
+{
+  "vendor": "Brother",
+  "kind": "printer",
+  "models": [
+    {"model": "HL-L2350DW", "type": "Printer", "role": "printer", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "HL-L2370DN", "type": "Printer", "role": "printer", "ports": [{"name": "LAN", "media": "100M · copper"}]},
+    {"model": "MFC-L2710DW", "type": "Multifunction printer", "role": "printer", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Printer (Ethernet + Wi-Fi)", "type": "Printer", "role": "printer", "ports": [{"name": "LAN", "media": "copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "vendor": "Philips Hue",
+  "kind": "iot",
+  "models": [
+    {"model": "Hue Bridge (v2)", "type": "Lighting hub", "role": "iot", "ports": [{"name": "LAN", "media": "100M · copper"}]},
+    {"model": "Hue Play HDMI Sync Box", "type": "Lighting sync box", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

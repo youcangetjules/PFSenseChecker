@@ -1,0 +1,12 @@
+{
+  "vendor": "Protectli",
+  "kind": "pfsense",
+  "models": [
+    {"model": "Vault FW2B", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}]},
+    {"model": "Vault FW4B", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}, {"name": "OPT{n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "Vault FW6", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}, {"name": "OPT{n}", "count": 4, "media": "1G · copper"}]},
+    {"model": "Vault VP2410", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN", "media": "1G · copper"}, {"name": "OPT{n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "Vault VP2420", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "2.5G · copper"}, {"name": "LAN", "media": "2.5G · copper"}, {"name": "OPT{n}", "count": 2, "media": "2.5G · copper"}]},
+    {"model": "Vault VP4630", "type": "Firewall appliance", "role": "firewall", "ports": [{"name": "WAN", "media": "2.5G · copper"}, {"name": "LAN", "media": "2.5G · copper"}, {"name": "OPT{n}", "count": 4, "media": "2.5G · copper"}]}
+  ]
+}

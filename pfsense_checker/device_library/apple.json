@@ -1,0 +1,19 @@
+{
+  "vendor": "Apple",
+  "kind": "sff",
+  "models": [
+    {"model": "Mac mini", "type": "Mini PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}], "notes": "1G Ethernet as standard; 10G is a build option."},
+    {"model": "Mac Studio", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN", "media": "10G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Mac Pro (2019)", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN {n}", "count": 2, "media": "10G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "iMac", "kind": "desktop", "type": "Desktop PC", "role": "desktop", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}], "notes": "On the 24-inch iMac the Ethernet port is in the power adapter (some models)."},
+    {"model": "MacBook Air / Pro", "kind": "laptop", "type": "Laptop", "role": "laptop", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Apple TV 4K (3rd gen, Wi-Fi + Ethernet)", "kind": "video-box", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Apple TV 4K (3rd gen, Wi-Fi)", "kind": "video-box", "type": "Streaming box", "role": "video-box", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Apple TV 4K (1st / 2nd gen)", "kind": "video-box", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Apple TV HD", "kind": "video-box", "type": "Streaming box", "role": "video-box", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "HomePod / HomePod mini", "kind": "iot", "type": "Smart speaker", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AirPort Extreme (6th gen)", "kind": "access-point", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "WAN", "media": "1G · copper"}, {"name": "LAN {n}", "count": 3, "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "AirPort Express (2nd gen)", "kind": "access-point", "type": "Router + Wi-Fi", "role": "access-point", "ports": [{"name": "WAN", "media": "100M · copper"}, {"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "iPhone / iPad", "kind": "host", "type": "Phone / tablet", "role": "host", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

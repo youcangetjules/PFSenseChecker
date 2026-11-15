@@ -1,0 +1,10 @@
+{
+  "vendor": "Hi-Flying (Elfin)",
+  "kind": "serial-converter",
+  "models": [
+    {"model": "Elfin-EE11", "type": "RS485 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "Elfin-EW11", "type": "RS485 to Wi-Fi", "role": "serial-converter", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "Elfin-EE10", "type": "RS232 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS232", "media": "serial · RS-232"}]},
+    {"model": "Elfin-EW10", "type": "RS232 to Wi-Fi", "role": "serial-converter", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}, {"name": "RS232", "media": "serial · RS-232"}]}
+  ]
+}

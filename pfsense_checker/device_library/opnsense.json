@@ -1,0 +1,8 @@
+{
+  "vendor": "OPNsense",
+  "kind": "opnsense",
+  "models": [
+    {"model": "OPNsense on a PC (4 x igb)", "type": "Firewall", "role": "firewall", "ports": [{"name": "igb{n}", "count": 4, "start": 0, "media": "1G · copper"}], "notes": "A typical self-built box; rename the ports to match its NICs."},
+    {"model": "OPNsense on a PC (4 x igc, 2.5G)", "type": "Firewall", "role": "firewall", "ports": [{"name": "igc{n}", "count": 4, "start": 0, "media": "2.5G · copper"}], "notes": "A typical self-built box; rename the ports to match its NICs."}
+  ]
+}

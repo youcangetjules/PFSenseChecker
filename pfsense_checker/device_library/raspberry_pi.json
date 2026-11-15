@@ -1,0 +1,13 @@
+{
+  "vendor": "Raspberry Pi",
+  "kind": "host",
+  "models": [
+    {"model": "Raspberry Pi 3 Model B", "type": "Single-board computer", "role": "host", "ports": [{"name": "eth0", "media": "100M · copper"}, {"name": "wlan0", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Raspberry Pi 3 Model B+", "type": "Single-board computer", "role": "host", "ports": [{"name": "eth0", "media": "1G · copper"}, {"name": "wlan0", "media": "wlan · 2.4 + 5 GHz"}], "notes": "The Ethernet port links at 1G but passes about 300 Mbit/s (it sits on USB 2)."},
+    {"model": "Raspberry Pi 4 Model B", "type": "Single-board computer", "role": "host", "ports": [{"name": "eth0", "media": "1G · copper"}, {"name": "wlan0", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Raspberry Pi 400", "type": "Single-board computer", "role": "host", "ports": [{"name": "eth0", "media": "1G · copper"}, {"name": "wlan0", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Raspberry Pi 5", "type": "Single-board computer", "role": "host", "ports": [{"name": "eth0", "media": "1G · copper"}, {"name": "wlan0", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Raspberry Pi Zero W", "type": "Single-board computer", "role": "host", "ports": [{"name": "wlan0", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Raspberry Pi Zero 2 W", "type": "Single-board computer", "role": "host", "ports": [{"name": "wlan0", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

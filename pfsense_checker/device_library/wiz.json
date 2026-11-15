@@ -1,0 +1,14 @@
+{
+  "vendor": "WiZ",
+  "kind": "iot",
+  "models": [
+    {"model": "A60 bulb", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "E14 candle bulb", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "GU10 spot", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Filament bulb", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "LED strip", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Ceiling light", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Downlight", "type": "Smart light", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]},
+    {"model": "Smart plug", "type": "Smart plug", "role": "iot", "ports": [{"name": "wlan", "media": "wlan · 2.4 GHz"}]}
+  ]
+}

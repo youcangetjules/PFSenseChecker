@@ -1,0 +1,26 @@
+{
+  "vendor": "Lenovo",
+  "kind": "sff",
+  "models": [
+    {"model": "ThinkCentre M700 Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M710q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M720q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M900 Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M910q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M920q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M70q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M80q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkCentre M90q Tiny", "kind": "sff", "type": "Tiny PC", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}], "notes": "A Wi-Fi card is optional: add a wlan port on the map if yours has one."},
+    {"model": "ThinkStation P330 Tiny", "kind": "sff", "type": "Tiny workstation", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "ThinkStation P340 Tiny", "kind": "sff", "type": "Tiny workstation", "role": "sff", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "ThinkStation P520", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN", "media": "1G · copper"}]},
+    {"model": "ThinkStation P620", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN", "media": "10G · copper"}]},
+    {"model": "ThinkStation P720", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "ThinkStation P920", "kind": "workstation", "type": "Workstation", "role": "workstation", "ports": [{"name": "LAN {n}", "count": 2, "media": "1G · copper"}]},
+    {"model": "ThinkPad (Ethernet + Wi-Fi)", "kind": "laptop", "type": "Laptop", "role": "laptop", "ports": [{"name": "LAN", "media": "1G · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "ThinkPad / Yoga (Wi-Fi only)", "kind": "laptop", "type": "Laptop", "role": "laptop", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "ThinkSystem ST50", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "NIC 1", "media": "1G · copper"}]},
+    {"model": "ThinkSystem ST250", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "NIC {n}", "count": 2, "media": "1G · copper"}, {"name": "XCC", "media": "copper · management"}]},
+    {"model": "ThinkSystem SR250", "kind": "server", "type": "Server", "role": "server", "ports": [{"name": "NIC {n}", "count": 2, "media": "1G · copper"}, {"name": "XCC", "media": "copper · management"}]}
+  ]
+}

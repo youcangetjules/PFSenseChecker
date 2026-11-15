@@ -1,0 +1,9 @@
+{
+  "vendor": "LG",
+  "kind": "tv",
+  "models": [
+    {"model": "webOS TV (LAN + Wi-Fi)", "type": "Smart TV", "role": "tv", "ports": [{"name": "LAN", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]},
+    {"model": "Monitor (HDMI + DisplayPort)", "kind": "monitor", "type": "Monitor", "role": "monitor", "ports": [{"name": "HDMI {n}", "count": 2, "media": "video · HDMI"}, {"name": "DP", "media": "video · DisplayPort"}]},
+    {"model": "Soundbar (Wi-Fi)", "kind": "av-receiver", "type": "Soundbar", "role": "av-receiver", "ports": [{"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

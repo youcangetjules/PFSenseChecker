@@ -28,6 +28,25 @@ TYPE_SWITCH = "Switch"
 TYPE_SWITCH_WIFI = "Switch + Wi-Fi"
 TYPE_AP = "Access point"
 TYPE_DEVICE = "Device"
+# What an endpoint is called on its box, by device kind (network gear is worked out below).
+KIND_TYPES = {
+    "server": "Server",
+    "workstation": "Workstation",
+    "desktop": "Desktop PC",
+    "sff": "Mini PC",
+    "laptop": "Laptop",
+    "nas": "NAS",
+    "kvm": "KVM",
+    "tv": "TV",
+    "monitor": "Monitor",
+    "av-receiver": "AV receiver",
+    "video-box": "Set-top box",
+    "game-console": "Game console",
+    "iot": "Smart device",
+    "serial-converter": "Serial converter",
+    "printer": "Printer",
+    "camera": "Camera",
+}
 
 _VENDOR_NAMES = {
     "mikrotik": "MikroTik",
@@ -160,7 +179,7 @@ def device_type(device: Any, ident: Identity | None = None) -> str:
         return TYPE_AP
     if kind == "router":
         return TYPE_ROUTER
-    return TYPE_DEVICE
+    return KIND_TYPES.get(kind, TYPE_DEVICE)
 
 
 def type_line(device: Any) -> str:

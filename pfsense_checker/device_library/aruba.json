@@ -1,0 +1,21 @@
+{
+  "vendor": "Aruba (HPE)",
+  "kind": "switch",
+  "models": [
+    {"model": "2530-8G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 8, "media": "1G · copper"}, {"name": "{n}", "count": 2, "start": 9, "media": "1G · combo"}]},
+    {"model": "2530-24G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 25, "media": "1G · sfp"}]},
+    {"model": "2530-48G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 48, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 49, "media": "1G · sfp"}]},
+    {"model": "2930F-24G-4SFP+", "type": "Switch", "role": "core-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 25, "media": "10G · sfp+"}]},
+    {"model": "2930F-48G-4SFP+", "type": "Switch", "role": "core-switch", "ports": [{"name": "{n}", "count": 48, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 49, "media": "10G · sfp+"}]},
+    {"model": "Instant On 1930 8G 2SFP", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 8, "media": "1G · copper"}, {"name": "{n}", "count": 2, "start": 9, "media": "1G · sfp"}]},
+    {"model": "Instant On 1930 24G 4SFP+", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 25, "media": "10G · sfp+"}]},
+    {"model": "Instant On 1930 48G 4SFP+", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 48, "media": "1G · copper"}, {"name": "{n}", "count": 4, "start": 49, "media": "10G · sfp+"}]},
+    {"model": "OfficeConnect 1820-8G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "OfficeConnect 1820-24G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 2, "start": 25, "media": "1G · sfp"}]},
+    {"model": "OfficeConnect 1920S-8G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "OfficeConnect 1920S-24G-2SFP", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 2, "start": 25, "media": "1G · sfp"}]},
+    {"model": "ProCurve 1810-8G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "ProCurve 1810-24G", "type": "Switch", "role": "access-switch", "ports": [{"name": "{n}", "count": 24, "media": "1G · copper"}, {"name": "{n}", "count": 2, "start": 25, "media": "1G · sfp"}]},
+    {"model": "Instant On AP22", "kind": "access-point", "type": "Access point", "role": "access-point", "ports": [{"name": "E0", "media": "1G · copper · PoE"}, {"name": "wlan", "media": "wlan · 2.4 + 5 GHz"}]}
+  ]
+}

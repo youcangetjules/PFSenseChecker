@@ -1,0 +1,10 @@
+{
+  "vendor": "Waveshare",
+  "kind": "serial-converter",
+  "models": [
+    {"model": "RS485 TO ETH (B)", "type": "RS485 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "RS485 TO POE ETH (B)", "type": "RS485 to Ethernet (PoE)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper · PoE"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "RS232/485 TO ETH", "type": "RS232/485 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS232", "media": "serial · RS-232"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "RS232/485 TO WIFI ETH (B)", "type": "RS232/485 to Wi-Fi + Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}, {"name": "RS232", "media": "serial · RS-232"}, {"name": "RS485", "media": "serial · RS-485"}]}
+  ]
+}

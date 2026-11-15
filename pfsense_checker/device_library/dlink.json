@@ -1,0 +1,13 @@
+{
+  "vendor": "D-Link",
+  "kind": "switch",
+  "models": [
+    {"model": "DGS-1005D", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 5, "media": "1G · copper"}]},
+    {"model": "DGS-1008D", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "DGS-1016D", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 16, "media": "1G · copper"}]},
+    {"model": "DGS-1024D", "type": "Switch (unmanaged)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}]},
+    {"model": "DGS-1100-08", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}]},
+    {"model": "DGS-1210-10", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 8, "media": "1G · copper"}, {"name": "Port {n}", "count": 2, "start": 9, "media": "1G · sfp"}]},
+    {"model": "DGS-1210-28", "type": "Switch (smart)", "role": "access-switch", "ports": [{"name": "Port {n}", "count": 24, "media": "1G · copper"}, {"name": "Port {n}", "count": 4, "start": 25, "media": "1G · combo"}]}
+  ]
+}

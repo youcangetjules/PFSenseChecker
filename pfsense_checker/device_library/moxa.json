@@ -1,0 +1,20 @@
+{
+  "vendor": "Moxa",
+  "kind": "serial-converter",
+  "models": [
+    {"model": "NPort 5110", "type": "Serial device server (1 port)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232"}]},
+    {"model": "NPort 5130", "type": "Serial device server (1 port)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-422/485"}]},
+    {"model": "NPort 5150", "type": "Serial device server (1 port)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232/422/485"}]},
+    {"model": "NPort 5210", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 2, "media": "serial · RS-232"}]},
+    {"model": "NPort 5230", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232"}, {"name": "P2", "media": "serial · RS-422/485"}]},
+    {"model": "NPort 5232", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 2, "media": "serial · RS-422/485"}]},
+    {"model": "NPort 5250A", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 2, "media": "serial · RS-232/422/485"}]},
+    {"model": "NPort 5410", "type": "Serial device server (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 4, "media": "serial · RS-232"}]},
+    {"model": "NPort 5430", "type": "Serial device server (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 4, "media": "serial · RS-422/485"}]},
+    {"model": "NPort 5450", "type": "Serial device server (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 4, "media": "serial · RS-232/422/485"}]},
+    {"model": "MGate MB3180", "type": "Modbus gateway (1 port)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232/422/485"}]},
+    {"model": "MGate MB3170", "type": "Modbus gateway (1 port)", "role": "serial-converter", "ports": [{"name": "ETH{n}", "count": 2, "media": "100M · copper"}, {"name": "P1", "media": "serial · RS-232/422/485"}]},
+    {"model": "MGate MB3280", "type": "Modbus gateway (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 2, "media": "serial · RS-232/422/485"}]},
+    {"model": "MGate MB3480", "type": "Modbus gateway (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "P{n}", "count": 4, "media": "serial · RS-232/422/485"}]}
+  ]
+}

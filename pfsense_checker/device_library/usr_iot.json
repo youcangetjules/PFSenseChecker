@@ -1,0 +1,14 @@
+{
+  "vendor": "USR IOT (PUSR)",
+  "kind": "serial-converter",
+  "models": [
+    {"model": "USR-TCP232-304", "type": "RS485 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "USR-TCP232-306", "type": "RS232/485/422 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "Serial", "media": "serial · RS-232/422/485"}]},
+    {"model": "USR-TCP232-410S", "type": "RS232 + RS485 to Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS232", "media": "serial · RS-232"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "USR-N510", "type": "Serial device server (1 port)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "Serial", "media": "serial · RS-232/422/485"}]},
+    {"model": "USR-N520", "type": "Serial device server (2 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "Serial {n}", "count": 2, "media": "serial · RS-232/422/485"}]},
+    {"model": "USR-N540", "type": "Serial device server (4 ports)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "Serial {n}", "count": 4, "media": "serial · RS-232/422/485"}]},
+    {"model": "USR-DR302", "type": "RS485 to Ethernet (DIN rail)", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "RS485", "media": "serial · RS-485"}]},
+    {"model": "USR-W610", "type": "RS232/485 to Wi-Fi + Ethernet", "role": "serial-converter", "ports": [{"name": "ETH", "media": "100M · copper"}, {"name": "wlan", "media": "wlan · 2.4 GHz"}, {"name": "RS232", "media": "serial · RS-232"}, {"name": "RS485", "media": "serial · RS-485"}]}
+  ]
+}
