@@ -593,6 +593,40 @@ class _ConfigPullWorker(QThread):
         self.finished_result.emit(result)
 
 
+class _LoadAllWorker(QThread):
+    """Pull the config from several devices, one after another (Load All)."""
+
+    device_started = Signal(str)  # device name
+    device_done = Signal(str, object)  # device name, SshExportResult
+    all_done = Signal()
+
+    def __init__(self, devices: list[Device], password: str | None = None) -> None:
+        super().__init__()
+        self._devices = list(devices)
+        self._password = password
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run(self) -> None:  # noqa: D102
+        from pfsense_checker.ssh_session import SshExportResult
+
+        for dev in self._devices:
+            if self._stop:
+                break
+            self.device_started.emit(dev.name)
+            try:
+                if (dev.kind or "").lower() in {"pfsense", "opnsense"}:
+                    result = export_pfsense_config_ssh(dev, password=self._password)
+                else:
+                    result = export_mikrotik_verbose_ssh(dev, password=self._password)
+            except Exception as exc:  # noqa: BLE001
+                result = SshExportResult(ok=False, error=str(exc))
+            self.device_done.emit(dev.name, result)
+        self.all_done.emit()
+
+
 class _ProbeWorker(QThread):
     """Probe SSH endpoints off the UI thread."""
 
@@ -765,6 +799,7 @@ class SessionScreen(QWidget):
     ssh_summary_changed = Signal(str)
     site_changed = Signal()  # devices added/updated — parent may refresh
     config_pulled_for_check = Signal(str)  # path to pulled config.xml / .rsc
+    device_logged_in = Signal(str)  # device name: Connect or Load Config succeeded
 
     def __init__(self) -> None:
         super().__init__()
@@ -961,6 +996,15 @@ class SessionScreen(QWidget):
             "One tab per subnet — session devices are grouped by SSH host / IP"
         )
         self.device_subnet_tabs.currentChanged.connect(self._on_device_subnet_tab_changed)
+        # Load All sits in the tab strip's right corner: straight above the Config column.
+        self.btn_load_all = QPushButton("Load All")
+        self.btn_load_all.setToolTip(
+            "Pull the config from every ticked pfSense / OPNsense / MikroTik device with SSH set up, "
+            "on every subnet, one after another. One summary at the end."
+        )
+        self.btn_load_all.clicked.connect(self._load_all_configs)
+        self.device_subnet_tabs.setCornerWidget(self.btn_load_all, Qt.Corner.TopRightCorner)
+        self._load_all_worker: _LoadAllWorker | None = None
         list_lay.addWidget(self.device_subnet_tabs)
         self._device_subnet_keys: list[str] = []
 
@@ -1107,6 +1151,7 @@ class SessionScreen(QWidget):
         self.map_view.set_ssh_password_provider(lambda: self.password.text())
         self.map_view.positions_changed.connect(self.site_changed.emit)
         self.map_view.links_changed.connect(self.site_changed.emit)
+        self.map_view.cable_message.connect(self.ssh_summary_changed.emit)
         self.map_view.device_changed.connect(self._on_map_device_changed)
         # Picking a device on the map selects it in the Devices list.
         self.map_view.device_selected.connect(self._on_map_device_selected)
@@ -1189,6 +1234,13 @@ class SessionScreen(QWidget):
         btn_folder = QPushButton("Import config folder…")
         btn_folder.clicked.connect(self.open_folder_requested.emit)
         bottom.addWidget(btn_folder)
+        self.uniform_sizes = QCheckBox("Make same device types the same size (uses largest current size)")
+        self.uniform_sizes.setToolTip(
+            "Devices of the same model share one box size: the largest of them now. "
+            "Resizing one resizes the others. Saved with the topology."
+        )
+        self.uniform_sizes.toggled.connect(self._on_uniform_sizes)
+        bottom.addWidget(self.uniform_sizes)
         bottom.addStretch(1)
         self.btn_offline = QPushButton("Work offline")
         self.btn_offline.setToolTip("Skip SSH — analyze from files only")
@@ -1547,9 +1599,20 @@ class SessionScreen(QWidget):
 
     # ------------------------------------------------------------- populate
 
+    def _on_uniform_sizes(self, on: bool) -> None:
+        """Same device types, same size: apply on the map and save with the site."""
+        if self._site is None or getattr(self, "_updating_uniform", False):
+            return
+        self.map_view.set_uniform_sizes(on)
+        self.site_changed.emit()
+
     def set_site(self, site: SiteTopology) -> None:
         """Refresh the connection table and link map from the topology."""
         self._site = site
+        if hasattr(self, "uniform_sizes"):
+            self._updating_uniform = True
+            self.uniform_sizes.setChecked(bool(getattr(site, "uniform_sizes", False)))
+            self._updating_uniform = False
         self._updating = True
         devices = self._connectable_devices()
 
@@ -1797,6 +1860,93 @@ class SessionScreen(QWidget):
             "Load Config",
             f"Loaded config for {dev.name}:\n{p.name}",
         )
+
+    # --- Load All ---------------------------------------------------------- #
+
+    def load_all_devices(self) -> list[Device]:
+        """Devices Load All will pull from: ticked (not ignored) pfSense / OPNsense /
+        MikroTik with an SSH host and username."""
+        from pfsense_checker import device_logs
+
+        return [d for d in (self._site.devices if self._site else []) if device_logs.eligible(d)]
+
+    def _load_all_configs(self) -> None:
+        from pfsense_checker.module_required import ensure_feature
+
+        if self._load_all_worker is not None and self._load_all_worker.isRunning():
+            self._load_all_worker.stop()  # second click: stop after the current device
+            self.btn_load_all.setText("Stopping…")
+            self.btn_load_all.setEnabled(False)
+            return
+        devices = self.load_all_devices()
+        if not devices:
+            QMessageBox.information(
+                self, "Load All",
+                "No ticked pfSense / OPNsense / MikroTik device has an SSH host and username yet.")
+            return
+        if not ensure_feature(self, "ssh", purpose="Pull configs over SSH"):
+            return
+        typed_pw = (self.password.text() or "").strip() if hasattr(self, "password") else ""
+        self._load_all_results: list[tuple[str, bool, str]] = []
+        self._load_all_total = len(devices)
+        worker = _LoadAllWorker(devices, password=typed_pw or None)
+        self._load_all_worker = worker
+        worker.device_started.connect(self._on_load_all_started)
+        worker.device_done.connect(self._on_load_all_device)
+        worker.all_done.connect(self._on_load_all_finished)
+        worker.finished.connect(worker.deleteLater)
+        self.btn_load_all.setText("Stop")
+        self.btn_load_all.setToolTip("Stop after the device being loaded now")
+        worker.start()
+
+    def _on_load_all_started(self, name: str) -> None:
+        n = len(self._load_all_results) + 1
+        self.ssh_summary_changed.emit(f"Load All: {name} ({n} of {self._load_all_total})…")
+        row = self._row_for_device_name(name)
+        dev = self._site.device(name) if self._site else None
+        if row is not None and dev is not None:
+            self._set_config_button(row, self._device_has_loaded_config(dev), loading=True)
+
+    def _on_load_all_device(self, name: str, result: object) -> None:
+        dev = self._site.device(name) if self._site else None
+        ok = bool(getattr(result, "ok", False))
+        self._load_all_results.append((name, ok, "" if ok else str(getattr(result, "error", "") or "failed")))
+        row = self._row_for_device_name(name)
+        if dev is None:
+            return
+        if row is not None:
+            self._set_config_button(row, self._device_has_loaded_config(dev))
+            if ok:
+                self._set_kind_value(row, dev.kind or "")
+        log = app_log.get_logger("ssh")
+        if ok:
+            self._sync_topology_from_config(dev)
+            self.device_logged_in.emit(name)
+            log.info("Load All: config saved device=%s path=%s", name, getattr(result, "path", ""))
+        else:
+            log.warning("Load All: failed device=%s error=%s", name, getattr(result, "error", ""))
+
+    def _on_load_all_finished(self) -> None:
+        self._load_all_worker = None
+        self.btn_load_all.setText("Load All")
+        self.btn_load_all.setEnabled(True)
+        self.btn_load_all.setToolTip("Pull the config from every ticked device with SSH set up")
+        results = getattr(self, "_load_all_results", [])
+        good = [n for n, ok, _e in results if ok]
+        bad = [(n, e) for n, ok, e in results if not ok]
+        skipped = self._load_all_total - len(results)
+        self.site_changed.emit()
+        self.ssh_summary_changed.emit(f"Load All: {len(good)} loaded, {len(bad)} failed"
+                                      + (f", {skipped} not tried (stopped)" if skipped else ""))
+        lines = [f"Loaded {len(good)} of {self._load_all_total} config(s)."]
+        if good:
+            lines.append("\nLoaded: " + ", ".join(good))
+        if bad:
+            lines.append("\nFailed:")
+            lines += [f"  • {n}: {e}" for n, e in bad]
+        if skipped:
+            lines.append(f"\nStopped: {skipped} device(s) not tried.")
+        (QMessageBox.warning if bad else QMessageBox.information)(self, "Load All", "\n".join(lines))
 
     def _load_config_from_pfsense(self, row: int, dev: Device) -> None:
         """Pull ``config.xml`` over SSH and attach the cached file."""
@@ -2071,6 +2221,7 @@ class SessionScreen(QWidget):
                 f"Pulled config for {dev.name} but the file was not found on disk.",
             )
             return
+        self.device_logged_in.emit(dev.name)
         self.config_pulled_for_check.emit(path)
 
     def _connectable_devices(self) -> list[Device]:
@@ -3203,6 +3354,7 @@ class SessionScreen(QWidget):
                         "Collecting ports and assigned IPs for the topology…",
                     )
                     self._start_interface_inventory(dev)
+                    self.device_logged_in.emit(name)
                     self._rebuild_device_subnet_tabs()
                     self._refresh_device_details(dev)
                 else:

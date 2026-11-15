@@ -149,6 +149,18 @@ RAW_SECTIONS = frozenset(
 )
 
 
+def _is_interface_section(section: str) -> bool:
+    """True for sections whose rows are interfaces (``/interface eoip``, ``/interface veth``…).
+
+    Not interfaces: interface lists (all, none, dynamic, static, WAN, LAN…), and
+    every sub-section — ``/interface ethernet switch`` (the switch chip),
+    ``/interface wireless security-profiles``, ``/interface bridge port`` and
+    the like. Those used to show up as ports on the maps and in the counts.
+    """
+    words = section.split()
+    return len(words) == 2 and words[0] == "interface" and words[1] != "list"
+
+
 def parse_routeros(text: str, path: Path | str | None = None) -> CheckResult:
     result = CheckResult(
         path=Path(path) if path else None,
@@ -449,7 +461,7 @@ def _dispatch(  # noqa: ANN001
                         protocol=kind,
                     )
                 )
-        elif name:
+        elif name and _is_interface_section(section):
             ensure_iface(name, "other").enabled = not disabled
 
     elif section in ("ip address", "ipv6 address"):

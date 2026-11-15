@@ -174,6 +174,66 @@ def plan_ports(
     return body_w, body_h, cell_w, places
 
 
+VLAN_LINK_KIND = "vlan"  # a cable drawn from one VLAN stripe to another
+
+
+def link_vid(link) -> str:  # noqa: ANN001
+    """The VLAN of a per-VLAN cable, "" for a whole-port cable."""
+    vlans = list(getattr(link, "vlans", []) or [])
+    return str(vlans[0]) if getattr(link, "kind", "") == VLAN_LINK_KIND and len(vlans) == 1 else ""
+
+
+BUNDLE_WIDTH = 25.0  # one rainbow connector for every VLAN between two ports
+
+
+def vlan_bundles(links: list, port_vids) -> dict[int, list[int]]:  # noqa: ANN001
+    """{first link index: [link indices]} for per-VLAN cables that between them
+    join every VLAN on one port to every VLAN on the other (same set on both
+    ports, two VLANs or more). *port_vids(device, port)* gives a port's VLANs."""
+    groups: dict[frozenset, list[int]] = {}
+    for i, link in enumerate(links):
+        if link_vid(link):
+            key = frozenset({(link.a_device, link.a_port), (link.b_device, link.b_port)})
+            groups.setdefault(key, []).append(i)
+    out: dict[int, list[int]] = {}
+    for idx in groups.values():
+        vids = {link_vid(links[i]) for i in idx}
+        first = links[idx[0]]
+        a_vids = set(port_vids(first.a_device, first.a_port))
+        b_vids = set(port_vids(first.b_device, first.b_port))
+        if len(vids) >= 2 and vids == a_vids == b_vids:
+            out[idx[0]] = idx
+    return out
+
+
+def segment_bridge_text(bridge: str) -> str:
+    """Chip text for a bridge of VLAN segments: "bridge bridge0 — only VLAN 710"."""
+    m = re.fullmatch(r"(.*?) \(VLAN ([^)]*)\)", bridge)
+    return f"bridge {m.group(1)} — only VLAN {m.group(2)}" if m else f"bridge {bridge}"
+
+
+def segment_wires(chip: QRectF, ends: list[QPointF]) -> list[list[QPointF]]:
+    """A wire from the bridge chip to each joined stripe: out of the chip's side at
+    its mid-height, across to above the stripe, then straight down to it. A
+    stripe under the chip itself gets a straight drop from the chip's bottom."""
+    wires = []
+    mid_y = chip.center().y()
+    for end in ends:
+        if chip.left() + 3 <= end.x() <= chip.right() - 3:
+            wires.append([QPointF(end.x(), chip.bottom()), QPointF(end)])
+        else:
+            start_x = chip.left() if end.x() < chip.left() + 3 else chip.right()
+            wires.append([QPointF(start_x, mid_y), QPointF(end.x(), mid_y), QPointF(end)])
+    return wires
+
+
+def device_type_key(device) -> str:  # noqa: ANN001
+    """Devices with the same key are "the same type" for equal box sizes: the
+    model (case and spacing ignored), else the kind."""
+    model = re.sub(r"[^a-z0-9+]+", "", (getattr(device, "model", "") or "").lower())  # spaces, hyphens…
+    return f"model:{model}" if model else f"kind:{(getattr(device, 'kind', '') or '').lower()}"
+
+
 def drawn_devices(site) -> list:  # noqa: ANN001
     """Devices the canvas draws. Left out: ones marked ignored, and empty
     entries (no ports) whose address belongs to another device's interface
@@ -599,6 +659,7 @@ class PortItem(QGraphicsObject):
         self.vlans = vlans
         self.bridge = bridge
         self.segments = list(segments or [])  # [(bridge, VLAN id)] joined by a bridge
+        self.selected_vid = ""  # the VLAN stripe picked for a per-VLAN cable
         # Access port: its VLAN's colour. Trunk: the colours of every VLAN it carries.
         self.vlan_colors = [port_vlans.vlan_color(v, palette) for v in vlans.vlans] if vlans else []
         self.media = media
@@ -638,11 +699,69 @@ class PortItem(QGraphicsObject):
             tip_bits.append(self.address)
         if media:
             tip_bits.append(media)
-        tip_bits.append("drag onto another device's port to link")
-        self.setToolTip("\n".join(tip_bits))
+        if vlans and len(vlans.vlans) > 1:
+            tip_bits.append("click a VLAN stripe to select it, then drag from it to link that VLAN;"
+                            " Shift-drag links the whole port")
+        else:
+            tip_bits.append("drag onto another device's port to link")
+        self._base_tip = "\n".join(tip_bits)
+        self._vlan_names = dict(vlan_names or {})
+        self._hover_vid = ""
+        self.setToolTip(self._base_tip)
 
     def boundingRect(self) -> QRectF:  # noqa: N802
         return QRectF(0, 0, self.w, self.h)
+
+    def vlan_tip(self, vid: str) -> str:
+        """Hover text for the VLAN stripe *vid*: its number and name, tagged or not."""
+        name = self._vlan_names.get(vid, "")
+        how = ""
+        if self.vlans is not None:
+            how = "untagged (access)" if vid in self.vlans.untagged else "tagged"
+        head = f"VLAN {vid}" + (f" — {name}" if name and name != vid else "") + (f" · {how}" if how else "")
+        return head + "\n" + self._base_tip
+
+    def hoverMoveEvent(self, event) -> None:  # noqa: ANN001, N802
+        """Over a VLAN stripe, say which VLAN it is."""
+        vid = self.vid_at(event.pos())
+        if vid != self._hover_vid:
+            self._hover_vid = vid
+            text = self.vlan_tip(vid) if vid else self._base_tip
+            self.setToolTip(text)
+            from PySide6.QtWidgets import QToolTip
+
+            if QToolTip.isVisible():
+                QToolTip.showText(event.screenPos(), text)
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:  # noqa: ANN001, N802
+        self._hover_vid = ""
+        self.setToolTip(self._base_tip)
+        super().hoverLeaveEvent(event)
+
+    def vid_at(self, local: QPointF) -> str:
+        """The VLAN whose stripe is under *local* (only on ports with several VLANs)."""
+        vids = self.vlans.vlans if self.vlans else []
+        if len(vids) < 2:
+            return ""
+        for vid in vids:
+            r = self.stripe_rect(vid)
+            if r is not None and r.left() <= local.x() <= r.right():
+                return vid
+        return ""
+
+    def select_vid(self, vid: str) -> None:
+        if vid != self.selected_vid:
+            self.selected_vid = vid
+            self.update()
+
+    def stripe_anchor(self, vid: str, facing: str = "bottom") -> QPointF | None:
+        """Where a cable for VLAN *vid* meets this port: the middle of its stripe's edge."""
+        r = self.stripe_rect(vid)
+        if r is None:
+            return None
+        y = r.top() if facing == "top" else r.bottom()
+        return self.mapToScene(QPointF(r.center().x(), y))
 
     def stripe_rect(self, vid: str) -> QRectF | None:
         """Where VLAN *vid*'s colour stripe is on this port (local coordinates)."""
@@ -690,15 +809,17 @@ class PortItem(QGraphicsObject):
         painter.setPen(pen)
         painter.setBrush(QBrush(fill))
         painter.drawRoundedRect(r, 2, 2)
-        # A bridged VLAN segment is outlined in the bridge colour.
-        for _bridge, vid in self.segments:
-            stripe = self.stripe_rect(vid)
-            if stripe is not None:
-                seg_pen = QPen(QColor(BRIDGE_EDGE))
-                seg_pen.setWidthF(2.0)
-                painter.setPen(seg_pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(stripe.adjusted(1, 1, -1, -1))
+        # The VLAN stripe picked for a cable: thick dark frame and a light wash.
+        picked = self.stripe_rect(self.selected_vid) if self.selected_vid else None
+        if picked is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255, 90))
+            painter.drawRect(picked)
+            frame = QPen(QColor("#0d47a1"), 2.6)
+            frame.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(frame)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(picked.adjusted(1.3, 1.3, -1.3, -1.3))
 
         # Discrete "jack" line for faceplate RJ45
         if self.faceplate and not self.sfp:
@@ -759,6 +880,34 @@ class PortItem(QGraphicsObject):
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 name_txt,
             )
+        self._paint_bridged_segments(painter)
+
+    def _paint_bridged_segments(self, painter) -> None:  # noqa: ANN001
+        """Mark the VLAN stripe(s) a bridge joins — and only those: a teal frame
+        and a pointer on the top edge, drawn over the labels so a name or an
+        address can never hide which stripe it is."""
+        for _bridge, vid in self.segments:
+            stripe = self.stripe_rect(vid)
+            if stripe is None:
+                continue
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(0, 131, 143, 46))  # light teal wash over the stripe
+            painter.drawRect(stripe)
+            frame = QPen(QColor(BRIDGE_EDGE), 2.4)
+            frame.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(frame)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(stripe.adjusted(1.2, 1.2, -1.2, -1.2))
+            cx = stripe.center().x()
+            tip = QPainterPath(QPointF(cx - 4.5, stripe.top()))
+            tip.lineTo(QPointF(cx + 4.5, stripe.top()))
+            tip.lineTo(QPointF(cx, stripe.top() + 6))
+            tip.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(BRIDGE_EDGE))
+            painter.drawPath(tip)
+            painter.restore()
 
     def _text(self, painter, rect: QRectF, flags, text: str) -> None:  # noqa: ANN001
         """Draw a label; on a VLAN-coloured port, on a white chip so it always reads."""
@@ -773,14 +922,21 @@ class PortItem(QGraphicsObject):
         painter.drawText(rect, flags, text)
 
     def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802
-        """Start a port→port cable drag when the canvas is unlocked."""
+        """Start a port→port cable drag when the canvas is unlocked. On a trunk,
+        the first click picks a VLAN stripe; dragging from the picked stripe makes
+        a cable for that VLAN (Shift-drag: the whole port)."""
         if event.button() == Qt.MouseButton.RightButton:
             event.ignore()
             return
         if event.button() == Qt.MouseButton.LeftButton and self.scene():
             for view in self.scene().views():
                 if isinstance(view, SiteTopologyView) and not view._locked:
-                    view.begin_port_link(self, event.scenePos())
+                    whole = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    vid = "" if whole else self.vid_at(event.pos())
+                    if vid and vid != self.selected_vid:
+                        view.select_port_vlan(self, vid)  # first click: pick the stripe
+                    else:
+                        view.begin_port_link(self, event.scenePos(), vid=vid)
                     event.accept()
                     return
         super().mousePressEvent(event)
@@ -1340,7 +1496,7 @@ class ChassisItem(QGraphicsObject):
             top = min(r.top() for r in rects)
             row = [r for r in rects if abs(r.top() - top) < 1]
             ends = [QPointF(r.center().x(), r.top()) for r in rects]
-            text = f"bridge {bridge}"
+            text = segment_bridge_text(bridge)
             w = metrics.horizontalAdvance(text) + 12
             mid = (min(r.left() for r in row) + max(r.right() for r in row)) / 2
             x = max(4.0, min(mid - w / 2, self.boundingRect().width() - w - 4))
@@ -1360,18 +1516,27 @@ class ChassisItem(QGraphicsObject):
         font.setPointSize(7)
         font.setBold(True)
         for bridge, chip, ends in links:
-            bus_y = chip.bottom() + (min(e.y() for e in ends) - chip.bottom()) / 2
+            # One wire per joined stripe, out of the side of the chip and down to
+            # that stripe alone (no bar across the ports: the other VLANs on them
+            # are not in the bridge).
+            for wire in segment_wires(chip, ends):
+                painter.setPen(line)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPolyline(wire)
+                end = wire[-1]
+                head = QPainterPath(QPointF(end.x() - 4, end.y() - 6))
+                head.lineTo(QPointF(end.x() + 4, end.y() - 6))
+                head.lineTo(end)
+                head.closeSubpath()
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(BRIDGE_EDGE))
+                painter.drawPath(head)
             painter.setPen(line)
-            xs = [e.x() for e in ends] + [chip.center().x()]
-            painter.drawLine(QPointF(chip.center().x(), chip.bottom()), QPointF(chip.center().x(), bus_y))
-            painter.drawLine(QPointF(min(xs), bus_y), QPointF(max(xs), bus_y))
-            for e in ends:
-                painter.drawLine(QPointF(e.x(), bus_y), e)
             painter.setBrush(QBrush(QColor("#ffffff")))
             painter.drawRoundedRect(chip, 3, 3)
             painter.setFont(font)
             painter.setPen(QColor(BRIDGE_EDGE))
-            painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, f"bridge {bridge}")
+            painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, segment_bridge_text(bridge))
         painter.restore()
 
     def itemChange(self, change, value):  # noqa: ANN001, N802
@@ -1404,8 +1569,13 @@ class ChassisItem(QGraphicsObject):
             self._drag_moved = False
             self.edit_finished.emit(self.device_name)
 
-    def port_anchor(self, port_name: str, toward: QPointF | None = None, facing: str = "bottom") -> QPointF:
+    def port_anchor(self, port_name: str, toward: QPointF | None = None, facing: str = "bottom",
+                    vid: str = "") -> QPointF:
         item = self.port_items.get(port_name)
+        if item is not None and vid:
+            stripe = item.stripe_anchor(vid, facing)  # a per-VLAN cable meets its own stripe
+            if stripe is not None:
+                return stripe
         if item is None:
             r = self.boundingRect()
             center = self.mapToScene(r.center())
@@ -1415,6 +1585,64 @@ class ChassisItem(QGraphicsObject):
         # Cables leave from the bottom (or top, toward a device above) of the
         # exact port, so which port a cable belongs to is obvious.
         return item.anchor_scene(facing)
+
+
+HOP_RADIUS = 5.0  # the jump a cable makes over another it crosses
+
+
+def _segs(pts: list[QPointF]) -> list[tuple[QPointF, QPointF]]:
+    return [(a, b) for a, b in zip(pts, pts[1:]) if abs(a.x() - b.x()) > 0.01 or abs(a.y() - b.y()) > 0.01]
+
+
+def count_crossings(pts: list[QPointF], others: list[list[QPointF]]) -> int:
+    """How often the polyline *pts* crosses the other cables (right-angle crossings
+    away from segment ends, as drawn with hops)."""
+    n = 0
+    mine = _segs(pts)
+    for other in others:
+        for c, d in _segs(other):
+            for a, b in mine:
+                h1, v2 = abs(a.y() - b.y()) < 0.01, abs(c.x() - d.x()) < 0.01
+                h2, v1 = abs(c.y() - d.y()) < 0.01, abs(a.x() - b.x()) < 0.01
+                if h1 and v2:
+                    hx0, hx1, hy, vx, vy0, vy1 = min(a.x(), b.x()), max(a.x(), b.x()), a.y(), c.x(), min(c.y(), d.y()), max(c.y(), d.y())
+                elif v1 and h2:
+                    hx0, hx1, hy, vx, vy0, vy1 = min(c.x(), d.x()), max(c.x(), d.x()), c.y(), a.x(), min(a.y(), b.y()), max(a.y(), b.y())
+                else:
+                    continue
+                if hx0 + 1 < vx < hx1 - 1 and vy0 + 1 < hy < vy1 - 1:
+                    n += 1
+    return n
+
+
+def find_hops(links: list) -> dict[int, dict[int, list[float]]]:  # noqa: C901
+    """{link index: {segment index: [x, …]}}: where a horizontal run of one cable
+    crosses a vertical run of another (not at either run's ends). Hops closer
+    than two radii on one run are merged."""
+    r = HOP_RADIUS
+    vertical: list[tuple[int, float, float, float]] = []  # (link, x, y_lo, y_hi)
+    for li, link in enumerate(links):
+        for _i, a, b in link.segments():
+            if abs(a.x() - b.x()) < 0.01 and abs(a.y() - b.y()) > 0.01:
+                vertical.append((li, a.x(), min(a.y(), b.y()), max(a.y(), b.y())))
+    out: dict[int, dict[int, list[float]]] = {}
+    for li, link in enumerate(links):
+        for i, a, b in link.segments():
+            if abs(a.y() - b.y()) > 0.01:
+                continue
+            y = a.y()
+            lo, hi = min(a.x(), b.x()), max(a.x(), b.x())
+            xs = sorted(
+                x for (lj, x, y0, y1) in vertical
+                if lj != li and lo + r + 1 < x < hi - r - 1 and y0 + 1 < y < y1 - 1
+            )
+            kept: list[float] = []
+            for x in xs:
+                if not kept or x - kept[-1] >= 2 * r + 2:
+                    kept.append(x)
+            if kept:
+                out.setdefault(li, {})[i] = kept
+    return out
 
 
 class LinkItem(QGraphicsPathItem):
@@ -1430,11 +1658,27 @@ class LinkItem(QGraphicsPathItem):
         color: str = "#546e7a",
         label: str = "",
         lane: int = 0,
+        vid: str = "",
+        route: list[tuple[float, float]] | None = None,
+        lane_offset: float | None = None,
+        bundle: list[str] | None = None,
+        bundle_colors: list[str] | None = None,
+        bundle_links: list[int] | None = None,
     ) -> None:
         super().__init__()
+        self.lane_offset = lane_offset  # Re-arrange cable's choice (Link.lane)
+        self.bundle = list(bundle or [])  # VLANs carried as one rainbow connector
+        self.bundle_colors = list(bundle_colors or [])
+        self.bundle_links = list(bundle_links or [lane])  # site.links indices drawn by this item
         self.a = a
         self.b = b
         self.lane = lane
+        self.vid = vid  # set: a cable for this one VLAN, from stripe to stripe
+        # Auto-arrange (ELK) route, used until either device moves.
+        self.route = list(route) if route else None
+        self._route_at = (QPointF(a.pos()), QPointF(b.pos()))
+        self.points: list[QPointF] = []  # the cable's corners, port to port
+        self.hops: dict[int, list[float]] = {}  # segment index → x of each jump over another cable
         self.a_port = a_port
         self.b_port = b_port
         self.color = color
@@ -1459,8 +1703,51 @@ class LinkItem(QGraphicsPathItem):
 
     def shape(self) -> QPainterPath:  # noqa: D102
         stroker = QPainterPathStroker()
-        stroker.setWidth(10)
+        stroker.setWidth(BUNDLE_WIDTH + 2 if self.bundle else 10)
         return stroker.createStroke(self.path())
+
+    def boundingRect(self) -> QRectF:  # noqa: N802, D102
+        pad = BUNDLE_WIDTH / 2 + 2 if self.bundle else 0
+        return super().boundingRect().adjusted(-pad, -pad, pad, pad)
+
+    def ribbon(self) -> list[list[QPointF]]:
+        """One polyline per VLAN stripe, side by side across BUNDLE_WIDTH."""
+        pts = self.points
+        n = len(self.bundle)
+        if n == 0 or len(pts) < 2:
+            return []
+        step = BUNDLE_WIDTH / n
+        lanes = []
+        for k in range(n):
+            off = (k - (n - 1) / 2) * step
+            line = []
+            for i, pt in enumerate(pts):
+                dx = dy = 0.0
+                for a, b in ((pts[i - 1], pt) if i > 0 else (None, None), (pt, pts[i + 1]) if i < len(pts) - 1 else (None, None)):
+                    if a is None:
+                        continue
+                    if abs(a.x() - b.x()) < 0.01:  # vertical run: shift sideways
+                        dx = off if b.y() > a.y() else -off
+                    else:  # horizontal run: shift up / down
+                        dy = -off if b.x() > a.x() else off
+                line.append(QPointF(pt.x() + dx, pt.y() + dy))
+            lanes.append(line)
+        return lanes
+
+    def paint(self, painter, option, widget=None) -> None:  # noqa: ANN001, N802, D102
+        if not self.bundle:
+            super().paint(painter, option, widget)
+            return
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = BUNDLE_WIDTH / max(1, len(self.bundle))
+        edge = QPen(QColor(38, 50, 56, 160), BUNDLE_WIDTH + 2, Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin)
+        painter.setPen(edge)
+        painter.drawPolyline(self.points)
+        for color, line in zip(self.bundle_colors, self.ribbon()):
+            painter.setPen(QPen(QColor(color), width + 0.4, Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin))
+            painter.drawPolyline(line)
 
     def hoverEnterEvent(self, event) -> None:  # noqa: ANN001, N802
         pen = self.pen()
@@ -1477,6 +1764,25 @@ class LinkItem(QGraphicsPathItem):
     def rebuild(self) -> None:
         ar = self.a.sceneBoundingRect()
         br = self.b.sceneBoundingRect()
+        if self.route is not None:
+            if self.a.pos() == self._route_at[0] and self.b.pos() == self._route_at[1]:
+                self._follow_route(ar, br)
+                return
+            self.route = None  # a device moved: back to our own routing
+        self.set_points(self.points_for(self.lane_offset))
+
+    def lane_options(self) -> list[float]:
+        """Every lane Re-arrange cable may try for the long horizontal run."""
+        ar, br = self.a.sceneBoundingRect(), self.b.sceneBoundingRect()
+        if ar.bottom() + 12 < br.top() or br.bottom() + 12 < ar.top():
+            gap = (br.top() - ar.bottom()) if ar.bottom() < br.top() else (ar.top() - br.bottom())
+            return [float(v) for v in range(8, max(9, int(gap) - 7), 6)]
+        return [float(14 + 8 * k) for k in range(14)]
+
+    def points_for(self, lane_offset: float | None) -> list[QPointF]:  # noqa: C901
+        """The cable's corners with its long run in lane *lane_offset* (None: default)."""
+        ar = self.a.sceneBoundingRect()
+        br = self.b.sceneBoundingRect()
         gap_top, gap_bottom = None, None
         if ar.bottom() + 12 < br.top():  # a above b: run in the gap between
             a_face, b_face, gap_top, gap_bottom = "bottom", "top", ar.bottom(), br.top()
@@ -1486,28 +1792,74 @@ class LinkItem(QGraphicsPathItem):
             a_face = b_face = "bottom"
         a_up = self.a_port in self.a.port_items and self.a.is_uplink(self.a_port)
         b_up = self.b_port in self.b.port_items and self.b.is_uplink(self.b_port)
-        start = self.a.port_anchor(self.a_port, facing="top" if a_up else a_face)
-        end = self.b.port_anchor(self.b_port, facing="top" if b_up else b_face)
+        start = self.a.port_anchor(self.a_port, facing="top" if a_up else a_face, vid=self.vid)
+        end = self.b.port_anchor(self.b_port, facing="top" if b_up else b_face, vid=self.vid)
         if gap_top is not None:
             room = max(4.0, gap_bottom - gap_top - 16)
             mid_y = gap_top + 8 + (self.lane * 8) % room
+            if lane_offset is not None and 4 <= lane_offset <= gap_bottom - gap_top - 4:
+                mid_y = gap_top + lane_offset
         else:
-            mid_y = max(ar.bottom(), br.bottom()) + 16 + self.lane * 8
+            mid_y = max(ar.bottom(), br.bottom()) + (lane_offset if lane_offset is not None
+                                                        else 16 + self.lane * 8)
         if a_up and b_up and gap_top is None:  # both uplinks, side by side: run above
-            mid_y = min(ar.top(), br.top()) - 16 - self.lane * 8
+            mid_y = min(ar.top(), br.top()) - (lane_offset if lane_offset is not None else 16 + self.lane * 8)
         # An uplink cable that has to head down climbs out of its box first
         # and goes round the side nearer the other end.
         head = [start] + self._round_box(start, ar, a_up and mid_y > ar.top(), end)
         tail = self._round_box(end, br, b_up and mid_y > br.top(), start)
-        path = QPainterPath(head[0])
-        for pt in head[1:]:
-            path.lineTo(pt)
-        path.lineTo(QPointF(head[-1].x(), mid_y))
         far = tail[-1] if tail else end
-        path.lineTo(QPointF(far.x(), mid_y))
-        for pt in reversed(tail):
-            path.lineTo(pt)
-        path.lineTo(end)
+        return [*head, QPointF(head[-1].x(), mid_y), QPointF(far.x(), mid_y), *reversed(tail), end]
+
+    def _follow_route(self, ar: QRectF, br: QRectF) -> None:
+        """Port → ELK's orthogonal route (box edge to box edge) → port."""
+        pts = [QPointF(x, y) for x, y in self.route or []]
+        fa = "bottom" if pts[0].y() >= ar.center().y() else "top"
+        fb = "bottom" if pts[-1].y() >= br.center().y() else "top"
+        start = self.a.port_anchor(self.a_port, facing=fa, vid=self.vid)
+        end = self.b.port_anchor(self.b_port, facing=fb, vid=self.vid)
+        self.set_points([start, QPointF(start.x(), pts[0].y()), *pts, QPointF(end.x(), pts[-1].y()), end])
+
+    def set_points(self, pts: list[QPointF]) -> None:
+        """New corners: draw now (keeping known hops), and ask the view to
+        work out the crossings again."""
+        clean: list[QPointF] = []
+        for pt in pts:  # drop repeats so segment indices are stable
+            if not clean or (abs(pt.x() - clean[-1].x()) > 0.01 or abs(pt.y() - clean[-1].y()) > 0.01):
+                clean.append(QPointF(pt))
+        if clean != self.points:
+            self.points = clean
+            self.hops = {}
+        self.draw()
+        scene = self.scene()
+        for view in (scene.views() if scene else []):
+            if isinstance(view, SiteTopologyView):
+                view.schedule_hops()
+
+    def segments(self) -> list[tuple[int, QPointF, QPointF]]:
+        return [(i, a, b) for i, (a, b) in enumerate(zip(self.points, self.points[1:]))]
+
+    def draw(self) -> None:
+        """The path through the corners, with a small semicircle wherever this
+        cable jumps over another one (horizontal runs hop over vertical runs)."""
+        if not self.points:
+            self.setPath(QPainterPath())
+            return
+        path = QPainterPath(self.points[0])
+        r = HOP_RADIUS
+        for i, a, b in self.segments():
+            xs = self.hops.get(i) or []
+            if xs and abs(a.y() - b.y()) < 0.01:
+                rightwards = b.x() > a.x()
+                for x in sorted(xs, reverse=not rightwards):
+                    y = a.y()
+                    if rightwards:
+                        path.lineTo(QPointF(x - r, y))
+                        path.arcTo(QRectF(x - r, y - r, 2 * r, 2 * r), 180, -180)
+                    else:
+                        path.lineTo(QPointF(x + r, y))
+                        path.arcTo(QRectF(x - r, y - r, 2 * r, 2 * r), 0, 180)
+            path.lineTo(b)
         self.setPath(path)
 
     def _round_box(self, port: QPointF, box: QRectF, needed: bool, other: QPointF) -> list[QPointF]:
@@ -1591,6 +1943,7 @@ class SiteTopologyView(QGraphicsView):
     """Editable physical map: grid-locked chassis with NIC / faceplate ports."""
 
     positions_changed = Signal()
+    cable_message = Signal(str)  # result of Re-arrange cable, for the status bar
     links_changed = Signal()
     device_changed = Signal(str)  # device name after Pull Config / similar
     device_selected = Signal(str)  # one chassis selected on the canvas ("" = none)
@@ -1608,6 +1961,10 @@ class SiteTopologyView(QGraphicsView):
         self._site = None
         self._chassis: dict[str, ChassisItem] = {}
         self._links: list[LinkItem] = []
+        self._hops_timer = QTimer(self)
+        self._hops_timer.setSingleShot(True)
+        self._hops_timer.setInterval(0)
+        self._hops_timer.timeout.connect(self.update_hops)
         self._snap = True
         self._grid = 20
         self._locked = False
@@ -1615,6 +1972,7 @@ class SiteTopologyView(QGraphicsView):
         self._highlight_devices: set[str] = set()
         self._highlight_path: list[str] = []
         self._wire_from: tuple[str, str] | None = None  # (device, port)
+        self._wire_vid = ""  # the VLAN being cabled, "" for the whole port
         self._wire_line = None
         self._ssh_password_provider = None
         self.zoom_bar = ZoomBar(self)
@@ -1698,6 +2056,18 @@ class SiteTopologyView(QGraphicsView):
             self.device_selected.emit(name)
 
     def _on_chassis_edit_finished(self, _name: str) -> None:
+        if self._site is not None and getattr(self._site, "uniform_sizes", False):
+            # A resized box takes its same-type siblings with it.
+            edited = self._chassis.get(_name)
+            if edited is not None:
+                w, h = edited.current_size()
+                key = device_type_key(edited.device)
+                for ch in self._live_chassis():
+                    if ch is not edited and device_type_key(ch.device) == key:
+                        r = ch.boundingRect()
+                        if abs(r.width() - w) > 0.5 or abs(r.height() - h) > 0.5:
+                            ch.apply_size(w, h)
+                            ch.device.w, ch.device.h = ch.current_size()
         # A moved or stretched box keeps PAN_MARGIN of canvas around it.
         items = self._scene.itemsBoundingRect()
         grown = self._scene.sceneRect().united(items.adjusted(-PAN_MARGIN, -PAN_MARGIN, PAN_MARGIN, PAN_MARGIN))
@@ -1770,18 +2140,26 @@ class SiteTopologyView(QGraphicsView):
                 return item
         return None
 
-    def delete_link(self, a_dev: str, a_port: str, b_dev: str, b_port: str) -> bool:
-        """Remove the cable between the two ports (either direction)."""
+    def delete_link(self, a_dev: str, a_port: str, b_dev: str, b_port: str, vid: str = "",
+                    *, indices: list[int] | None = None) -> bool:
+        """Remove the cable between the two ports (either direction): the whole-port
+        cable, or with *vid* that VLAN's cable only; *indices* removes exactly those
+        site links (a rainbow bundle)."""
         if self._site is None:
             return False
         before = len(self._site.links)
-        self._site.links = [
-            link for link in self._site.links
-            if not (
-                (link.a_device, link.a_port, link.b_device, link.b_port) == (a_dev, a_port, b_dev, b_port)
-                or (link.a_device, link.a_port, link.b_device, link.b_port) == (b_dev, b_port, a_dev, a_port)
-            )
-        ]
+        if indices:
+            drop = set(indices)
+            self._site.links = [ln for i, ln in enumerate(self._site.links) if i not in drop]
+        else:
+            self._site.links = [
+                link for link in self._site.links
+                if not (
+                    link_vid(link) == vid
+                    and ((link.a_device, link.a_port, link.b_device, link.b_port) == (a_dev, a_port, b_dev, b_port)
+                         or (link.a_device, link.a_port, link.b_device, link.b_port) == (b_dev, b_port, a_dev, a_port))
+                )
+            ]
         if len(self._site.links) == before:
             return False
         self.render_site(self._site)
@@ -1801,9 +2179,20 @@ class SiteTopologyView(QGraphicsView):
             title = menu.addAction(f"{a_dev}:{link_item.a_port or '?'} ↔ {b_dev}:{link_item.b_port or '?'}")
             title.setEnabled(False)
             menu.addSeparator()
-            act_delete = menu.addAction("Delete cable")
-            if menu.exec(event.globalPos()) is act_delete:
-                self.delete_link(a_dev, link_item.a_port, b_dev, link_item.b_port)
+            act_rearrange = menu.addAction("Re-arrange cable")
+            act_rearrange.setToolTip("Move this cable's long run to the lane where it crosses the fewest others")
+            act_all = menu.addAction("Re-arrange all cables")
+            menu.addSeparator()
+            act_delete = menu.addAction(
+                f"Delete all {len(link_item.bundle)} VLAN cables" if link_item.bundle else "Delete cable")
+            chosen = menu.exec(event.globalPos())
+            if chosen is act_delete:
+                self.delete_link(a_dev, link_item.a_port, b_dev, link_item.b_port, link_item.vid,
+                                 indices=link_item.bundle_links if link_item.bundle else None)
+            elif chosen is act_rearrange:
+                self.cable_message.emit(self.rearrange_cable(link_item))
+            elif chosen is act_all:
+                self.cable_message.emit(self.rearrange_all_cables())
             event.accept()
             return
         chassis = self._chassis_item_at(sp)
@@ -1873,15 +2262,31 @@ class SiteTopologyView(QGraphicsView):
         if pulled:
             self.device_changed.emit(device.name)
 
-    def begin_port_link(self, port_item: PortItem, scene_pos: QPointF) -> None:
-        """Start dragging a cable from *port_item* (unlocked canvas only)."""
+    def select_port_vlan(self, port_item: PortItem, vid: str) -> None:
+        """Highlight one VLAN stripe (only one picked on the canvas at a time)."""
+        for ch in self._live_chassis():
+            for item in ch.port_items.values():
+                if item is not port_item:
+                    item.select_vid("")
+        port_item.select_vid(vid)
+
+    def clear_port_vlans(self) -> None:
+        for ch in self._live_chassis():
+            for item in ch.port_items.values():
+                item.select_vid("")
+
+    def begin_port_link(self, port_item: PortItem, scene_pos: QPointF, *, vid: str = "") -> None:
+        """Start dragging a cable from *port_item* (unlocked canvas only); with
+        *vid*, a cable for that VLAN from its stripe."""
         if self._locked or self._site is None:
             return
         self._cancel_port_link()
         self._wire_from = (port_item.device_name, port_item.port_name)
-        anchor = port_item.anchor_scene("bottom" if port_item.faceplate else "right")
-        pen = QPen(QColor("#1565c0"))
-        pen.setWidth(2)
+        self._wire_vid = vid
+        facing = "bottom" if port_item.faceplate else "right"
+        anchor = (port_item.stripe_anchor(vid, "bottom") if vid else None) or port_item.anchor_scene(facing)
+        pen = QPen(QColor(port_vlans.vlan_color(vid, self._palette)) if vid else QColor("#1565c0"))
+        pen.setWidth(3 if vid else 2)
         pen.setStyle(Qt.PenStyle.DashLine)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         self._wire_line = self._scene.addLine(QLineF(anchor, scene_pos), pen)
@@ -1891,6 +2296,7 @@ class SiteTopologyView(QGraphicsView):
 
     def _cancel_port_link(self) -> None:
         self._wire_from = None
+        self._wire_vid = ""
         if self._wire_line is not None:
             try:
                 self._scene.removeItem(self._wire_line)
@@ -1912,10 +2318,12 @@ class SiteTopologyView(QGraphicsView):
                 cur = cur.parentItem()
         return None
 
-    def _link_exists(self, a_dev: str, a_port: str, b_dev: str, b_port: str) -> bool:
+    def _link_exists(self, a_dev: str, a_port: str, b_dev: str, b_port: str, vid: str = "") -> bool:
         if self._site is None:
             return False
         for link in self._site.links:
+            if link_vid(link) != vid:
+                continue  # each VLAN has its own cable between the same ports
             if (
                 link.a_device == a_dev
                 and link.a_port == a_port
@@ -1937,13 +2345,14 @@ class SiteTopologyView(QGraphicsView):
             self._cancel_port_link()
             return
         a_device, a_port = self._wire_from
+        vid = getattr(self, "_wire_vid", "")
         if a_device == b_device and a_port == b_port:
             self._cancel_port_link()
             return
         self._cancel_port_link()
         if a_device == b_device:
             return  # require another device
-        if self._link_exists(a_device, a_port, b_device, b_port):
+        if self._link_exists(a_device, a_port, b_device, b_port, vid):
             return
         self._site.links.append(
             Link(
@@ -1951,9 +2360,11 @@ class SiteTopologyView(QGraphicsView):
                 a_port=a_port,
                 b_device=b_device,
                 b_port=b_port,
-                kind="copper",
+                kind=VLAN_LINK_KIND if vid else "copper",
+                vlans=[vid] if vid else [],
             )
         )
+        self.clear_port_vlans()
         self.render_site(self._site)
         self.links_changed.emit()
         self.positions_changed.emit()
@@ -2015,6 +2426,8 @@ class SiteTopologyView(QGraphicsView):
             self._cancel_port_link()
             event.accept()
             return
+        if event.key() == Qt.Key.Key_Escape:
+            self.clear_port_vlans()
         super().keyPressEvent(event)
 
     def drawBackground(self, painter, rect) -> None:  # noqa: ANN001, N802
@@ -2132,6 +2545,199 @@ class SiteTopologyView(QGraphicsView):
         dev.w = w
         dev.h = h  # live resize: recorded; announced on edit_finished (BUG-046)
 
+    # -- Same size for the same type --------------------------------------------- #
+
+    def set_uniform_sizes(self, on: bool) -> None:
+        """Turn "same device types the same size" on or off (saved on the site)."""
+        if self._site is None:
+            return
+        self._site.uniform_sizes = bool(on)
+        if on:
+            self.apply_uniform_sizes()
+        self.render_site(self._site)
+        self.positions_changed.emit()
+
+    def apply_uniform_sizes(self) -> int:
+        """Give every device the largest current size among its type. Returns how
+        many boxes changed."""
+        if self._site is None:
+            return 0
+        groups: dict[str, list[ChassisItem]] = {}
+        for ch in self._live_chassis():
+            groups.setdefault(device_type_key(ch.device), []).append(ch)
+        changed = 0
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            w = max(ch.boundingRect().width() for ch in members)
+            h = max(ch.boundingRect().height() for ch in members)
+            for ch in members:
+                r = ch.boundingRect()
+                if abs(r.width() - w) > 0.5 or abs(r.height() - h) > 0.5:
+                    ch.device.w, ch.device.h = w, h
+                    changed += 1
+        return changed
+
+    # -- Re-arrange cable ------------------------------------------------------- #
+
+    def _cable_cost(self, item: "LinkItem", pts: list[QPointF], others: list[list[QPointF]]) -> int:
+        """Crossings, plus a heavy penalty for a run straight through a device box."""
+        cost = count_crossings(pts, others) * 10
+        for a, b in _segs(pts):
+            if abs(a.y() - b.y()) > 0.01:
+                continue
+            lo, hi = min(a.x(), b.x()), max(a.x(), b.x())
+            for ch in self._live_chassis():
+                r = ch.sceneBoundingRect()
+                if r.top() - 3 < a.y() < r.bottom() + 3 and lo < r.right() and hi > r.left():
+                    cost += 1000
+        return cost
+
+    def rearrange_cable(self, item: "LinkItem", *, quiet: bool = False) -> str:
+        """Put *item*'s long run in the lane with the fewest crossings (saved on the link)."""
+        if self._site is None or self._locked:
+            return "The layout is locked: unlock it to re-arrange cables." if self._locked else ""
+        others = [li.points for li in self._links if li is not item and li.points]
+        current = item.points or item.points_for(item.lane_offset)
+        best_cost = self._cable_cost(item, current, others)
+        best_lane = item.lane_offset
+        for lane in item.lane_options():
+            cost = self._cable_cost(item, item.points_for(lane), others)
+            if cost < best_cost:
+                best_cost, best_lane = cost, lane
+        if best_lane == item.lane_offset and item.route is None:
+            return "" if quiet else f"{item.a_port} ↔ {item.b_port}: already as clear as it gets."
+        for idx in item.bundle_links:
+            if 0 <= idx < len(self._site.links):
+                self._site.links[idx].lane = best_lane
+        item.lane_offset = best_lane
+        item.route = None  # our routing from here on
+        item.rebuild()
+        self.update_hops()
+        if not quiet:
+            self.links_changed.emit()
+            self.positions_changed.emit()
+        if quiet:
+            return ""
+        was = count_crossings(current, others)
+        now = count_crossings(item.points, others)
+        return f"{item.a_port} ↔ {item.b_port}: re-arranged, crossings {was} → {now}"
+
+    def rearrange_all_cables(self) -> str:
+        """Re-arrange every cable in turn, twice (the second pass settles the first)."""
+        if self._site is None or self._locked:
+            return "The layout is locked: unlock it to re-arrange cables." if self._locked else ""
+        before = sum(len(v) for d in find_hops(self._links).values() for v in d.values())
+        for _ in range(2):
+            for item in list(self._links):
+                self.rearrange_cable(item, quiet=True)
+        after = self.update_hops()
+        self.links_changed.emit()
+        self.positions_changed.emit()
+        return f"Re-arranged {len(self._links)} cable(s): crossings {before} → {after}."
+
+    # -- Hops where cables cross ---------------------------------------------- #
+
+    def schedule_hops(self) -> None:
+        """Work the crossings out once, after the current batch of cable changes."""
+        self._hops_timer.start()
+
+    def update_hops(self) -> int:
+        """Give every cable its hops over the cables it crosses. Returns how many."""
+        links = []
+        for li in self._links:
+            try:
+                if li.bundle:
+                    continue  # 25 px ribbons: crossings show as an overlap, no hop
+            except RuntimeError:
+                continue
+            links.append(li)
+        found = find_hops(links)
+        total = 0
+        for li, link in enumerate(links):
+            hops = found.get(li, {})
+            total += sum(len(v) for v in hops.values())
+            if hops != link.hops:
+                link.hops = hops
+                link.draw()
+        return total
+
+    # -- Auto-arrange (ELK) ---------------------------------------------------- #
+
+    def auto_arrange(self) -> str:
+        """Lay the site out with ELK (layered, top-down, orthogonal cables).
+        Returns a one-line result; raises elk_layout.ElkUnavailable without ELK."""
+        from pfsense_checker import elk_layout
+
+        if self._site is None or not self._chassis:
+            return "Nothing to arrange."
+        if self._locked:
+            return "The layout is locked: unlock it to auto-arrange."
+        boxes: dict[str, elk_layout.BoxInfo] = {}
+        for name, ch in self._chassis.items():
+            try:
+                rect = ch.boundingRect()
+            except RuntimeError:
+                continue
+            dev = ch.device
+            tier = elk_layout.tier_of(dev.kind, dev.tier())
+            if ch._faceplate and tier >= 4:  # noqa: SLF001 - switches above what hangs off them
+                tier = 3
+            box = elk_layout.BoxInfo(name, rect.width(), rect.height(), tier)
+            for port, item in ch.port_items.items():
+                box.ports[port] = item.pos().x() + item.w / 2
+                for vid in (item.vlans.vlans if item.vlans else []):
+                    stripe = item.stripe_rect(vid)
+                    if stripe is not None:
+                        box.vlan_x[(port, vid)] = item.pos().x() + stripe.center().x()
+                if ch.is_uplink(port):
+                    box.uplinks.add(port)
+            boxes[name] = box
+        cables = [
+            elk_layout.CableInfo(i, ln.a_device, ln.a_port, ln.b_device, ln.b_port, link_vid(ln))
+            for i, ln in enumerate(self._site.links)
+        ]
+        placed = [d for d in self._site.devices if d.name in boxes and d.x is not None and d.y is not None]
+        origin = (min((d.x for d in placed), default=40.0), min((d.y for d in placed), default=40.0))
+        result = elk_layout.arrange(boxes, cables, origin)
+        self._pre_arrange = {d.name: (d.x, d.y) for d in self._site.devices}
+        for dev in self._site.devices:
+            if dev.name in result.positions:
+                dev.x, dev.y = result.positions[dev.name]
+        self._elk_routes = (result.routes, dict(result.positions))
+        self.render_site(self._site)
+        self.positions_changed.emit()
+        n = len(result.positions)
+        return f"Arranged {n} device{'s' if n != 1 else ''} and {len(result.routes)} cable(s) with ELK."
+
+    def undo_arrange(self) -> bool:
+        before = getattr(self, "_pre_arrange", None)
+        if self._site is None or not before:
+            return False
+        for dev in self._site.devices:
+            if dev.name in before:
+                dev.x, dev.y = before[dev.name]
+        self._pre_arrange = None
+        self._elk_routes = None
+        self.render_site(self._site)
+        self.positions_changed.emit()
+        return True
+
+    def can_undo_arrange(self) -> bool:
+        return bool(getattr(self, "_pre_arrange", None))
+
+    def _elk_route(self, index: int, link) -> list[tuple[float, float]] | None:  # noqa: ANN001
+        """The ELK route for link *index*, if both ends are still where ELK put them."""
+        held = getattr(self, "_elk_routes", None)
+        if not held or self._site is None:
+            return None
+        routes, positions = held
+        for name in (link.a_device, link.b_device):
+            dev = self._site.device(name)
+            if dev is None or positions.get(name) != (dev.x, dev.y):
+                return None
+        return routes.get(index)
+
     def arrange_by_tier(self) -> None:
         if self._site is None:
             return
@@ -2196,6 +2802,11 @@ class SiteTopologyView(QGraphicsView):
             self._scene.addItem(ch)
             self._chassis[dev.name] = ch
 
+        if getattr(site, "uniform_sizes", False) and self.apply_uniform_sizes():
+            for ch in self._chassis.values():  # same type, same (largest) size
+                if ch.device.w and ch.device.h:
+                    ch.apply_size(float(ch.device.w), float(ch.device.h))
+
         # Legend: every VLAN that colours a port on this canvas, named.
         legend: dict[str, str] = {}
         for ch in self._chassis.values():
@@ -2208,20 +2819,37 @@ class SiteTopologyView(QGraphicsView):
         self.vlan_legend.set_vlans(legend, self._palette)
         self._place_overlays()
 
+        def port_vids(device: str, port: str) -> list[str]:
+            ch = self._chassis.get(device)
+            item = ch.port_items.get(port) if ch else None
+            return list(item.vlans.vlans) if item is not None and item.vlans else []
+
+        bundles = vlan_bundles(site.links, port_vids)
+        in_bundle = {i for idx in bundles.values() for i in idx}
         for lane, link in enumerate(site.links):
             a = self._chassis.get(link.a_device)
             b = self._chassis.get(link.b_device)
             if a is None or b is None:
                 continue
-            color = LINK_KIND_COLORS.get(link.kind, LINK_KIND_COLORS["other"])
+            if lane in in_bundle and lane not in bundles:
+                continue  # drawn as part of its bundle's ribbon
+            bundle_idx = bundles.get(lane, [])
+            bundle = sorted({link_vid(site.links[i]) for i in bundle_idx}, key=port_vlans._vid_key)  # noqa: SLF001
+            vid = "" if bundle else link_vid(link)
+            color = (port_vlans.vlan_color(vid, self._palette) if vid
+                     else LINK_KIND_COLORS.get(link.kind, LINK_KIND_COLORS["other"]))
             bits = []
             if link.a_port or link.b_port:
                 bits.append(f"{link.a_port or '?'} ↔ {link.b_port or '?'}")
-            if link.kind and link.kind != "copper":
+            if link.kind and link.kind not in ("copper", VLAN_LINK_KIND):
                 bits.append(link.kind)
             if link.speed:
                 bits.append(link.speed)
-            if link.vlans:
+            if bundle:
+                bits.append("all VLANs " + ",".join(bundle))
+            elif vid:
+                bits.append(f"VLAN {vid}")
+            elif link.vlans:
                 bits.append("VLANs " + ",".join(link.vlans[:5]))
             item = LinkItem(
                 a, b,
@@ -2230,9 +2858,21 @@ class SiteTopologyView(QGraphicsView):
                 color=color,
                 label=" · ".join(bits),
                 lane=lane,
+                vid=vid,
+                route=self._elk_route(lane, link),
+                lane_offset=getattr(link, "lane", None),
+                bundle=bundle,
+                bundle_colors=[port_vlans.vlan_color(v, self._palette) for v in bundle],
+                bundle_links=bundle_idx or [lane],
             )
+            if vid:
+                pen = item.pen()
+                pen.setWidth(3)
+                item.setPen(pen)
             self._scene.addItem(item)
             self._links.append(item)
+            if bundle:
+                item.setZValue(1.5)  # over thin cables
             if bits:
                 ac = a.mapToScene(a.boundingRect().center())
                 bc = b.mapToScene(b.boundingRect().center())
@@ -2246,6 +2886,8 @@ class SiteTopologyView(QGraphicsView):
                 lt.setDefaultTextColor(QColor("#37474f"))
                 lt.setZValue(4)
                 lt.setPos(mid)
+
+        self.update_hops()  # cables are built before they are in the scene
 
         for vpn in site.vpn:
             a = self._chassis.get(vpn.a_device)

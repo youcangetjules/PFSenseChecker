@@ -118,6 +118,42 @@ def _loose(name: str) -> str:
 def build_config_topology(result: CheckResult) -> ConfigTopology:
     """Internet ← external VLANs ← groups ← NIC → port name → VLANs."""
     graph = ConfigTopology()
+    mikrotik = (getattr(result, "source_type", "") or "").lower() == "mikrotik"
+    # What counts as a physical port. pfSense: by the NIC's name (igb0, ixl1…).
+    # MikroTik: by the kind the parser gave it — a bridge, a VLAN interface or a
+    # tunnel is never a port, whatever it is called.
+    ros_ports = {(i.name or "").lower() for i in result.interfaces if i.kind in ("physical", "wireless")}
+
+    def hardware(name: str) -> bool:
+        if mikrotik:
+            return (name or "").strip().lower() in ros_ports
+        return is_hardware_port(name)
+
+    port_notes: dict[str, str] = {}
+    if mikrotik:  # what each port carries: "VLAN 630 (access)" / "trunk 600, 630…"
+        try:
+            from pfsense_checker import port_vlans
+
+            vl = port_vlans.from_result(result)
+            for port, pv in vl.ports.items():
+                if pv.tagged:
+                    port_notes[port] = "trunk " + ", ".join(pv.vlans)
+                elif pv.untagged:
+                    port_notes[port] = "VLAN " + ", ".join(pv.untagged) + " (access)"
+        except Exception:  # noqa: BLE001 - the map still draws without VLAN notes
+            port_notes = {}
+
+    def port_sub(iface: InterfaceInfo) -> str:
+        if not mikrotik:
+            return _port_subtitle(iface)
+        bits = [iface.name]
+        note = port_notes.get((iface.name or "").lower())
+        if note:
+            bits.append(note)
+        ip = _address(iface)
+        if ip:
+            bits.append(ip)
+        return " · ".join(bits)
     by_name = {(i.name or "").lower(): i for i in result.interfaces if i.name}
     by_device: dict[str, InterfaceInfo] = {}
     for iface in result.interfaces:
@@ -132,7 +168,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
         text = (token or "").strip()
         if not text or depth > 6:
             return ""
-        if is_hardware_port(text):
+        if hardware(text):
             return text.lower()
         low = text.lower()
         iface = by_name.get(low)
@@ -147,7 +183,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
                 return found
         if "." in text:
             parent = text.split(".", 1)[0]
-            if is_hardware_port(parent):
+            if hardware(parent):
                 return parent.lower()
         return ""
 
@@ -192,7 +228,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
     wan_ports = {
         iface.name.lower(): iface.device.strip().lower()
         for iface in wans
-        if is_hardware_port(iface.device) and iface.device.strip().lower() not in grouped
+        if hardware(iface.device) and iface.device.strip().lower() not in grouped
     }
 
     def card_of(iface: InterfaceInfo) -> tuple[str, str]:
@@ -206,7 +242,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
             return ("bridge", dev)
         if is_tunnel_device(dev) or iface.kind in _TUNNEL_KINDS:
             return ("ext", iface.name.lower())
-        if _EXTERNAL_NAME.search(iface.descr or "") and not is_hardware_port(dev):
+        if _EXTERNAL_NAME.search(iface.descr or "") and not hardware(dev):
             return ("ext", iface.name.lower())
         return ("port", iface.name.lower())
 
@@ -256,7 +292,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
     for lagg in result.laggs:
         nics.extend(resolve_hardware(m) for m in lagg.members)
     for iface in result.interfaces:
-        if is_hardware_port(iface.device):
+        if hardware(iface.device):
             nics.append(iface.device.strip().lower())
     for nic in nics:
         if nic:
@@ -272,7 +308,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
                     layer,
                     node_id,
                     _port_title(iface),
-                    ("WAN port · " if layer == "gw" else "") + _port_subtitle(iface),
+                    ("WAN port · " if layer == "gw" else "") + port_sub(iface),
                     "wanport" if layer == "gw" else iface.kind or "other",
                     dim=not iface.enabled,
                 )
@@ -337,7 +373,7 @@ def build_config_topology(result: CheckResult) -> ConfigTopology:
         if layer not in {"port", "gw"}:
             continue
         dev = (iface.device or "").strip().lower()
-        if is_hardware_port(dev):
+        if hardware(dev):
             add_edge(("phys", dev), (layer, node_id), "physical")
     # LAGG members → LAGG port.
     for lagg in result.laggs:

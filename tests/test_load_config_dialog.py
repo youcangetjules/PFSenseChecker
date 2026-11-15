@@ -110,6 +110,7 @@ def test_login_cancel_says_quit_app() -> None:
     d = LoginDialog()
     try:
         assert d.cancel_btn.text() == "Cancel/Quit App"
-        assert d.cancel_btn.size() == d.submit.size()
+        # Down in the status bar now: same height as Login, narrower (operator's call).
+        assert d.cancel_btn.height() == d.submit.height() and d.cancel_btn.width() < d.submit.width()
     finally:
         d.reject()

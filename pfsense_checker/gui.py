@@ -1064,12 +1064,11 @@ class MainWindow(QMainWindow):
             def run(self) -> None:  # noqa: D102
                 from pfsense_checker import postgres_db as pg
 
-                ok, settings, detail = pg.probe_connection(timeout=2)
-                short = detail.split(",")[0] if ok and detail else detail
+                ok, settings, info = pg.probe_details(timeout=2)
                 self.finished_ok.emit(
                     ok,
-                    pg.status_bar_text(ok, settings),
-                    pg.status_bar_tooltip(ok, settings, detail=short),
+                    pg.status_bar_summary(ok, settings, info),
+                    pg.status_bar_details(ok, settings, info),
                 )
 
         worker = _DbProbe()
@@ -1438,7 +1437,8 @@ class MainWindow(QMainWindow):
         grid_top = QGridLayout()
         grid_top.setSpacing(8)
         for idx, (key, caption) in enumerate(kpi_defs):
-            card = KpiCard(caption)
+            card = KpiCard(caption, explain=True)
+            card.explain_clicked.connect(lambda k=key: self._explain_kpi(k))
             self.kpi_cards[key] = card
             grid_top.addWidget(card, idx // 4, idx % 4)
         v.addLayout(grid_top)
@@ -1500,6 +1500,7 @@ class MainWindow(QMainWindow):
         from pfsense_checker.viz import SegmentationMatrix
 
         self.topology_view = TopologyView()
+        self.topology_view.node_action.connect(self._logical_node_action)
         self.segmentation_matrix = SegmentationMatrix()
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.topology_view)
@@ -1651,6 +1652,7 @@ class MainWindow(QMainWindow):
         self.site_view = SiteTopologyView()
         self.site_view.positions_changed.connect(self._site_positions_changed)
         self.site_view.links_changed.connect(self._site_links_changed)
+        self.site_view.cable_message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.site_view.device_changed.connect(self._refresh_site)
         v.addWidget(self.site_view, stretch=2)
 
@@ -4088,8 +4090,19 @@ class MainWindow(QMainWindow):
         self.wiw_tree.setColumnWidth(1, 300)
         self.wiw_tree.setColumnWidth(2, 560)
         self.wiw_tree.setAlternatingRowColors(True)
+        from pfsense_checker.viz import SelectedWhiteTextDelegate
+
+        # Rows have coloured text; on the selected (blue) row it must be white to be read.
+        self.wiw_tree.setItemDelegate(SelectedWhiteTextDelegate(self.wiw_tree))
+        self.wiw_tree.setStyleSheet(
+            "QTreeWidget::item:selected { background: #1565c0; color: #ffffff; }"
+            "QTreeWidget::item:selected:!active { background: #1976d2; color: #ffffff; }"
+        )
         self.wiw_tree.header().setStretchLastSection(True)
         self.wiw_tree.currentItemChanged.connect(self._show_wiw_detail)
+        # Right-click: options that depend on the area (Wireless, Bandwidth…).
+        self.wiw_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.wiw_tree.customContextMenuRequested.connect(self._wiw_menu)
         v.addWidget(self.wiw_tree, stretch=1)
         # Full text of the selected check (long bandwidth paths do not fit a row).
         self.wiw_detail = QLabel("Select a check to see its full result and fix.")
@@ -4117,6 +4130,261 @@ class MainWindow(QMainWindow):
         if fix:
             body += f"<br/><span style='color:#1565c0;'>Fix: {html.escape(fix)}</span>"
         self.wiw_detail.setText(body)
+
+    # --- Logical topology map: right-click a box ---
+
+    def logical_node_details(self, layer: str, node_id: str, title: str) -> tuple[str, str]:
+        """(window title, HTML) describing one box of the logical map."""
+        import html
+
+        from pfsense_checker import config_analysis as ca
+        from pfsense_checker import port_vlans
+
+        result = getattr(self, "_result", None)
+        if result is None:
+            return title, "<p>No config loaded.</p>"
+        rows: list[tuple[str, str]] = []
+        low = node_id.lower()
+        vl = port_vlans.from_result(result)
+        iface = next((i for i in result.interfaces if (i.name or "").lower() == low
+                      or (i.device or "").lower() == low), None)
+        if layer in ("phys", "port", "gw"):
+            kind = "Port"
+            name = iface.name if iface is not None else node_id
+            facts = ca.port_facts(result, name) if result.source_type == "mikrotik" else {}
+            rows += [(k.capitalize(), v) for k, v in facts.items()]
+            if iface is not None and not facts:
+                rows += [("Name", iface.name), ("Description", iface.descr), ("Device", iface.device),
+                         ("Address", iface.ipaddr + (f"/{iface.subnet}" if iface.subnet else "")),
+                         ("Enabled", "yes" if iface.enabled else "no"), ("Kind", iface.kind)]
+            pv = vl.port(name)
+            if pv is not None and pv.vlans:
+                rows.append(("Untagged (access) VLAN", ", ".join(pv.untagged) or "—"))
+                rows.append(("Tagged VLANs", ", ".join(pv.tagged) or "—"))
+                rows += [("Check", n) for n in pv.notes]
+            bridge = vl.bridge_of(name)
+            if bridge:
+                rows.append(("In bridge", bridge))
+        elif layer in ("vlan", "ext"):
+            kind = "VLAN"
+            vlan = next((v for v in result.vlans if (v.vlanif or "").lower() == low), None)
+            if vlan is not None:
+                rows += [("VLAN id", vlan.tag), ("Interface", vlan.vlanif), ("On", vlan.if_parent),
+                         ("Description", vlan.descr)]
+                tagged = sorted(p for p, pv in vl.ports.items() if vlan.tag in pv.tagged)
+                access = sorted(p for p, pv in vl.ports.items() if vlan.tag in pv.untagged)
+                rows.append(("Tagged on (trunks)", ", ".join(tagged) or "—"))
+                rows.append(("Untagged on (access ports)", ", ".join(access) or "—"))
+            if iface is not None and iface.ipaddr:
+                rows.append(("Address here", iface.ipaddr + (f"/{iface.subnet}" if iface.subnet else "")))
+        else:
+            kind = "Bridge"
+            bridge = next((b for b in result.bridges if (b.bridgeif or "").lower() == low), None)
+            if bridge is not None:
+                rows += [("Bridge", bridge.bridgeif), ("Members", ", ".join(bridge.members) or "—"),
+                         ("STP", "on" if bridge.stp_enabled else "off"), ("Description", bridge.descr)]
+                if result.source_type == "mikrotik":
+                    from pfsense_checker import vlan_enforcement
+
+                    for enf in vlan_enforcement.device_bridges(result.summary.get("raw", {}),
+                                                               result.summary.get("model", "")):
+                        if enf.bridge.lower() == low:
+                            rows.append(("VLANs enforced by", enf.describe()))
+        table = "".join(f"<tr><td style='padding:2px 10px;color:#607d8b;'>{html.escape(k)}</td>"
+                        f"<td style='padding:2px 10px;'>{html.escape(str(v))}</td></tr>"
+                        for k, v in rows if str(v).strip())
+        body = f"<h3>{html.escape(title)}</h3><table>{table or '<tr><td>No details in the config.</td></tr>'}</table>"
+        return f"{kind} — {title}", body
+
+    def _logical_node_action(self, action: str, layer: str, node_id: str, title: str) -> None:
+        if action == "details":
+            win_title, body = self.logical_node_details(layer, node_id, title)
+            self._wiw_dialog(win_title, body)
+        elif action == "find":
+            self.find_in_will_it_work([title, node_id])
+
+    def find_in_will_it_work(self, needles: list[str]) -> int:
+        """Open Will it work? and select the first row that mentions any of *needles*.
+        Returns how many rows mention them."""
+        tree = getattr(self, "wiw_tree", None)
+        if tree is None:
+            return 0
+        wanted = [n.lower() for n in needles if n and n.strip()]
+        hits = []
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                child = top.child(j)
+                text = " ".join(child.text(c) for c in range(tree.columnCount())).lower()
+                if any(w in text for w in wanted):
+                    hits.append((top, child))
+        self._goto_tab("Will it work?")
+        if hits:
+            top, child = hits[0]
+            top.setExpanded(True)
+            tree.setCurrentItem(child)
+            tree.scrollToItem(child)
+        self.statusBar().showMessage(
+            f"{len(hits)} row(s) in Will it work? mention {needles[0]}" if hits
+            else f"Nothing in Will it work? mentions {needles[0]}", 6000)
+        return len(hits)
+
+    # --- Will it work? right-click menu (area-specific) ---
+
+    def wiw_actions(self, area: str, check) -> list[tuple[str, str, bool]]:  # noqa: ANN001
+        """[(action id, label, enabled)] for a row of the Will it work? list."""
+        from pfsense_checker import config_analysis as ca
+
+        result = getattr(self, "_result", None)
+        out: list[tuple[str, str, bool]] = []
+        if result is None:
+            return out
+        if area == "Wireless":
+            info = ca.capsman_controller(result, self._peer_results(result))
+            if info.uses_controller or info.is_controller:
+                out.append(("check_controller", "Check Controller", True))
+                out.append(("use_controller",
+                            "Use Controller Data to check functionality — repair if not working", True))
+        elif area.startswith("Bandwidth"):
+            ports = ca.ports_in_check(check, result) if check is not None else []
+            out.append(("show_ports", "Show which port(s)" if ports or check is None
+                        else "Show which port(s) — none named on this row", bool(ports)))
+        return out
+
+    def _wiw_menu(self, pos) -> None:  # noqa: ANN001
+        item = self.wiw_tree.itemAt(pos)
+        data = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        if not data:
+            return
+        area, check = data
+        actions = self.wiw_actions(area, check)
+        if not actions:
+            return
+        menu = QMenu(self.wiw_tree)
+        head = menu.addAction(area)
+        head.setEnabled(False)
+        menu.addSeparator()
+        made = {}
+        for action_id, label, enabled in actions:
+            act = menu.addAction(label)
+            act.setEnabled(enabled)
+            made[act] = action_id
+        chosen = made.get(menu.exec(self.wiw_tree.viewport().mapToGlobal(pos)))
+        if chosen:
+            self.wiw_do(chosen, area, check)
+
+    def wiw_do(self, action_id: str, area: str, check) -> None:  # noqa: ANN001
+        from pfsense_checker import config_analysis as ca
+
+        result = getattr(self, "_result", None)
+        if result is None:
+            return
+        if action_id == "show_ports":
+            self._wiw_show_ports(check, result)
+            return
+        info = ca.capsman_controller(result, self._peer_results(result))
+        if action_id == "check_controller":
+            if info.is_controller and not info.uses_controller:
+                QMessageBox.information(self, "Check Controller",
+                                        f"{result.hostname or 'This device'} is the CAPsMAN controller itself. "
+                                        "Its Wireless rows above are the controller's checks.")
+            elif info.result is not None and info.result.path:
+                self.load_path(info.result.path)  # open the controller's config…
+                self._goto_tab("Will it work?")  # …on its own Will it work? list
+                self.statusBar().showMessage(f"Showing the controller: {info.name}", 6000)
+            else:
+                where = ", ".join(info.addresses) or "found by discovery (no address set)"
+                QMessageBox.information(
+                    self, "Check Controller",
+                    f"The radios here are run by a CAPsMAN controller ({where}), but its config is not loaded.\n\n"
+                    "Load that device's config on Login to Routers, then try again.")
+        elif action_id == "use_controller":
+            self._wiw_controller_report(info, result)
+
+    def _wiw_show_ports(self, check, result: CheckResult) -> None:  # noqa: ANN001
+        """Bandwidth → Show which port(s): the ports this row is about, with their settings."""
+        import html
+
+        from pfsense_checker import config_analysis as ca
+
+        ports = ca.ports_in_check(check, result)
+        rows = []
+        for port in ports:
+            facts = ca.port_facts(result, port)
+            cells = "".join(f"<td style='padding:2px 10px;'>{html.escape(facts.get(k, '—'))}</td>"
+                            for k in ("port", "comment", "bridge", "PVID", "auto-negotiation", "advertise", "speed",
+                                      "enabled"))
+            rows.append(f"<tr>{cells}</tr>")
+        heads = "".join(f"<th align='left' style='padding:2px 10px;'>{h}</th>"
+                        for h in ("Port", "Comment", "Bridge", "PVID", "Auto-neg", "Advertises", "Fixed speed",
+                                  "Enabled"))
+        body = (f"<p><b>{html.escape(check.subject)}</b><br/>{html.escape(check.message)}</p>"
+                f"<table border='1' cellspacing='0' style='border-collapse:collapse;'><tr>{heads}</tr>"
+                f"{''.join(rows)}</table>")
+        if check.remediation:
+            body += f"<p style='color:#1565c0;'>Fix: {html.escape(check.remediation)}</p>"
+        self._wiw_dialog(f"Ports — {check.subject}", body)
+
+    def _wiw_controller_report(self, info, result: CheckResult) -> None:  # noqa: ANN001
+        """Wireless → Use Controller Data: what works with the controller's settings
+        applied, and the repair steps for what does not. Nothing is changed on any router."""
+        import html
+
+        from pfsense_checker import config_analysis as ca
+
+        analysis = ca.analyse(result, self._peer_results(result), self._known_devices())
+        area = analysis.area("Wireless")
+        me = html.escape(result.hostname or "this device")
+        if info.result is not None:
+            ctl = (f"Controller: <b>{html.escape(info.name)}</b> — CAPsMAN "
+                   f"{'enabled' if info.enabled else '<span style=\"color:#c62828;\">DISABLED</span>'}. "
+                   "Its SSIDs, security and VLANs were used for the checks below.")
+        elif info.is_controller and not info.uses_controller:
+            ctl = f"<b>{me}</b> is the CAPsMAN controller; the checks below are its own."
+        else:
+            where = html.escape(", ".join(info.addresses) or "discovery")
+            ctl = (f"<span style='color:#e65100;'>The controller ({where}) is not loaded, so SSIDs, security "
+                   "and VLANs could not be checked. Load its config on Login to Routers.</span>")
+        colour = {ca.PASS: "#2e7d32", ca.WARN: "#ef6c00", ca.FAIL: "#c62828", ca.INFO: "#607d8b"}
+        word = {ca.PASS: "works", ca.WARN: "warning", ca.FAIL: "NOT WORKING", ca.INFO: "note"}
+        rows = "".join(
+            f"<tr><td style='padding:2px 10px;color:{colour[c.status]};'><b>{word[c.status]}</b></td>"
+            f"<td style='padding:2px 10px;'>{html.escape(c.subject)}</td>"
+            f"<td style='padding:2px 10px;'>{html.escape(c.message)}</td></tr>" for c in area.checks)
+        steps = ca.repair_steps(area)
+        if steps:
+            fix = "<ol>" + "".join(
+                f"<li><b>{html.escape(s)}</b>: {html.escape(m)}<br/>"
+                f"<span style='color:#1565c0;'>{html.escape(r)}</span></li>" for s, m, r in steps) + "</ol>"
+            fix += ("<p style='color:#607d8b;'>NetCheck does not change the routers. Apply these in WinBox or "
+                    "the terminal, then pull the configs again and re-check.</p>")
+        else:
+            fix = "<p style='color:#2e7d32;'>Nothing to repair: wireless works as configured.</p>"
+        body = (f"<p>{ctl}</p><h4>Wireless on {me}: {ca.VERDICT_TEXT[area.status]}</h4>"
+                f"<table border='1' cellspacing='0' style='border-collapse:collapse;'>{rows}</table>"
+                f"<h4>Repair steps</h4>{fix}")
+        plain = "\n".join(f"{s}: {r}" for s, _m, r in steps)
+        self._wiw_dialog("Wireless — checked with controller data", body, copy_text=plain)
+
+    def _wiw_dialog(self, title: str, body_html: str, copy_text: str = "") -> None:
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.resize(1000, 620)
+        lay = QVBoxLayout(dlg)
+        view = QTextBrowser()
+        view.setHtml(body_html)
+        lay.addWidget(view)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        if copy_text:
+            copy = buttons.addButton("Copy repair steps", QDialogButtonBox.ButtonRole.ActionRole)
+            copy.clicked.connect(lambda: QApplication.clipboard().setText(copy_text))
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        self._wiw_last_dialog = (title, body_html, copy_text)  # for tests
+        if not getattr(self, "_wiw_no_exec", False):
+            dlg.exec()
 
     def _peer_results(self, current: CheckResult) -> list[CheckResult]:
         """Other loaded configs (Login to Routers), parsed once per file version."""
@@ -4244,6 +4512,7 @@ class MainWindow(QMainWindow):
         }
         for area in analysis.areas:
             top = QTreeWidgetItem([area.area, "", ca.VERDICT_TEXT[area.status], ""])
+            top.setData(0, Qt.ItemDataRole.UserRole, (area.area, None))
             top.setForeground(2, QColor(verdict_colour[area.status]))
             top.setFont(0, bold)
             top.setFont(2, bold)
@@ -4252,6 +4521,7 @@ class MainWindow(QMainWindow):
                 icon, colour = check_style[check.status]
                 parsed = name_parser.readable_in(check.subject, scheme)
                 child = QTreeWidgetItem([check.subject, parsed, check.message, check.remediation])
+                child.setData(0, Qt.ItemDataRole.UserRole, (area.area, check))
                 child.setIcon(0, icon)
                 child.setForeground(0, QColor(colour))
                 child.setForeground(1, parsed_colour)
@@ -4899,6 +5169,27 @@ class MainWindow(QMainWindow):
         self.summary_label.setStyleSheet(
             f"font-weight: bold; padding: 4px 0; color: {color};"
         )
+
+    def _explain_kpi(self, key: str) -> None:
+        """Dashboard tile → Show and explain: a window with what the number means
+        and what is behind it in the loaded config."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTextBrowser
+
+        from pfsense_checker import kpi_explain
+
+        title, body = kpi_explain.explain(key, getattr(self, "_result", None))
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{title} — explained")
+        dlg.resize(980, 640)
+        lay = QVBoxLayout(dlg)
+        view = QTextBrowser()
+        view.setHtml(f"<h3>{title}</h3>{body}")
+        lay.addWidget(view)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        self._kpi_dialog = dlg  # kept for tests
+        dlg.exec()
 
     def _render_dashboard(self, result: CheckResult) -> None:
         s = result.summary

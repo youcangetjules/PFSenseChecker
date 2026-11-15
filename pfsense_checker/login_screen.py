@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStatusBar,
     QTextEdit,
@@ -35,17 +36,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pfsense_checker import app_log, auth, onepassword, postgres_db as pg
+from pfsense_checker import app_log, auth, contact, onepassword, postgres_db as pg
 from pfsense_checker.busy import busy_cursor, show_busy_while
 from pfsense_checker.branding import (
     STATUS_BAR_FAIL,
     STATUS_BAR_OK,
     STATUS_BAR_TEXT,
+    STATUS_BAR_WARN,
     render_logo_pixmap,
     status_bar_stylesheet,
     status_chip_style,
 )
 from pfsense_checker.panel_motif import panel_title_qss
+
+COPYRIGHT_LINE = "© 2026 Aliniant Laboratories"
+INTRO_TEXT = (
+    "Aliniant's discovery tool for home networks, including router and device discovery, "
+    "subnet mapping, router config analysis, router <> router discrepancy analysis, "
+    "Ali Baba's magic wand, cancer cures, a good bead on solving poverty, sorry, I got "
+    "ahead of myself, clever tools on drawing and understanding your home network "
+    "and trying to keep things sortof understandable. Features great help features "
+    "throughout - there's a help button on every page. Use it to get accustomed to the "
+    "tool's arcane ways of doing things,\n"
+    "Enjoy - it was made with weapons grade OCD and Caffeine by Aliniant UK Ltd."
+)
+PILL_CLEARANCE_PX = 10  # extra room between a panel's title pill and its contents
+
+
+def _clear_title_pill(layout) -> None:  # noqa: ANN001
+    """Move a panel's contents PILL_CLEARANCE_PX further down from its title pill."""
+    m = layout.contentsMargins()
+    layout.setContentsMargins(m.left(), m.top() + PILL_CLEARANCE_PX, m.right(), m.bottom())
 from pfsense_checker.rainbow_backdrop import RainbowBackdrop
 from pfsense_checker.paths import PROJECT_ROOT
 from pfsense_checker.version import APP_NAME, VERSION, format_changelog
@@ -135,6 +156,8 @@ def _sync_widths_to(reference: QPushButton, *others: QPushButton) -> None:
 # Tools row (no sign-in): red / green, and a hazard-striped Check Config.
 BEACON_BTN_STYLE = _tinted_btn_style("#c62828", "#ffffff", "#ff1744", "#e53935", "#b71c1c")
 COLLECTOR_BTN_STYLE = _tinted_btn_style("#2e7d32", "#ffffff", "#00e676", "#388e3c", "#1b5e20")
+EASTER_BTN_STYLE = _tinted_btn_style("#ef6c00", "#ffffff", "#ffd180", "#fb8c00", "#e65100")
+CONTACT_BTN_STYLE = _tinted_btn_style("#5e35b1", "#ffffff", "#b388ff", "#7e57c2", "#4527a0")
 TOOL_BTN_SIZE = (200, 38)
 
 
@@ -341,6 +364,8 @@ def _save_op_login(username: str, password: str) -> str:
 # Shared size for primary action + Cancel (Cancel is always rightmost).
 _ACTION_BTN_W = 220
 _ACTION_BTN_H = 36
+STATUS_BAR_SCALE = 2  # the launcher's status bar is twice the usual height
+CANCEL_BAR_W = 130  # Cancel/Quit in the status bar
 
 
 def _sync_action_button_pair(primary: QPushButton, cancel: QPushButton) -> None:
@@ -1082,7 +1107,7 @@ class LoginDialog(QDialog):
         layout.setContentsMargins(36, 28, 36, 16)
         layout.setSpacing(14)
 
-        logo = render_logo_pixmap(width=800)
+        logo = render_logo_pixmap(width=800, copyright=False)  # the © line sits at the bottom
         if logo is not None:
             brand = QLabel()
             brand.setPixmap(logo)
@@ -1105,6 +1130,7 @@ class LoginDialog(QDialog):
         login_box.setStyleSheet(panel_title_qss(font_size="13px"))
         login_inner = QVBoxLayout(login_box)
         login_inner.setSpacing(10)
+        _clear_title_pill(login_inner)
 
         self.heading = QLabel("Sign in to open the NetCheck workspace")
         self.heading.setStyleSheet("font-weight: normal; color: #555;")
@@ -1172,7 +1198,8 @@ class LoginDialog(QDialog):
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self.reject)
 
-        # One row: Help / Options / Forgot on the left, Login / Cancel on the right.
+        # One row: Help / Options / Forgot on the left, Login on the right.
+        # Cancel/Quit lives in the status bar at the bottom.
         pane_btns = QHBoxLayout()
         pane_btns.setSpacing(8)
         pane_btns.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -1180,21 +1207,30 @@ class LoginDialog(QDialog):
             pane_btns.addWidget(b, alignment=Qt.AlignmentFlag.AlignVCenter)
         pane_btns.addStretch(1)
         pane_btns.addWidget(self.submit, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pane_btns.addWidget(self.cancel_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         _sync_action_button_pair(self.submit, self.cancel_btn)
+        self.cancel_btn.setFixedWidth(CANCEL_BAR_W)  # narrower, down in the status bar
         login_inner.addLayout(pane_btns)
         layout.addWidget(login_box)
 
-        # Push Tools dock to the bottom of the window (above status bar).
+        # What NetCheck is, in the space between Login and Tools; Tools stays
+        # docked at the bottom of the window (above the status bar).
+        layout.addStretch(1)
+        self.intro = QLabel(INTRO_TEXT)
+        self.intro.setWordWrap(True)
+        self.intro.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.intro.setStyleSheet("background: transparent; color: #455a64; font-size: 11.75pt;")  # 13px + 2pt
+        layout.addWidget(self.intro)
         layout.addStretch(1)
 
         # --- Tools (no login) ---
         tools_box = QGroupBox("Tools (no sign-in required)")
         tools_box.setStyleSheet(panel_title_qss(font_size="13px"))
         tools_inner = QVBoxLayout(tools_box)
+        _clear_title_pill(tools_inner)
         tip = QLabel(
             "These run without logging into the main tool. "
-            "Use them for beacon bundles, the monitoring collector, or a quick config check."
+            "Use them for beacon bundles, the monitoring collector, a quick config check, "
+            "or to get in touch with Aliniant."
         )
         tip.setWordWrap(True)
         tip.setStyleSheet("font-weight: normal; color: #555;")
@@ -1207,17 +1243,34 @@ class LoginDialog(QDialog):
         self.btn_collector = QPushButton("Start Collector")
         self.btn_collector.setStyleSheet(COLLECTOR_BTN_STYLE)
         self.btn_check = HazardButton("Check Config")
-        for b in (self.btn_beacon, self.btn_collector, self.btn_check):
+        self.btn_contact = QPushButton("Get in Touch")
+        self.btn_contact.setStyleSheet(CONTACT_BTN_STYLE)
+        self.btn_contact.setToolTip(
+            f"Start an email to {contact.CONTACT_ADDRESS} — subject \"{contact.CONTACT_SUBJECT}\" "
+            "(Outlook if installed, otherwise your mail app)"
+        )
+        self.btn_easter = QPushButton("Easter Egg me")
+        self.btn_easter.setStyleSheet(EASTER_BTN_STYLE)
+        self.btn_easter.setToolTip("A random little cartoon. Press Another! for a different one.")
+        # Equal widths, spanning the whole panel.
+        for b in (self.btn_beacon, self.btn_collector, self.btn_check, self.btn_contact, self.btn_easter):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setFixedSize(*TOOL_BTN_SIZE)
-            btn_row.addWidget(b)
-        btn_row.addStretch(1)
+            b.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            b.setMinimumWidth(TOOL_BTN_SIZE[0] // 2)
+            b.setFixedHeight(TOOL_BTN_SIZE[1])
+            btn_row.addWidget(b, 1)
         tools_inner.addLayout(btn_row)
         layout.addWidget(tools_box)
+        self.copyright = QLabel(COPYRIGHT_LINE)
+        self.copyright.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.copyright.setStyleSheet("background: transparent; color: #6b6b6b; font-size: 11.25pt;")  # 11px + 3pt
+        layout.addWidget(self.copyright)
 
         self.btn_beacon.clicked.connect(self._open_beacon_creator)
         self.btn_collector.clicked.connect(self._start_collector)
         self.btn_check.clicked.connect(self._open_config_check)
+        self.btn_contact.clicked.connect(self._get_in_touch)
+        self.btn_easter.clicked.connect(self._easter_egg)
 
         root.addWidget(body, stretch=1)
 
@@ -1232,6 +1285,10 @@ class LoginDialog(QDialog):
         self._db_chip.setFont(bar_font)
         self._db_chip.setStyleSheet(status_chip_style(STATUS_BAR_TEXT, extra_padding="2px 6px"))
         self.status_bar.addWidget(self._db_chip)
+        # Twice its usual height, with Cancel/Quit on the right.
+        self.status_bar.setFixedHeight(STATUS_BAR_SCALE * self.status_bar.sizeHint().height())
+        self.status_bar.setContentsMargins(0, 0, 10, 0)  # Cancel clear of the window edge
+        self.status_bar.addPermanentWidget(self.cancel_btn)
         root.addWidget(self.status_bar)
         _lock_enter_default(self, self.submit)
 
@@ -1246,10 +1303,11 @@ class LoginDialog(QDialog):
 
             def run(self) -> None:  # noqa: D102
                 try:
-                    ok, settings, detail = pg.probe_connection(timeout=2)
-                    text = pg.status_bar_text(ok, settings)
-                    tip = pg.status_bar_tooltip(ok, settings, detail=detail)
-                    color = STATUS_BAR_OK if ok else STATUS_BAR_FAIL
+                    ok, settings, info = pg.probe_details(timeout=2)
+                    text = pg.status_bar_summary(ok, settings, info, two_rows=True)
+                    tip = pg.status_bar_details(ok, settings, info)
+                    secure = ok and getattr(info, "ssl_in_use", False)
+                    color = STATUS_BAR_OK if secure else (STATUS_BAR_WARN if ok else STATUS_BAR_FAIL)
                 except Exception as exc:  # noqa: BLE001
                     text = "DB: offline · probe failed"
                     tip = str(exc)
@@ -1391,6 +1449,22 @@ class LoginDialog(QDialog):
     def _open_config_check(self) -> None:
         ConfigCheckDialog(self).exec()
 
+    def _easter_egg(self) -> None:
+        from pfsense_checker.easter_eggs import EasterEggDialog
+
+        EasterEggDialog(self).exec()
+
+    def _get_in_touch(self) -> None:
+        """Start an email to Aliniant (Outlook first, then the default mail app)."""
+        if contact.open_email():
+            return
+        QMessageBox.information(
+            self,
+            "Get in Touch",
+            f"No mail app could be started. Write to {contact.CONTACT_ADDRESS} "
+            f"with the subject \"{contact.CONTACT_SUBJECT}\".",
+        )
+
     def _set_bootstrap_ui(self, bootstrap: bool) -> None:
         self._bootstrap = bootstrap
         self.password2.setVisible(bootstrap)
@@ -1405,6 +1479,7 @@ class LoginDialog(QDialog):
             self.submit.setText("Login to main tool")
         # Keep Cancel matched to Login width after label changes.
         _sync_action_button_pair(self.submit, self.cancel_btn)
+        self.cancel_btn.setFixedWidth(CANCEL_BAR_W)  # narrower, down in the status bar
 
     def _prepare_mode(self) -> None:
         try:

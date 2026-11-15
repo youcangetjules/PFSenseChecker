@@ -1432,12 +1432,27 @@ def _vlan_enforcement_checks(dev: _Device, verdict: AreaVerdict, peers: list[_De
         if enf.mode == vlan_enforcement.MODE_SWITCH_CHIP:
             verdict.add(PASS, subject, f"VLANs {', '.join(sorted(enf.chip_vlans, key=int))} enforced by "
                         f"{enf.describe()}.")
-            ignored = sorted(enf.bridge_vlans - enf.chip_vlans, key=lambda v: int(v) if v.isdigit() else 0)
-            if ignored:
-                verdict.add(WARN, subject, f"VLAN(s) {', '.join(ignored)} are in the bridge VLAN table but not in the "
-                            "switch chip. With vlan-filtering=no the bridge table is ignored, so they are not "
-                            "carried as configured.", "Add them to /interface ethernet switch vlan and "
-                            "egress-vlan-tag, or remove them from the bridge VLAN table if unused.")
+            # Hardware forwarding is the design here: vlan-filtering=no is deliberate
+            # (it keeps VLAN traffic in the switch chip, off the CPU), so the bridge
+            # VLAN table is simply not used. Only VLANs this device really uses and
+            # the chip does not carry are a problem.
+            only_bridge = sorted(enf.bridge_vlans - enf.chip_vlans, key=lambda v: int(v) if v.isdigit() else 0)
+            used_here = {str(v.get("vlan-id", "")) for v in raw.get("interface vlan", []) if not _disabled(v)}
+            needed = [v for v in only_bridge if v in used_here]
+            leftover = [v for v in only_bridge if v not in used_here]
+            if needed:
+                verdict.add(WARN, subject, f"VLAN(s) {', '.join(needed)} have an interface on this device but are "
+                            "not in the switch chip VLAN table. The switch chip carries the VLANs here (by "
+                            "design: vlan-filtering=no keeps traffic in hardware), so they are not carried "
+                            "until they are added there.",
+                            "Add them to /interface ethernet switch vlan (with switch1-cpu as a member where "
+                            "this device has an address) and to egress-vlan-tag.")
+            if leftover:
+                verdict.add(INFO, subject, f"VLAN(s) {', '.join(leftover)} are listed only in the bridge VLAN "
+                            "table, which this switch does not use: it forwards VLANs in the switch chip by "
+                            "design. Those entries do nothing.",
+                            "Remove them from the bridge VLAN table, or add them to the switch chip if they "
+                            "should be carried.")
             if enf.unchecked_ports:
                 verdict.add(WARN, subject, f"Port(s) {', '.join(enf.unchecked_ports)} are not in "
                             "drop-if-invalid-or-src-port-not-member-of-vlan-on-ports, so frames they send for "
@@ -1614,3 +1629,104 @@ __all__: Sequence[str] = (
     "findings_from",
     "report_text",
 )
+
+
+# --------------------------------------------------------------------------- #
+# Right-click helpers for the Will it work? list (added 2026-11-15)
+
+
+@dataclass
+class ControllerInfo:
+    """The wireless controller (MikroTik CAPsMAN) a device's radios are run by."""
+
+    uses_controller: bool = False  # this device is a CAP
+    addresses: list[str] = field(default_factory=list)  # caps-man-addresses (may be empty: discovery)
+    result: CheckResult | None = None  # the controller's config, when it is loaded
+    name: str = ""
+    enabled: bool = False  # CAPsMAN is switched on there
+    is_controller: bool = False  # this device is itself the CAPsMAN manager
+
+
+def capsman_controller(result: CheckResult, peers: Iterable[CheckResult] = ()) -> ControllerInfo:
+    """Which CAPsMAN manager runs *result*'s radios, and whether its config is loaded."""
+    info = ControllerInfo()
+    if result.source_type != "mikrotik":
+        return info
+    raw = result.summary.get("raw", {})
+    info.is_controller = _yes(next(iter(raw.get("caps-man manager", [])), {}).get("enabled"))
+    cap = next(iter(raw.get("interface wireless cap", [])), {})
+    wifi_cap = next(iter(raw.get("interface wifi cap", [])), {})
+    cap = cap if _yes(cap.get("enabled")) else (wifi_cap if _yes(wifi_cap.get("enabled")) else {})
+    if not cap:
+        return info
+    info.uses_controller = True
+    info.addresses = _split(cap.get("caps-man-addresses"))
+    peer_devs = [_Device(p) for p in peers if p is not result and p.valid_xml and p.source_type == "mikrotik"]
+
+    def manager_on(dev: _Device) -> bool:
+        return _yes(next(iter(dev.result.summary.get("raw", {}).get("caps-man manager", [])), {}).get("enabled"))
+
+    owner = None
+    for addr in info.addresses:
+        ip = _ip(addr)
+        owner = next((p for p in peer_devs if ip is not None and p.owner_of(ip) is not None), None)
+        if owner is not None:
+            break
+    if owner is None and not info.addresses:  # discovery: the one loaded manager, if there is exactly one
+        on = [p for p in peer_devs if manager_on(p)]
+        owner = on[0] if len(on) == 1 else None
+    if owner is not None:
+        info.result, info.name, info.enabled = owner.result, owner.name, manager_on(owner)
+    return info
+
+
+def ports_in_check(check: Check, result: CheckResult) -> list[str]:
+    """Interface names of *result* that the check's subject or message mentions,
+    in the order they appear (whole names only: ether1 does not match ether10)."""
+    names = {i.name for i in result.interfaces if i.name}
+    for section in ("interface ethernet", "interface bridge port", "interface wireless"):
+        for row in result.summary.get("raw", {}).get(section, []):
+            name = row.get("name") or row.get("default-name") or row.get("interface") or ""
+            if name:
+                names.add(name)
+    text = f"{check.subject} {check.message}"
+    found: list[tuple[int, str]] = []
+    for name in names:
+        m = _re.search(r"(?<![\w.-])" + _re.escape(name) + r"(?![\w-])", text)
+        if m:
+            found.append((m.start(), name))
+    return [name for _pos, name in sorted(found)]
+
+
+def port_facts(result: CheckResult, port: str) -> dict[str, str]:
+    """What the config says about one port (for "Show which port(s)")."""
+    raw = result.summary.get("raw", {})
+    facts: dict[str, str] = {"port": port}
+    eth = next((r for r in raw.get("interface ethernet", [])
+                if port in (r.get("name"), r.get("default-name"))), {})
+    if eth:
+        facts["default name"] = eth.get("default-name", "")
+        facts["advertise"] = eth.get("advertise", "")
+        facts["speed"] = eth.get("speed", "")
+        facts["auto-negotiation"] = eth.get("auto-negotiation", "")
+        facts["comment"] = eth.get("comment", "")
+    bp = next((r for r in raw.get("interface bridge port", []) if r.get("interface") == port), {})
+    if bp:
+        facts["bridge"] = bp.get("bridge", "")
+        facts["PVID"] = bp.get("pvid", "")
+    iface = next((i for i in result.interfaces if i.name == port), None)
+    if iface is not None:
+        facts.setdefault("comment", iface.descr or "")
+        facts["enabled"] = "yes" if iface.enabled else "no"
+        if iface.ipaddr:
+            facts["address"] = iface.ipaddr + (f"/{iface.subnet}" if iface.subnet else "")
+    return {k: v for k, v in facts.items() if v}
+
+
+def repair_steps(area: AreaVerdict) -> list[tuple[str, str, str]]:
+    """(subject, what is wrong, what to do) for every failing or warned check that
+    comes with a fix, failures first."""
+    order = {FAIL: 0, WARN: 1}
+    rows = [(order[c.status], c.subject, c.message, c.remediation)
+            for c in area.checks if c.status in order and c.remediation]
+    return [(s, m, r) for _o, s, m, r in sorted(rows, key=lambda t: t[0])]

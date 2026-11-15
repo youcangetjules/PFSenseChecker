@@ -72,6 +72,274 @@ class Change:
 # Newest first. Each patch since 1.2.0 is its own version entry.
 CHANGELOG: tuple[Change, ...] = (
     Change(
+        version="1.5.9",
+        date="2026-11-15",
+        notes=(
+            "Login to Routers: Load All, above the Config column, pulls the config from every "
+            "ticked pfSense / OPNsense / MikroTik device with SSH set up, on every subnet, one "
+            "after another in the background, with one summary at the end. Click it again (Stop) "
+            "to stop after the current device.",
+        ),
+    ),
+    Change(
+        version="1.5.8",
+        date="2026-11-15",
+        notes=(
+            "Topology: a bridge that joins one VLAN of each port (pfSense bridge of VLAN "
+            "interfaces) no longer looks as if it holds every VLAN on those ports (BUG-053). The "
+            "chip reads \"bridge bridge0 — only VLAN 710\", a separate arrow runs to that stripe "
+            "on each port, and the stripe is framed in teal over the labels.",
+        ),
+    ),
+    Change(
+        version="1.5.7",
+        date="2026-11-15",
+        notes=(
+            "MikroTik configs: interface lists (all, none, dynamic, static, WAN, LAN…), wireless "
+            "security profiles and the switch chip are no longer counted or drawn as interfaces "
+            "(BUG-051). The Interfaces tile and every list that uses interfaces now show only real "
+            "ones.",
+            "Logical topology map for MikroTik: only real ports in Physical NICs (a bridge or a "
+            "VLAN interface is never a port); each port card says what it carries (access VLAN or "
+            "trunk); the frame is labelled MikroTik and the model, not Firewall.",
+            "Logical topology map: right-click a box for Show port / VLAN / bridge details, Find "
+            "in Will it work? and Copy name.",
+        ),
+    ),
+    Change(
+        version="1.5.6",
+        date="2026-11-15",
+        notes=(
+            "Will it work? right-click, by area. Wireless (MikroTik CAPsMAN): Check Controller "
+            "opens the controller's own list; Use Controller Data to check functionality shows "
+            "what works with the controller's SSIDs, security and VLANs and lists repair steps "
+            "(to copy; NetCheck does not change routers). Bandwidth: Show which port(s) lists the "
+            "ports a row is about with their bridge, PVID and speed settings.",
+            "Reachability: on a switch that forwards VLANs in the switch chip by design "
+            "(vlan-filtering=no), VLANs listed only in the unused bridge VLAN table are a note; "
+            "only VLANs the device really uses but the chip does not carry are warned about.",
+        ),
+    ),
+    Change(
+        version="1.5.5",
+        date="2026-11-15",
+        notes=(
+            "Config Check dashboard: every tile has Show and explain — what the number counts, "
+            "why it matters, and the errors, warnings, interfaces, bridges / VLANs / LAGGs, "
+            "firewall rules, VPN endpoints or packages behind it.",
+            "Will it work?: the selected row's text is white, so coloured rows stay readable "
+            "(BUG-052).",
+        ),
+    ),
+    Change(
+        version="1.5.4",
+        date="2026-11-15",
+        notes=(
+            "Topology: hovering a VLAN stripe in a port says which VLAN it is (number, name, "
+            "tagged or untagged).",
+            "Login to Routers: Make same device types the same size (uses largest current size). "
+            "Devices of the same model share one box size; resizing one resizes the others. "
+            "Saved with the topology.",
+        ),
+    ),
+    Change(
+        version="1.5.3",
+        date="2026-11-15",
+        notes=(
+            "Topology: when every VLAN on one port is cabled to every VLAN on another, the "
+            "strands are drawn as one 25 px rainbow connector (a stripe per VLAN). Deleting it "
+            "removes all of its VLAN cables; Re-arrange moves it as one.",
+            "Deleting one VLAN's cable no longer deletes every cable between the two ports "
+            "(BUG-050).",
+        ),
+    ),
+    Change(
+        version="1.5.2",
+        date="2026-11-15",
+        notes=(
+            "Right-click a cable → Re-arrange cable: its long run moves to the lane between the "
+            "two devices where it crosses the fewest other cables and runs through no device "
+            "box. The lane is saved with the topology. Re-arrange all cables does every cable "
+            "(two passes). The result shows in the status bar.",
+        ),
+    ),
+    Change(
+        version="1.5.1",
+        date="2026-11-15",
+        notes=(
+            "Topology cables that cross now show it: where a horizontal run crosses another "
+            "cable's vertical run, it jumps over with a small semicircle, so crossing cables "
+            "never look joined. The hops follow as devices are dragged; Auto-arrange keeps "
+            "crossings to a minimum in the first place.",
+        ),
+    ),
+    Change(
+        version="1.5.0",
+        date="2026-11-15",
+        notes=(
+            "Topology → Auto-arrange lays the site out with ELK (Eclipse Layout Kernel, layered): "
+            "upstream devices at the top (a cable into a port used as an uplink comes from above; "
+            "firewalls over switches over what hangs off them), each cable leaving from its own "
+            "port or VLAN stripe, square-cornered routes with few crossings. Drag anything "
+            "afterwards; a moved device's cables go back to the usual routing. Undo arrange puts "
+            "everything back.",
+            "ELK is elkjs 0.12.1 (EPL-2.0), vendored in pfsense_checker/vendor/elk and run in Qt's "
+            "own JavaScript engine (`elk_layout.py`): no Node.js needed. The first arrange in a "
+            "session takes about 1.5 s to load it; later ones about 50 ms.",
+        ),
+    ),
+    Change(
+        version="1.4.2",
+        date="2026-11-15",
+        notes=(
+            "Python Modules: the bottom panel is now Programs (not Python modules), with a row "
+            "each for Graphviz and nmap. nmap shows whether it is installed, its version, a "
+            "quick test run against this PC, whether it is on PATH, and the Npcap driver "
+            "(`nmap_status.py`).",
+        ),
+    ),
+    Change(
+        version="1.4.1",
+        date="2026-11-09",
+        notes=(
+            "Topology: each VLAN on a trunk port is its own connection. Click a VLAN stripe "
+            "to pick it (it is framed), then drag from it to another port: the cable is for "
+            "that VLAN only, drawn in its colour from stripe to stripe. Several VLAN cables "
+            "can join the same two ports; Shift-drag still links the whole port; Esc clears "
+            "the pick.",
+        ),
+    ),
+    Change(
+        version="1.4.0",
+        date="2026-11-09",
+        notes=(
+            "Automatic router log downloads over SSH (`device_logs.py`, "
+            "`device_log_manager.py`): every pfSense / OPNsense and MikroTik with SSH set up, "
+            "every 6 hours while NetCheck is open (adjustable) and shortly after each Connect / "
+            "Load Config. One login per device; only what is new is fetched — pfSense /var/log "
+            "files by byte position (rotation detected, sudo -n for root-only logs), MikroTik's "
+            "memory log by the last lines saved.",
+            "Files in data/device_logs/<device>/<date>/<log>.log; each download indexed in "
+            "PostgreSQL (device_log_downloads). Logs → Device Logs shows the downloads, the "
+            "schedule, Download now and the log folder.",
+        ),
+    ),
+    Change(
+        version="1.3.127",
+        date="2026-11-08",
+        notes=(
+            "Easter Egg me looks better: figures have shaded bodies, outlined limbs, hands, "
+            "shoes, eyes and shadows on the ground; speech bubbles have curved tails and a "
+            "drop shadow; captions sit on a soft gradient band; a light vignette frames "
+            "every scene.",
+        ),
+    ),
+    Change(
+        version="1.3.126",
+        date="2026-11-08",
+        notes=(
+            "Easter Egg me: five of the silliest movie moments — the Black Knight's flesh "
+            "wound, King Arthur's coconuts, Airplane!'s Shirley, Police Squad!'s exploding "
+            "fireworks factory and Zoolander's left turn; and Brave Sir Robin running from "
+            "a three-headed knight, minstrels in tow (15 in all).",
+            "Login status bar: SSL on its own second row; the connected green is stronger "
+            "(both status bars).",
+        ),
+    ),
+    Change(
+        version="1.3.125",
+        date="2026-11-08",
+        notes=(
+            "Status bar (login and main window): which PostgreSQL server and database, the "
+            "server version, whether SSL is actually in use (protocol and sslmode) and the "
+            "user; amber when connected without encryption. Hover for host address, cipher, "
+            "the server's ssl setting and installed extensions (PostGIS / TimescaleDB).",
+        ),
+    ),
+    Change(
+        version="1.3.124",
+        date="2026-11-08",
+        notes=(
+            "Easter Egg me: Mrs. Doubtfire dropped; new cartoons of Jack Nicholson through the "
+            "bathroom door and on the witness stand, and Captain Jack Sparrow arriving in port "
+            "on a sinking boat (9 in all).",
+            "Biggus Dickus: a third line from the balcony, about anyone feeling a little "
+            "titter, and a second guard goes.",
+        ),
+    ),
+    Change(
+        version="1.3.123",
+        date="2026-11-08",
+        notes=(
+            "Easter Egg me: three more cartoons — Good Morning Vietnam, Basil Fawlty not "
+            "mentioning the war, and Biggus Dickus's guards trying not to laugh.",
+            "Login screen: Cancel/Quit in the status bar is narrower.",
+        ),
+    ),
+    Change(
+        version="1.3.122",
+        date="2026-11-08",
+        notes=(
+            "Login screen: the status bar is twice as high and holds Cancel/Quit App on "
+            "its right; Login to main tool moves to the right-hand side of the Login panel.",
+        ),
+    ),
+    Change(
+        version="1.3.121",
+        date="2026-11-08",
+        notes=(
+            "Login screen Tools: Easter Egg me plays a random cartoon (`easter_eggs.py`, "
+            "drawn live): John McClane having a very bad day in Harlem, Hunter S. Thompson "
+            "swatting bats on the road to Las Vegas, or President Merkin Muffley in the War "
+            "Room. Another! picks a different one.",
+            "The Tools buttons share the panel width equally; the copyright line is 3pt "
+            "larger.",
+        ),
+    ),
+    Change(
+        version="1.3.120",
+        date="2026-11-08",
+        notes=(
+            "Login screen Tools: Get in Touch starts an email to administrator@aliniant.com "
+            "with the subject \"Tell me about netcheck\" — in Outlook when it is installed, "
+            "otherwise the default mail app; nothing is sent until you send it "
+            "(`contact.py`). Description wording tidied.",
+        ),
+    ),
+    Change(
+        version="1.3.119",
+        date="2026-11-08",
+        notes=(
+            "Login screen description 2pt larger, signed off: made with weapons grade OCD "
+            "and Caffeine by Aliniant UK Ltd.",
+        ),
+    ),
+    Change(
+        version="1.3.118",
+        date="2026-11-08",
+        notes=(
+            "Login screen: a short description of NetCheck between the Login and Tools "
+            "panels.",
+        ),
+    ),
+    Change(
+        version="1.3.117",
+        date="2026-11-08",
+        notes=(
+            "Login screen: \"© 2026 Aliniant Laboratories\" moved out of the banner to its "
+            "own line between the Tools panel and the status bar. The splash and toolbar "
+            "logos keep it.",
+        ),
+    ),
+    Change(
+        version="1.3.116",
+        date="2026-11-08",
+        notes=(
+            "Login screen: the Login and Tools panel contents sit 10px further below "
+            "their title pills.",
+        ),
+    ),
+    Change(
         version="1.3.115",
         date="2026-11-08",
         notes=(

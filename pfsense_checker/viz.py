@@ -26,7 +26,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -58,10 +61,27 @@ KIND_COLORS = {
 }
 
 
-class KpiCard(QFrame):
-    """A compact metric card with a big value and a caption."""
+class SelectedWhiteTextDelegate(QStyledItemDelegate):
+    """Item delegate: a selected row's text is white, whatever colour the item
+    was given (coloured text disappears on the blue selection otherwise)."""
 
-    def __init__(self, caption: str, value: str = "—", color: str = "#263238") -> None:
+    def initStyleOption(self, option, index) -> None:  # noqa: ANN001, N802
+        super().initStyleOption(option, index)
+        if option.state & QStyle.StateFlag.State_Selected:
+            white = QColor("#ffffff")
+            for role in (option.palette.ColorRole.Text, option.palette.ColorRole.HighlightedText,
+                         option.palette.ColorRole.WindowText):
+                option.palette.setColor(role, white)
+
+
+class KpiCard(QFrame):
+    """A compact metric card with a big value and a caption; optionally a
+    "Show and explain" button on the right (``explain_clicked``)."""
+
+    explain_clicked = Signal()
+
+    def __init__(self, caption: str, value: str = "—", color: str = "#263238", *,
+                 explain: bool = False) -> None:
         super().__init__()
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setMinimumWidth(140)
@@ -69,9 +89,18 @@ class KpiCard(QFrame):
         self._base_color = color
         self._apply_style(color)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(12, 10, 12, 10)
+        layout = QVBoxLayout()
         layout.setSpacing(2)
+        outer.addLayout(layout, 1)
+        self.explain_btn: QPushButton | None = None
+        if explain:
+            self.explain_btn = QPushButton("Show and explain")
+            self.explain_btn.setToolTip(f"What {caption} counts, why it matters, and what is behind it")
+            self.explain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.explain_btn.clicked.connect(self.explain_clicked.emit)
+            outer.addWidget(self.explain_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.value_label = QLabel(value)
         vfont = QFont()
@@ -260,6 +289,11 @@ class _TopoNode(QGraphicsObject):
 
     moved = Signal()
     user_moved = Signal()
+    menu_requested = Signal(object, object)  # this node, global position
+
+    def contextMenuEvent(self, event) -> None:  # noqa: ANN001, N802
+        self.menu_requested.emit(self, event.screenPos())
+        event.accept()
 
     def __init__(
         self,
@@ -441,8 +475,40 @@ class _TopoEdge(QGraphicsPathItem):
         self.setPath(path)
 
 
+MAP_MENU = {  # right-click options per kind of box: (action id, label)
+    "port": [("details", "Show port details"), ("find", "Find in Will it work?"), ("copy", "Copy name")],
+    "vlan": [("details", "Show VLAN details (which ports carry it)"), ("find", "Find in Will it work?"),
+             ("copy", "Copy name")],
+    "bridge": [("details", "Show bridge members"), ("find", "Find in Will it work?"), ("copy", "Copy name")],
+}
+_LAYER_MENU = {"phys": "port", "port": "port", "gw": "port", "vlan": "vlan", "ext": "vlan", "bridge": "bridge"}
+
+
+def map_menu_for(layer: str) -> list[tuple[str, str]]:
+    return list(MAP_MENU.get(_LAYER_MENU.get(layer, ""), []))
+
+
 class TopologyView(QGraphicsView):
     """Editable layered topology with crossing-minimized auto-layout."""
+
+    node_action = Signal(str, str, str, str)  # action id, layer, node id, title
+
+    def _node_menu(self, node, global_pos) -> None:  # noqa: ANN001
+        from PySide6.QtWidgets import QApplication, QMenu
+
+        options = map_menu_for(node.layer)
+        if not options:
+            return
+        menu = QMenu(self)
+        head = menu.addAction(node.title)
+        head.setEnabled(False)
+        menu.addSeparator()
+        made = {menu.addAction(label): action for action, label in options}
+        chosen = made.get(menu.exec(global_pos))
+        if chosen == "copy":
+            QApplication.clipboard().setText(node.title)
+        elif chosen:
+            self.node_action.emit(chosen, node.layer, node.node_id, node.title)
 
     def __init__(self) -> None:
         self._scene = QGraphicsScene()
@@ -522,9 +588,11 @@ class TopologyView(QGraphicsView):
         pen.setWidth(2)
         frame = self._scene.addRect(QRectF(), pen, QBrush(QColor("#eceff1")))
         frame.setZValue(-1)
-        vendor = {"pfsense": "pfSense", "opnsense": "OPNsense"}.get(
-            (getattr(result, "source_type", "") or "").lower(), "Firewall"
-        )
+        source = (getattr(result, "source_type", "") or "").lower()
+        vendor = {"pfsense": "pfSense", "opnsense": "OPNsense"}.get(source, "Firewall")
+        if source == "mikrotik":  # a switch or router, named by its model
+            model = str((getattr(result, "summary", {}) or {}).get("model", "")).strip()
+            vendor = f"MikroTik {model}".strip()
         host = (getattr(result, "hostname", "") or "").strip()
         label = self._scene.addText(vendor + (f"\n{host}" if host else ""))
         label.setDefaultTextColor(QColor("#37474f"))
@@ -829,6 +897,7 @@ class TopologyView(QGraphicsView):
         def place(layer: str, node_id: str, title: str, subtitle: str, color: str, dim: bool = False) -> _TopoNode:
             node = _TopoNode(node_id, layer, title, subtitle, color, dim=dim,
                              width=self._col_w[layer], height=self._node_h)
+            node.menu_requested.connect(self._node_menu)
             node.column_x = self._col_x[layer]
             rows = orders.get(layer, {})
             idx = rows.get(node_id, tallest)

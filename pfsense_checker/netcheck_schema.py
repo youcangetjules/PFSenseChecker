@@ -391,6 +391,28 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS subnet_devices_ip_idx
         ON subnet_devices (cidr, ip)
     """,
+    # Automatic router log downloads (device_logs.py): one row per chunk
+    # appended to a local file. The log text stays in the files.
+    """
+    CREATE TABLE IF NOT EXISTS device_log_downloads (
+        id              BIGSERIAL PRIMARY KEY,
+        downloaded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        device          TEXT NOT NULL,
+        kind            TEXT NOT NULL DEFAULT '',
+        log_name        TEXT NOT NULL,
+        local_path      TEXT NOT NULL,
+        bytes           BIGINT NOT NULL DEFAULT 0,
+        lines           INTEGER NOT NULL DEFAULT 0,
+        first_line      TEXT NOT NULL DEFAULT '',
+        last_line       TEXT NOT NULL DEFAULT '',
+        rotated         BOOLEAN NOT NULL DEFAULT FALSE,
+        source          TEXT NOT NULL DEFAULT 'schedule'
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS device_log_downloads_device_idx
+        ON device_log_downloads (device, downloaded_at DESC)
+    """,
     # Seed empty live / experimental site slots (ignore if already present).
     """
     INSERT INTO topology_sites (mode, name, grid_size)
@@ -424,6 +446,7 @@ EXPECTED_TABLES: tuple[str, ...] = (
     "users",
     "login_sessions",
     "subnet_devices",
+    "device_log_downloads",
 )
 
 

@@ -13,8 +13,9 @@ LOGO_SVG = PROJECT_ROOT / "A-Netcheck.svg"
 
 # Status bar — very dark navy; chips use white / green / red.
 STATUS_BAR_BG = "#061830"
-STATUS_BAR_OK = "#69f0ae"
+STATUS_BAR_OK = "#00e676"  # strong green
 STATUS_BAR_FAIL = "#ff5252"
+STATUS_BAR_WARN = "#ffd740"  # connected, but not encrypted
 STATUS_BAR_TEXT = "#ffffff"
 
 
@@ -93,17 +94,41 @@ def _prepared_svg_bytes(logo_path: Path):
     return data
 
 
+def _without_copyright(pix: QPixmap | None) -> QPixmap | None:
+    """The logo with the copyright strip at the bottom cut off, frame closed."""
+    if pix is None or pix.isNull():
+        return pix
+    from pfsense_checker import splash
+
+    if splash._VIEWBOX_H <= splash._COPYRIGHT_BASELINE:  # noqa: SLF001 - no copyright strip
+        return pix
+    # The strip starts just above the copyright's capitals.
+    cut = (splash._COPYRIGHT_BASELINE - splash._COPYRIGHT_PIXEL_SIZE) / splash._VIEWBOX_H  # noqa: SLF001
+    height = max(1, int(round(pix.height() * cut)))
+    out = pix.copy(0, 0, pix.width(), height)
+    painter = QPainter(out)
+    painter.setPen(QColor(splash._FRAME_COLOR))  # noqa: SLF001
+    painter.drawLine(0, height - 1, out.width() - 1, height - 1)
+    painter.end()
+    return out
+
+
 def render_logo_pixmap(
     *,
     width: int = 120,
     background: QColor | None = None,
     path: Path | None = None,
+    copyright: bool = True,  # noqa: A002 - the copyright line under the logo
 ) -> QPixmap | None:
     """Render A-Netcheck.svg to a pixmap. Transparent background by default.
 
     Results are cached by path/width/background so toolbar + home share work
-    after the first (expensive) SVG prepare pass.
+    after the first (expensive) SVG prepare pass. ``copyright=False`` cuts off
+    the strip with "© 2026 Aliniant Laboratories" (the login screen shows it
+    as its own line instead).
     """
+    if not copyright:
+        return _without_copyright(render_logo_pixmap(width=width, background=background, path=path))
     logo_path = path or LOGO_SVG
     if not logo_path.is_file():
         return None

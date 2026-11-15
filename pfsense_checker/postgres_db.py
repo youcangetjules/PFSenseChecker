@@ -257,6 +257,124 @@ def probe_connection(
         return False, s, str(exc)
 
 
+@dataclass
+class ServerInfo:
+    """What the status bar shows about the live database connection."""
+
+    host: str = ""  # as configured / resolved by libpq
+    hostaddr: str = ""
+    port: int = 0
+    database: str = ""
+    user: str = ""
+    version: str = ""  # short, e.g. "18.1"
+    version_full: str = ""
+    ssl_in_use: bool = False
+    ssl_protocol: str = ""  # e.g. TLSv1.3
+    ssl_cipher: str = ""
+    ssl_bits: int = 0
+    server_ssl: str = ""  # the server's own `ssl` setting: on / off
+    extensions: list[tuple[str, str]] = field(default_factory=list)  # (name, version), plpgsql left out
+
+
+def server_info(conn: Any) -> ServerInfo:
+    """Read version, SSL state and extensions from an open connection."""
+    info = ServerInfo()
+    ci = getattr(conn, "info", None)
+    if ci is not None:
+        info.host = str(getattr(ci, "host", "") or "")
+        info.hostaddr = str(getattr(ci, "hostaddr", "") or "")
+        info.port = int(getattr(ci, "port", 0) or 0)
+        pgconn = getattr(ci, "pgconn", None)
+        info.ssl_in_use = bool(getattr(pgconn, "ssl_in_use", False))
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database(), current_user, version(), current_setting('server_version')")
+        row = cur.fetchone() or ("", "", "", "")
+        info.database, info.user, info.version_full, info.version = (str(x or "") for x in row)
+        cur.execute("SELECT current_setting('ssl', true)")
+        info.server_ssl = str((cur.fetchone() or [""])[0] or "")
+        try:
+            cur.execute(
+                "SELECT ssl, version, cipher, bits FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+            )
+            row = cur.fetchone()
+            if row:
+                info.ssl_in_use = bool(row[0]) or info.ssl_in_use
+                info.ssl_protocol = str(row[1] or "")
+                info.ssl_cipher = str(row[2] or "")
+                info.ssl_bits = int(row[3] or 0)
+        except Exception:  # noqa: BLE001 - very old servers / no permission: libpq's flag stands
+            pass
+        cur.execute("SELECT extname, extversion FROM pg_extension WHERE extname <> 'plpgsql' ORDER BY 1")
+        info.extensions = [(str(n), str(v)) for n, v in cur.fetchall()]
+    return info
+
+
+def probe_details(
+    settings: PostgresSettings | None = None,
+    *,
+    timeout: int = 2,
+) -> tuple[bool, PostgresSettings, ServerInfo | str]:
+    """Like probe_connection, but returns the ServerInfo (or the error text)."""
+    s = (settings or load_settings()).normalised()
+    s.connect_timeout = max(1, min(int(timeout), 60))
+    if not psycopg_available():
+        return False, s, "psycopg not installed"
+    try:
+        with connect(s) as conn:
+            return True, s, server_info(conn)
+    except Exception as exc:  # noqa: BLE001
+        return False, s, str(exc)
+
+
+def _ssl_phrase(s: PostgresSettings, info: ServerInfo) -> str:
+    mode = (s.sslmode or "prefer").strip().lower() or "prefer"
+    if info.ssl_in_use:
+        proto = info.ssl_protocol or "TLS"
+        return f"SSL on ({proto}, sslmode {mode})"
+    return f"SSL off — not encrypted (sslmode {mode})"
+
+
+def status_bar_summary(ok: bool, settings: PostgresSettings, info: ServerInfo | str,
+                       *, two_rows: bool = False) -> str:
+    """Status bar text: which server and database, its version, the user, and
+    whether SSL is in use. ``two_rows`` puts the SSL part on a second line."""
+    s = settings.normalised()
+    sep = "\n" if two_rows else " · "
+    if not ok or not isinstance(info, ServerInfo):
+        return f"DB: offline · {s.database} on {s.host}:{s.port}{sep}sslmode {s.sslmode or 'prefer'}"
+    where = f"{info.host or s.host}:{info.port or s.port}"
+    bits = [
+        f"DB: {info.database or s.database} on {where}",
+        f"PostgreSQL {info.version}" if info.version else "PostgreSQL",
+        f"user {info.user}" if info.user else "",
+    ]
+    return " · ".join(b for b in bits if b) + sep + _ssl_phrase(s, info)
+
+
+def status_bar_details(ok: bool, settings: PostgresSettings, info: ServerInfo | str) -> str:
+    """Hover text for the status bar: everything we know about the connection."""
+    s = settings.normalised()
+    if not ok or not isinstance(info, ServerInfo):
+        return status_bar_tooltip(False, s, detail=str(info))
+    lines = [
+        f"Server: {info.host or s.host}" + (f" ({info.hostaddr})" if info.hostaddr and info.hostaddr != info.host else ""),
+        f"Port: {info.port or s.port}",
+        f"Database: {info.database or s.database}",
+        f"User: {info.user or s.username}",
+        f"Version: {info.version_full or info.version}",
+        f"SSL: {'in use' if info.ssl_in_use else 'NOT in use — traffic is not encrypted'}",
+    ]
+    if info.ssl_in_use:
+        lines.append(f"  {info.ssl_protocol or 'TLS'} · {info.ssl_cipher or '?'}"
+                     + (f" · {info.ssl_bits}-bit" if info.ssl_bits else ""))
+    lines.append(f"sslmode (this app): {s.sslmode or 'prefer'}")
+    if info.server_ssl:
+        lines.append(f"Server ssl setting: {info.server_ssl}")
+    exts = ", ".join(f"{n} {v}" for n, v in info.extensions) or "none (no PostGIS / TimescaleDB)"
+    lines.append(f"Extensions: {exts}")
+    return "\n".join(lines)
+
+
 def list_tables(conn: Any, schema: str = "public") -> list[TableInfo]:
     sql = """
         SELECT n.nspname AS schema,

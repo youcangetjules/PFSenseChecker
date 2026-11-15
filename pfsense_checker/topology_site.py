@@ -343,6 +343,13 @@ VPN_KINDS = [
 ]
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _csv_list(text: str) -> list[str]:
     return [p.strip() for p in text.replace(";", ",").split(",") if p.strip()]
 
@@ -811,9 +818,13 @@ class Link:
     vlans: list[str] = field(default_factory=list)  # tagged VLAN IDs on a trunk
     native_vlan: str = ""  # untagged / PVID
     bridge: str = ""  # optional site bridge this link belongs to
+    # Re-arrange cable: where its long horizontal run sits, in px from the edge
+    # of the gap between the two devices (None: the default lane).
+    lane: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "lane": self.lane,
             "a_device": self.a_device,
             "a_port": self.a_port,
             "b_device": self.b_device,
@@ -842,6 +853,7 @@ class Link:
             vlans=[str(v) for v in vlans],
             native_vlan=str(d.get("native_vlan", "")),
             bridge=str(d.get("bridge", "")),
+            lane=_float_or_none(d.get("lane")),
         )
 
     def label(self) -> str:
@@ -1039,6 +1051,8 @@ class SiteTopology:
     egress: list[EgressPath] = field(default_factory=list)
     subnets: list[str] = field(default_factory=list)  # site CIDRs (login screen)
     grid_size: int = 20
+    # Map option: devices of the same type (model) share the largest box size.
+    uniform_sizes: bool = False
 
     def device(self, name: str) -> Device | None:
         for d in self.devices:
@@ -1199,6 +1213,7 @@ class SiteTopology:
         return {
             "name": self.name,
             "grid_size": self.grid_size,
+            "uniform_sizes": self.uniform_sizes,
             "devices": [d.to_dict() for d in self.devices],
             "links": [l.to_dict() for l in self.links],
             "vlans": [v.to_dict() for v in self.vlans],
@@ -1213,6 +1228,7 @@ class SiteTopology:
         site = cls(
             name=str(d.get("name", "My Site")),
             grid_size=int(d.get("grid_size", 20) or 20),
+            uniform_sizes=bool(d.get("uniform_sizes", False)),
             devices=[Device.from_dict(x) for x in d.get("devices", [])],
             links=[Link.from_dict(x) for x in d.get("links", [])],
             vlans=[SiteVlan.from_dict(x) for x in d.get("vlans", [])],

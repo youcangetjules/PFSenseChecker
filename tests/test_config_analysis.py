@@ -285,7 +285,11 @@ def test_switch_chip_vlans_with_filtering_off_are_by_design(tmp_path) -> None:
     reach = ca.analyse(cap, [mgr]).area("Reachability")
     assert any("enforced by the switch chip" in m for m in _msgs(reach, ca.PASS))
     warns = "\n".join(_msgs(reach, ca.WARN))
-    assert "VLAN(s) 662 are in the bridge VLAN table but not in the switch chip" in warns
+    # 662 is only in the bridge VLAN table and has no interface here: with the switch
+    # chip forwarding by design that entry does nothing — a note, not a warning.
+    assert "662" not in warns.split("drop-if-invalid")[0]
+    notes = "\n".join(_msgs(reach, ca.INFO))
+    assert "VLAN(s) 662 are listed only in the bridge VLAN table" in notes and "by design" in notes
     assert "Port(s) ether2 are not in drop-if-invalid" in warns
     assert "vlan-filtering=yes" not in warns
 
@@ -440,3 +444,39 @@ def test_public_address_space_warning(tmp_path) -> None:
     rsc.write_text("/ip address\nadd address=222.10.50.5/24 interface=ether1\n", encoding="utf-8")
     r = ca.analyse(check_file(rsc)).area("Reachability")
     assert any("public (Internet-routable) address space: 222.10.50.0/24" in m for m in _msgs(r, ca.WARN))
+
+
+def test_capsman_controller_lookup(tmp_path) -> None:
+    cap = _rsc(tmp_path, "cap", _cap_rsc("yes", "630,710"))
+    mgr = _rsc(tmp_path, "mgr", MANAGER_RSC)
+    alone = ca.capsman_controller(cap, [])
+    assert alone.uses_controller and alone.result is None  # a CAP, controller not loaded
+    info = ca.capsman_controller(cap, [mgr])
+    assert info.uses_controller and info.result is mgr and info.enabled and info.name
+    me = ca.capsman_controller(mgr, [cap])
+    assert me.is_controller and not me.uses_controller
+
+
+def test_repair_steps_put_failures_first() -> None:
+    area = ca.AreaVerdict("Wireless")
+    area.add(ca.WARN, "radio wlan1", "No country set", "Set country=")
+    area.add(ca.PASS, "CAP mode", "Manager is up")
+    area.add(ca.FAIL, "CAP mode", "Manager has CAPsMAN disabled", "Enable /caps-man manager")
+    area.add(ca.FAIL, "radio wlan2", "No fix known")
+    assert ca.repair_steps(area) == [
+        ("CAP mode", "Manager has CAPsMAN disabled", "Enable /caps-man manager"),
+        ("radio wlan1", "No country set", "Set country="),
+    ]
+
+
+def test_ports_named_in_a_bandwidth_row(tmp_path) -> None:
+    rsc = _rsc(tmp_path, "sw", "/interface ethernet\nset [ find default-name=ether5 ] advertise=10M-baseT-full "
+               "comment=\"Growatt LAN\"\nset [ find default-name=ether1 ] name=ether1\n"
+               "set [ find default-name=ether10 ] name=ether10\n/interface bridge\nadd name=BR\n"
+               "/interface bridge port\nadd bridge=BR interface=ether5 pvid=630\n")
+    check = ca.Check(ca.WARN, "Port speeds", "1 port(s) only auto-negotiate up to 100 Mbps: ether5; ether5 only 10 Mbps.")
+    assert ca.ports_in_check(check, rsc) == ["ether5"]
+    other = ca.Check(ca.INFO, "VLAN 630", "wired clients on ether10 and ether1")
+    assert ca.ports_in_check(other, rsc) == ["ether10", "ether1"]  # ether1 is not found inside ether10
+    facts = ca.port_facts(rsc, "ether5")
+    assert facts["bridge"] == "BR" and facts["PVID"] == "630" and facts["advertise"] == "10M-baseT-full"

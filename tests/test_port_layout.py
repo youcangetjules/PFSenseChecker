@@ -87,3 +87,37 @@ def test_scan_aliases_and_ignored_devices_are_not_drawn() -> None:
     lone = Device(name="host-10-0-0-1", kind="router", mgmt_ip="10.0.0.1")  # nobody else owns this address
     site = SiteTopology(devices=[fw, lan_alias, ignored, lone])
     assert [d.name for d in sc.drawn_devices(site)] == ["guardian", "host-10-0-0-1"]
+
+
+def test_same_device_types_share_the_largest_size(monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from pfsense_checker import port_vlans as pv
+    from pfsense_checker.topology_site import PortComponent, SiteTopology
+
+    QApplication.instance() or QApplication([])
+    monkeypatch.setattr(pv, "for_device", lambda d: pv.DeviceVlans())
+    ports = lambda n: [PortComponent(name=f"ether{i}", media="ether") for i in range(1, n + 1)]  # noqa: E731
+    site = SiteTopology(devices=[
+        Device(name="a", kind="mikrotik", model="CRS109-8G-1S-2HnD", role="access-switch", x=0, y=0,
+               components=ports(8), w=900.0),
+        Device(name="b", kind="mikrotik", model="CRS109 8G 1S 2HnD", role="access-switch", x=0, y=300,
+               components=ports(8)),
+        Device(name="c", kind="mikrotik", model="CRS328-4C-20S-4S+", role="core-switch", x=0, y=600,
+               components=ports(4)),
+    ])
+    view = sc.SiteTopologyView()
+    view.render_site(site)
+    a, b = view._chassis["a"], view._chassis["b"]  # noqa: SLF001
+    assert b.boundingRect().width() < a.boundingRect().width()
+    view.set_uniform_sizes(True)
+    a, b, c = (view._chassis[n] for n in "abc")  # noqa: SLF001
+    assert site.uniform_sizes and abs(a.boundingRect().width() - b.boundingRect().width()) < 1
+    assert c.boundingRect().width() < a.boundingRect().width()  # another model keeps its own size
+    # Resize one: its twin follows.
+    a.apply_size(1100, a.boundingRect().height())
+    a.finish_resize()
+    assert abs(view._chassis["b"].boundingRect().width() - 1100) < 21  # noqa: SLF001 - snapped to the grid
+    from pfsense_checker.topology_site import SiteTopology as ST
+
+    assert ST.from_dict(site.to_dict()).uniform_sizes  # saved with the topology

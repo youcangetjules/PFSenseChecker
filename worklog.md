@@ -2,8 +2,41 @@
 
 Daily record of work done on NetCheck. Newest day first. Append a day; do not rewrite a past day except to correct a factual error.
 
+## 2026-11-15
+
+- Login to Routers: Load All (1.5.9). Faked-SSH test only; not run against the real devices.
+- guardian's bridge0 drawing corrected: only VLAN 710 on igb0 and mce1 is bridged (1.5.8, BUG-053).
+- MikroTik parser no longer registers interface lists / profiles / the switch chip as interfaces (BUG-051); CRS109-1 goes from 28 "interfaces" to 15. Logical map rebuilt on that, with port VLAN notes and right-click (1.5.7).
+- Will it work? right-click: Check Controller, Use Controller Data (repair steps to copy, nothing applied), Show which port(s); Reachability wording for switch-chip designs (1.5.6). CRS109-1: VLAN 662 still warned — it has an interface there and is not in the switch chip.
+- Dashboard tiles: Show and explain; white text on the selected Will it work? row (1.5.5, BUG-052).
+- VLAN stripe hover; same-size-per-model checkbox on Login to Routers (1.5.4).
+- 25 px rainbow connector for all-VLAN port pairs; per-VLAN cable delete fixed (1.5.3, BUG-050).
+- Re-arrange cable / Re-arrange all cables on the cable menu; chosen lane saved as Link.lane in the topology JSON (1.5.2).
+- Cable hops at crossings on all topology canvases (1.5.1).
+- Topology Auto-arrange with ELK (1.5.0). elkjs 0.12.1 fetched with npm pack (operator approved the download); tarball sha512 matched the npm registry; only elk.bundled.js + LICENSE kept, in pfsense_checker/vendor/elk. Runs in QJSEngine with a setTimeout shim and the console extension; no Node at run time. Tried on the saved site with sample cables (none are saved yet): guardian on top, CRS328 below, the CRS109s at the bottom.
+- Python Modules: nmap row next to Graphviz in a Programs panel (1.4.2). This PC: nmap not installed; Npcap driver running (Subnet Health scans use the ping sweep + ARP fallback until nmap is installed).
+
+## 2026-11-09
+
+- Topology: per-VLAN cables from the stripes in the port pills (1.4.1). Saved as links of kind "vlan" with one VLAN.
+- Automatic router log downloads over SSH (1.4.0): schedule (6 h default) + after Connect / Load Config, files in data/device_logs, index table device_log_downloads, Logs → Device Logs page. Live: CRS328 gave its 1000-line memory log, then 3 new lines on the next run. Not tried against guardian (sshguard); pfSense path covered by tests only.
+- Live check first failed with "Authentication failed" because it ran under C:\Python312, which has no keyring; the app's .venv has it. Background downloads also apply the saved login from ssh_host_credentials, as Connect does.
+
 ## 2026-11-08
 
+- Easter eggs drawn better: shaded figures with hands, shoes, eyes and ground shadows, shadowed bubbles, gradient captions, vignette (1.3.127).
+- Easter eggs: Black Knight, coconuts, Shirley, Nothing to see here, Zoolander, Brave Sir Robin (1.3.126). 15 scenes. Minstrels sing new lines, not the film's song. Login status bar: SSL on the second row; green #69f0ae → #00e676.
+- Status bar shows the database in full (1.3.125). Live: PostgreSQL 18.1 on localhost:5432 (::1), database netcheck, SSL in use (TLSv1.3, TLS_AES_256_GCM_SHA384), sslmode prefer, server ssl on. No PostGIS or TimescaleDB extension installed yet.
+- requirements.txt checked: every third-party import is listed; `packaging` is optional (guarded) and ships with pip.
+- Easter eggs: Mrs. Doubtfire dropped (operator); The Shining door, A Few Good Men courtroom, Jack Sparrow's sinking arrival (1.3.124). 9 scenes. Biggus Dickus got the "little titter" line.
+- Easter eggs: Good Morning Vietnam, Fawlty Towers (the Germans), Biggus Dickus (1.3.123). Cancel/Quit narrowed to 130px.
+- Login screen: status bar twice as high with Cancel/Quit in it; Login button on the right (1.3.122).
+- Login Tools: Easter Egg me (three original cartoon homages, drawn with QPainter, no film material); Tools buttons equal width across the panel; copyright line 3pt larger (1.3.121).
+- Login Tools: Get in Touch opens an Outlook email to administrator@aliniant.com, subject "Tell me about netcheck" (mailto fallback) (1.3.120). Outlook found at Office16 on this PC; not clicked here (it would open a draft).
+- Login screen description 2pt larger, with the Aliniant UK Ltd sign-off after "Enjoy" (1.3.119).
+- Login screen: the operator's description of NetCheck added between the Login and Tools panels (1.3.118).
+- Login screen: the copyright line moved from the banner to between the Tools panel and the status bar (1.3.117).
+- Login screen: Login and Tools panel contents moved 10px further down from their title pills (1.3.116).
 - Port right-click → Uplink: any port can be moved into the title bar for northbound cables; saved per device (1.3.115).
 - The two empty "Pfsense · host" boxes were guardian again: a network scan found its web GUI at 100.48.64.1 (LAN, igb1) and 222.10.50.1 (VLAN 630 gateway, also this PC's default gateway) and added each as a device with no config. They are no longer drawn; host-222-10-50-1 was also marked ignored and was drawn anyway (1.3.115).
 - CRS109-2 (Lounge): ether1 is named "Fujitsu PC (VL630)"; the RouterOS inventory cut it to "Fujitsu", so it showed outside its bridge (1.3.115, BUG-049). Reconnecting the CRS109 stores the full name.

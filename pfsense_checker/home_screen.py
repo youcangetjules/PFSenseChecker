@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -122,7 +123,7 @@ SETUP_SUBSECTIONS = (
     ("setup.version", "Version"),
 )
 
-LOGS_SUBSECTIONS = (("logs.logins", "Login History"),)
+LOGS_SUBSECTIONS = (("logs.logins", "Login History"), ("logs.devices", "Device Logs"))
 
 # Config Check: the open/pull page, then one entry per workspace tab
 # ("config.tab:<tab title>"), added once the workspace has been built.
@@ -140,6 +141,7 @@ SECTION_CAPABILITIES: dict[str, str] = {
     "config.open": "Open a config file or folder · pull from a connected device",
     "logs": "Audit records kept by NetCheck",
     "logs.logins": "Who signed in · from which address · for how long · failed attempts",
+    "logs.devices": "Router logs downloaded over SSH · on a schedule and after Connect",
     "security_holes": "Known weaknesses across loaded configs and seen devices",
     "pentesting": "Authorised testing of your own devices · scope before tests",
     "dns_leakage": "Where DNS queries really go · bypass and leak checks",
@@ -358,6 +360,11 @@ class HomeScreen(QWidget):
         self._site_changed_timer.setSingleShot(True)
         self._site_changed_timer.setInterval(150)
         self._site_changed_timer.timeout.connect(self._flush_session_site_changed)
+        from pfsense_checker.device_log_manager import DeviceLogManager
+
+        # Router logs over SSH, on a timer and after Connect / Load Config.
+        self.device_logs = DeviceLogManager(lambda: self._live_site, self)
+        self.device_logs.status.connect(self.ssh_summary_changed.emit)
         self._build()
 
     # ------------------------------------------------------------------ UI
@@ -443,6 +450,7 @@ class HomeScreen(QWidget):
             "log_pipeline": self._build_log_pipeline,
             "wireshark": self._build_wireshark,
             "logs.logins": self._build_login_history,
+            "logs.devices": self._build_device_logs,
             "security_holes": self._build_security_holes,
             "pentesting": self._build_pentesting,
             "dns_leakage": self._build_dns_leakage,
@@ -1302,6 +1310,7 @@ class HomeScreen(QWidget):
         self.session.ssh_summary_changed.connect(self.ssh_summary_changed.emit)
         self.session.site_changed.connect(self._on_session_site_changed)
         self.session.config_pulled_for_check.connect(self.config_pulled_for_check.emit)
+        self.session.device_logged_in.connect(self.device_logs.on_device_logged_in)
         v.addWidget(self.session)
         return page
 
@@ -1334,6 +1343,32 @@ class HomeScreen(QWidget):
         view.select_device(dev.name)
         self._on_topology_edited()
         app_log.get_logger("topology").info("Added device %s (%s)", dev.name, dev.hardware)
+
+    def _topology_auto_arrange(self) -> None:
+        """Auto-arrange the Topology canvas with ELK (elk_layout.py)."""
+        from pfsense_checker import elk_layout
+        from pfsense_checker.busy import busy_cursor
+
+        try:
+            with busy_cursor("Arranging the topology…"):
+                msg = self.topo_preview.auto_arrange()
+        except elk_layout.ElkUnavailable as exc:
+            QMessageBox.warning(self, "Auto-arrange", f"ELK is not available: {exc}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            app_log.get_logger("topology").exception("Auto-arrange failed")
+            QMessageBox.warning(self, "Auto-arrange", f"ELK could not lay out the site:\n{exc}")
+            return
+        self.btn_undo_arrange.setEnabled(self.topo_preview.can_undo_arrange())
+        if self.topo_preview.can_undo_arrange():
+            self._on_topology_edited()
+        self.ssh_summary_changed.emit(msg)
+
+    def _topology_undo_arrange(self) -> None:
+        if self.topo_preview.undo_arrange():
+            self._on_topology_edited()
+            self.ssh_summary_changed.emit("Topology put back as it was before Auto-arrange.")
+        self.btn_undo_arrange.setEnabled(False)
 
     def _set_topology_locked(self, locked: bool) -> None:
         self.topo_preview.set_locked(locked)
@@ -1416,6 +1451,18 @@ class HomeScreen(QWidget):
         btn_add_dev.setToolTip("Pick a manufacturer and model from the device library")
         btn_add_dev.clicked.connect(self._topology_add_device)
         actions.addWidget(btn_add_dev)
+        btn_arrange = QPushButton("Auto-arrange")
+        btn_arrange.setToolTip(
+            "Lay the site out with ELK: upstream devices at the top, switches below, then what hangs "
+            "off them, with tidy square-cornered cables. Drag anything afterwards as usual."
+        )
+        btn_arrange.clicked.connect(self._topology_auto_arrange)
+        actions.addWidget(btn_arrange)
+        self.btn_undo_arrange = QPushButton("Undo arrange")
+        self.btn_undo_arrange.setToolTip("Put every device back where it was before Auto-arrange")
+        self.btn_undo_arrange.setEnabled(False)
+        self.btn_undo_arrange.clicked.connect(self._topology_undo_arrange)
+        actions.addWidget(self.btn_undo_arrange)
         self.topo_lock = QCheckBox("Lock layout")
         self.topo_lock.setToolTip("Freeze the map: no moving chassis or drawing / deleting cables")
         self.topo_lock.toggled.connect(self._set_topology_locked)
@@ -1428,6 +1475,7 @@ class HomeScreen(QWidget):
         # a cable to delete it. Lock layout freezes it.
         self.topo_preview.set_locked(False)
         self.topo_preview.links_changed.connect(self._on_topology_edited)
+        self.topo_preview.cable_message.connect(self.ssh_summary_changed.emit)
         self.topo_preview.positions_changed.connect(self._on_topology_edited)
         self.topo_preview.set_ssh_password_provider(
             lambda: self.session.password.text()
@@ -1659,22 +1707,35 @@ class HomeScreen(QWidget):
         tip.setStyleSheet("color: #555;")
         v.addWidget(tip)
 
-        # Graphviz is a program, not a Python module: its own panel.
-        gv_box = QGroupBox("Graphviz (program, not a Python module)")
-        gv_lay = QHBoxLayout(gv_box)
-        self.graphviz_badge = QLabel("Checking…")
-        self.graphviz_badge.setMinimumWidth(230)
-        self.graphviz_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gv_lay.addWidget(self.graphviz_badge)
-        self.graphviz_detail = QLabel("")
-        self.graphviz_detail.setWordWrap(True)
-        self.graphviz_detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        gv_lay.addWidget(self.graphviz_detail, stretch=1)
-        btn_gv = QPushButton("Check again")
-        btn_gv.clicked.connect(self._graphviz_refresh)
-        gv_lay.addWidget(btn_gv)
+        # Graphviz and nmap are programs, not Python modules: their own panel,
+        # one row each (name, status, details, Check again).
+        gv_box = QGroupBox("Programs (not Python modules)")
+        gv_lay = QGridLayout(gv_box)
+        gv_lay.setColumnStretch(2, 1)
+
+        def program_row(row: int, name: str, refresh) -> tuple[QLabel, QLabel]:  # noqa: ANN001
+            title = QLabel(name)
+            title.setStyleSheet("font-weight: 600;")
+            title.setMinimumWidth(80)
+            gv_lay.addWidget(title, row, 0)
+            badge = QLabel("Checking…")
+            badge.setMinimumWidth(230)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            gv_lay.addWidget(badge, row, 1)
+            detail = QLabel("")
+            detail.setWordWrap(True)
+            detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            gv_lay.addWidget(detail, row, 2)
+            again = QPushButton("Check again")
+            again.clicked.connect(refresh)
+            gv_lay.addWidget(again, row, 3)
+            return badge, detail
+
+        self.graphviz_badge, self.graphviz_detail = program_row(0, "Graphviz", self._graphviz_refresh)
+        self.nmap_badge, self.nmap_detail = program_row(1, "nmap", self._nmap_refresh)
         v.addWidget(gv_box)
         QTimer.singleShot(0, self._graphviz_refresh)
+        QTimer.singleShot(0, self._nmap_refresh)
 
         self._modules_baseline: list[tuple[bool, bool]] = []
         self._modules_status_rows: list = []
@@ -1711,6 +1772,34 @@ class HomeScreen(QWidget):
         )
         lines += st.notes
         self.graphviz_detail.setText("\n".join(lines))
+
+    def _nmap_refresh(self) -> None:
+        from pfsense_checker import nmap_status
+
+        st = nmap_status.check()
+        if st.works and st.npcap in ("running", "unknown"):
+            bg, fg = "#c8e6c9", "#1b5e20"
+        elif st.works:
+            bg, fg = "#fff3e0", "#e65100"
+        else:
+            bg, fg = "#ffcdd2", "#b71c1c"
+        self.nmap_badge.setText(st.summary)
+        self.nmap_badge.setStyleSheet(
+            f"background: {bg}; color: {fg}; font-weight: 600; border: 1px solid {fg}; "
+            "border-radius: 4px; padding: 6px 10px;"
+        )
+        lines = []
+        if st.installed:
+            lines.append(f"{st.version or 'nmap'}  ·  {st.path}")
+            lines.append(
+                f"Test run (127.0.0.1): {'OK in ' + format(st.test_ms, 'g') + ' ms' if st.works else 'failed — ' + st.error}"
+                f"  ·  On PATH: {'yes' if st.on_path else 'no'}"
+            )
+        else:
+            lines.append(st.error)
+        lines.append(f"Npcap driver: {st.npcap}  ·  used by Subnet Health device scans")
+        lines += st.notes
+        self.nmap_detail.setText("\n".join(lines))
 
     def _modules_checkbox(self, checked: bool, tooltip: str = "") -> QWidget:
 
@@ -2642,6 +2731,124 @@ class HomeScreen(QWidget):
                 ("Status", "Not built yet — no tests run from this page."),
             ],
         )
+
+    def _build_device_logs(self) -> QWidget:
+        """Logs → Device Logs: automatic router log downloads over SSH."""
+        from pfsense_checker import device_logs as dl
+
+        page = QWidget()
+        v = QVBoxLayout(page)
+        title = QLabel("Device Logs")
+        tf = QFont()
+        tf.setPointSize(13)
+        tf.setBold(True)
+        title.setFont(tf)
+        v.addWidget(title)
+        blurb = QLabel(
+            "Router logs downloaded over SSH from every pfSense / OPNsense and MikroTik with SSH "
+            "set up on Login to Routers: pfSense's /var/log files (system, filter, DHCP, auth, "
+            "OpenVPN, gateways…) and MikroTik's log. Only what is new is fetched each time, with "
+            "one login per device. Files are kept in data/device_logs/<device>/<date>/, and each "
+            "download is listed in the database."
+        )
+        blurb.setWordWrap(True)
+        blurb.setStyleSheet("color: #555;")
+        v.addWidget(blurb)
+
+        mgr = self.device_logs
+        row = QHBoxLayout()
+        self.dlog_enabled = QCheckBox("Download automatically every")
+        self.dlog_enabled.setChecked(mgr.settings.enabled)
+        row.addWidget(self.dlog_enabled)
+        self.dlog_hours = QSpinBox()
+        self.dlog_hours.setRange(1, 168)
+        self.dlog_hours.setSuffix(" hours")
+        self.dlog_hours.setValue(mgr.settings.hours)
+        row.addWidget(self.dlog_hours)
+        self.dlog_connect = QCheckBox("and after each Connect / Load Config")
+        self.dlog_connect.setChecked(mgr.settings.on_connect)
+        row.addWidget(self.dlog_connect)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        def save() -> None:
+            mgr.apply_settings(dl.LogSettings(self.dlog_enabled.isChecked(), self.dlog_hours.value(),
+                                              self.dlog_connect.isChecked()))
+            self._dlog_refresh()
+
+        for w in (self.dlog_enabled, self.dlog_connect):
+            w.toggled.connect(lambda _on: save())
+        self.dlog_hours.valueChanged.connect(lambda _v: save())
+
+        btns = QHBoxLayout()
+        now_btn = QPushButton("Download now")
+        now_btn.setToolTip("Fetch new log lines from every eligible device now")
+        now_btn.clicked.connect(lambda: (mgr.run_all("manual"), self._dlog_refresh()))
+        btns.addWidget(now_btn)
+        folder_btn = QPushButton("Open log folder")
+        folder_btn.clicked.connect(self._dlog_open_folder)
+        btns.addWidget(folder_btn)
+        btns.addStretch(1)
+        v.addLayout(btns)
+        self.dlog_status = QLabel()
+        self.dlog_status.setWordWrap(True)
+        self.dlog_status.setStyleSheet("color: #37474f;")
+        v.addWidget(self.dlog_status)
+
+        self.dlog_table = QTableWidget(0, 6)
+        self.dlog_table.setHorizontalHeaderLabels(["When", "Device", "Log", "New lines", "Bytes", "Trigger"])
+        self.dlog_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.dlog_table.horizontalHeader().setStretchLastSection(True)
+        self.dlog_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.dlog_table.setToolTip("Double-click a row to open that log file")
+        self.dlog_table.cellDoubleClicked.connect(self._dlog_open_row)
+        v.addWidget(self.dlog_table, 1)
+        mgr.device_done.connect(lambda _r: self._dlog_refresh())
+        mgr.status.connect(lambda text: self.dlog_status.setText(text))
+        self._dlog_refresh()
+        return page
+
+    def _dlog_refresh(self) -> None:
+        from pfsense_checker import device_logs as dl
+
+        if not hasattr(self, "dlog_table"):
+            return
+        mgr = self.device_logs
+        devices = [d.name for d in getattr(self._live_site, "devices", []) or [] if dl.eligible(d)]
+        last = mgr.last_scheduled_run() or "not yet"
+        where = ", ".join(devices) if devices else "none yet (set up SSH on Login to Routers)"
+        if not self.dlog_status.text() or not mgr.busy():
+            self.dlog_status.setText(f"Devices: {where}. Last scheduled run: {last}.")
+        try:
+            rows = [(str(r[0])[:19], r[1], r[2], r[3], r[4], r[5], r[6]) for r in dl.recent_index(200)]
+        except Exception:  # noqa: BLE001 - database offline: this session's downloads
+            rows = [(datetime.fromtimestamp(r.started).strftime("%Y-%m-%d %H:%M:%S"), r.device, c.log,
+                     c.lines, c.bytes, r.source, c.path) for r in mgr.history for c in r.chunks]
+        t = self.dlog_table
+        t.setRowCount(len(rows))
+        for i, (when, dev, log, lines, size, source, path) in enumerate(rows):
+            for j, val in enumerate((when, dev, log, lines, size, source)):
+                item = QTableWidgetItem(str(val))
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                t.setItem(i, j, item)
+
+    def _dlog_open_folder(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from pfsense_checker import device_logs as dl
+
+        dl.LOG_ROOT.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(dl.LOG_ROOT)))
+
+    def _dlog_open_row(self, row: int, _col: int) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        item = self.dlog_table.item(row, 0)
+        path = item.data(Qt.ItemDataRole.UserRole) if item else ""
+        if path and Path(path).is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _build_dns_leakage(self) -> QWidget:
         page = QWidget()
